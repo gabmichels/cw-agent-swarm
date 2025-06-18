@@ -57,7 +57,7 @@ This document provides detailed guidelines for implementing the architecture ref
 ```typescript
 // Example ULID implementation approach
 import { ulid } from 'ulid';
-import { StructuredId } from '../types/structured-id';
+import { StructuredId } from '../types/entity-identifier';
 
 export class IdGenerator {
   static generate(prefix: string): StructuredId {

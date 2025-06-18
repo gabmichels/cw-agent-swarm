@@ -9,7 +9,7 @@ import {
   createStructuredId,
   EntityNamespace,
   EntityType
-} from '../../../../types/structured-id';
+} from '../../../../types/entity-identifier';
 import { TaskPriority, TaskStatus, MessagePriority } from '../../../../types/metadata';
 
 /**

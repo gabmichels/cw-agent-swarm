@@ -105,7 +105,7 @@ The refactoring was implemented through a series of key technical components:
    - Specialized metadata types for messages, cognitive processes, documents, and tasks
    - Enums for process types, task status, priorities, etc.
 
-2. **Structured Identifier System** (`src/types/structured-id.ts`)
+2. **Structured Identifier System** (`src/types/entity-identifier.ts`)
    - StructuredId interface
    - Creation functions for different entity types
    - Parsing and serialization utilities

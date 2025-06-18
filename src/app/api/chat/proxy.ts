@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ulid } from 'ulid';
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType, ImportanceLevel } from '../../../server/memory/config';
 import { 
@@ -15,9 +16,11 @@ import { createThreadInfo } from '../../../server/memory/services/helpers/metada
 import { generateUserId, generateAgentId, generateChatId } from '../../../lib/core/id-generation';
 import { MessageRole } from '../../../agents/shared/types/MessageTypes';
 import { getChatService } from '../../../server/memory/services/chat-service';
-import { getOrCreateThreadInfo, createResponseThreadInfo } from './thread/helper';
+import { getOrCreateThreadInfo, createResponseThreadInfo } from '../chat/thread/helper';
 import { AgentService } from '../../../services/AgentService';
 import { getCurrentUser } from '../../../lib/user';
+import { createUserId, createAgentId, createChatId } from '../../../types/entity-identifier';
+
 
 // In-memory cache and in-flight request tracking
 const responseCache = new Map<string, {
@@ -295,9 +298,9 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         // Convert role to the right format
         const messageRole = role === 'user' ? MessageRole.USER : MessageRole.ASSISTANT;
         
-        // Create ULID strings following arch-refactor-guidelines
-        const userStructuredId = userId || 'default';
-        const agentStructuredId = 'assistant';
+        // Create EntityIdentifier objects following arch-refactor-guidelines
+        const userEntityId = createUserId(userId || 'default');
+        const agentEntityId = createAgentId('assistant');
         
         // Get or create a chat session for this user-agent pair
         let chatSession;
@@ -335,12 +338,12 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
             });
           }
           
-          // Use chatId directly as string following arch-refactor-guidelines
-          chatStructuredId = chatId;
+          // Create EntityIdentifier object following arch-refactor-guidelines
+          chatStructuredId = createChatId(chatId);
         } catch (error) {
           console.warn('Error checking/creating chat session:', error);
-          // Use chatId directly as string
-          chatStructuredId = chatId;
+          // Create EntityIdentifier object following arch-refactor-guidelines
+          chatStructuredId = createChatId(chatId);
           
           // Create a minimal fallback session object to avoid null errors
           chatSession = {
@@ -377,8 +380,8 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
           memoryService,
           content,
           messageRole,
-          userStructuredId,
-          agentStructuredId,
+          userEntityId,
+          agentEntityId,
           chatStructuredId,
           threadInfo,
           {
@@ -410,7 +413,7 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
                 text: content,
                 metadata: {
                   role: messageRole,
-                  userId: userStructuredId,
+                  userId: userEntityId,
                   timestamp: Date.now(),
                   chatId: chatId,
                   thread: threadInfo, // Include thread info in cache

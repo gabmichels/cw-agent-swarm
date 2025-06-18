@@ -41,7 +41,7 @@ The metadata refactoring project achieved the following key goals:
 The implementation spans several key files:
 
 - `src/types/metadata.ts` - Core type definitions
-- `src/types/structured-id.ts` - Structured identifier system
+- `src/types/entity-identifier.ts` - Structured identifier system
 - `src/server/memory/services/helpers/metadata-helpers.ts` - Factory functions and validators
 - `src/server/memory/services/memory/memory-service-wrappers.ts` - Memory service wrappers
 - `src/server/memory/models/*.ts` - Schema implementations

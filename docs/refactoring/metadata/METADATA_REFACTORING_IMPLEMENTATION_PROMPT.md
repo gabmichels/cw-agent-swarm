@@ -22,7 +22,7 @@ All testing has been successfully completed, with the test-metadata-implementati
 
 ## Key Accomplishments
 
-1. **Structured Identifier System**: Implemented in `src/types/structured-id.ts`
+1. **Structured Identifier System**: Implemented in `src/types/entity-identifier.ts`
 2. **Core Metadata Types**: Defined in `src/types/metadata.ts`
 3. **Factory Functions**: Centralized in `src/server/memory/services/helpers/metadata-helpers.ts`
 4. **Memory Service Wrappers**: Created in `src/server/memory/services/memory/memory-service-wrappers.ts`

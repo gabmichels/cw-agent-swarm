@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../../../server/memory/services';
-import { MessageRole } from '../../../../../../agents/shared/types/MessageTypes';
-import { createUserId, createAgentId, createChatId } from '../../../../../../types/structured-id';
 import { addMessageMemory } from '../../../../../../server/memory/services/memory/memory-service-wrappers';
+import { MessageRole } from '../../../../../../agents/shared/types/MessageTypes';
 import { getOrCreateThreadInfo, createResponseThreadInfo } from '../../../../chat/thread/helper';
+import { extractTags } from '../../../../../../utils/tagExtractor';
 import { AgentService } from '../../../../../../services/AgentService';
+import { createUserId, createAgentId, createChatId } from '../../../../../../types/entity-identifier';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
 import { getFileService, StoredFile } from '@/lib/storage';
 import { prisma } from '@/lib/prisma';
-import { MessageAttachment as MetadataMessageAttachment } from '@/types/metadata';
+import { MessageAttachment as MetadataMessageAttachment } from '../../../../../../types/metadata';
+import { ulid } from 'ulid';
+import { ImportanceLevel } from '../../../../../../constants/memory';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getStorageConfig } from '@/lib/storage/config';
-import { extractTags } from '../../../../../../utils/tagExtractor';
 
 // Define interface for message attachments with strict typing
 interface MessageAttachment {
@@ -294,10 +296,10 @@ export async function POST(
       await client.initialize();
     }
     
-    // Use user-provided IDs directly (they should already be ULID strings)
-    const userIdString = userId;
-    const agentIdString = agentId;
-    const chatIdString = chatId;
+    // Create EntityIdentifier objects from the provided ID strings
+    const userEntityId = createUserId(userId);
+    const agentEntityId = createAgentId(agentId);
+    const chatEntityId = createChatId(chatId);
     
     // Create thread info for user message
     const userThreadInfo = getOrCreateThreadInfo(chatId, 'user');
@@ -349,9 +351,9 @@ export async function POST(
       memoryService,
       messageContent,
       MessageRole.USER,
-      userIdString,
-      agentIdString,
-      chatIdString,
+      userEntityId,
+      agentEntityId,
+      chatEntityId,
       userThreadInfo,
       {
         attachments: messageAttachments,
@@ -589,9 +591,9 @@ export async function POST(
       memoryService,
       responseContent,
       MessageRole.ASSISTANT,
-              userIdString,
-        agentIdString,
-        chatIdString,
+      userEntityId,
+      agentEntityId,
+      chatEntityId,
       assistantThreadInfo,
       {
         messageType: 'assistant_response_to_file',

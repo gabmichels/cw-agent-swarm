@@ -9,7 +9,7 @@ This document outlines the testing strategy for the memory metadata refactoring 
 The testing will cover:
 
 1. Core type definitions in `src/types/metadata.ts`
-2. Structured identifier system in `src/types/structured-id.ts`
+2. Structured identifier system in `src/types/entity-identifier.ts`
 3. Factory functions in `src/server/memory/services/helpers/metadata-helpers.ts`
 4. Memory service wrappers in `src/server/memory/services/memory/memory-service-wrappers.ts`
 5. Schema implementations in `src/server/memory/models/`

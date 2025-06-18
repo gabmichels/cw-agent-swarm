@@ -6,7 +6,7 @@ import { MessageRouter, MessagePriority, RoutingStrategy, DeliveryStatus, AgentM
 import { AnyMemoryService } from '../../../memory/memory-service-wrappers';
 import { CapabilityRegistry } from '../../../../../../agents/shared/capabilities/capability-registry';
 import { MemoryType } from '../../../../config/types';
-import { createAgentId, createChatId } from '../../../../../../types/structured-id';
+import { createAgentId, createChatId } from '../../../../../../types/entity-identifier';
 
 // Mock dependencies
 // Create properly typed mock functions

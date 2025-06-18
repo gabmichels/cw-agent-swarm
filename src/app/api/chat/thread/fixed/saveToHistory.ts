@@ -1,5 +1,5 @@
 import { getMemoryServices } from '../../../../../server/memory/services';
-import { createUserId, createAgentId, createChatId } from '../../../../../types/structured-id';
+import { createUserId, createAgentId, createChatId } from '../../../../../types/entity-identifier';
 import { MessageRole } from '../../../../../agents/shared/types/MessageTypes';
 import { getOrCreateThreadInfo, createResponseThreadInfo } from '../helper';
 import { ThreadInfo } from '../../../../../types/metadata';

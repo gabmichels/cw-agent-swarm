@@ -16,7 +16,7 @@ import { MemoryType } from '../../config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { ImportanceLevel } from '../../config/types';
 import { CognitiveProcessType } from '../../../../types/metadata';
-import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../../types/structured-id';
+import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../../types/entity-identifier';
 
 // Custom metadata type for relationship tests
 type RelationshipMetadata = {

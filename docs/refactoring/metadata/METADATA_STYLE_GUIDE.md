@@ -7,7 +7,7 @@ This document provides guidelines, best practices, and patterns for working with
 ## Table of Contents
 
 1. [Core Principles](#core-principles)
-2. [Structured Identifiers](#structured-identifiers)
+2. [Structured Identifiers](#entity-identifierentifiers)
 3. [Metadata Creation](#metadata-creation)
 4. [Thread Handling](#thread-handling)
 5. [Cognitive Process Metadata](#cognitive-process-metadata)
@@ -46,7 +46,7 @@ Always use the helper functions to create structured identifiers:
 
 ```typescript
 // CORRECT
-import { createUserId, createAgentId, createChatId } from '../../types/structured-id';
+import { createUserId, createAgentId, createChatId } from '../../types/entity-identifier';
 
 const userId = createUserId('user123');
 const agentId = createAgentId('assistant');
@@ -65,7 +65,7 @@ const badUserId = {
 When you receive a structured ID as a string, parse it properly:
 
 ```typescript
-import { parseStructuredId } from '../../types/structured-id';
+import { parseStructuredId } from '../../types/entity-identifier';
 
 // Parse from string format
 const structuredId = parseStructuredId('user:user:123');
@@ -83,7 +83,7 @@ import {
   createMessageMetadata, 
   createThreadInfo 
 } from '../../server/memory/services/helpers/metadata-helpers';
-import { createUserId, createAgentId, createChatId } from '../../types/structured-id';
+import { createUserId, createAgentId, createChatId } from '../../types/entity-identifier';
 
 const userId = createUserId('user123');
 const agentId = createAgentId('assistant');
@@ -191,7 +191,7 @@ import {
   createReflectionMetadata,
   createInsightMetadata
 } from '../../server/memory/services/helpers/metadata-helpers';
-import { createAgentId } from '../../types/structured-id';
+import { createAgentId } from '../../types/entity-identifier';
 import { CognitiveProcessType } from '../../types/metadata';
 
 const agentId = createAgentId('assistant');
@@ -229,7 +229,7 @@ Use the addCognitiveProcessMemory wrapper:
 ```typescript
 import { addCognitiveProcessMemory } from '../../server/memory/services/memory/memory-service-wrappers';
 import { CognitiveProcessType } from '../../types/metadata';
-import { createAgentId } from '../../types/structured-id';
+import { createAgentId } from '../../types/entity-identifier';
 
 const agentId = createAgentId('assistant');
 
@@ -322,7 +322,7 @@ import {
   createUserId, 
   createAgentId, 
   createChatId 
-} from '../../types/structured-id';
+} from '../../types/entity-identifier';
 import { MessageRole } from '../../agents/chloe/types/state';
 
 // Create structured IDs
@@ -371,7 +371,7 @@ await addMessageMemory(
 import { 
   addCognitiveProcessMemory 
 } from '../../server/memory/services/memory/memory-service-wrappers';
-import { createAgentId } from '../../types/structured-id';
+import { createAgentId } from '../../types/entity-identifier';
 import { CognitiveProcessType } from '../../types/metadata';
 import { ImportanceLevel } from '../../constants/memory';
 
@@ -400,7 +400,7 @@ await addCognitiveProcessMemory(
 import { 
   addDocumentMemory 
 } from '../../server/memory/services/memory/memory-service-wrappers';
-import { createAgentId } from '../../types/structured-id';
+import { createAgentId } from '../../types/entity-identifier';
 import { DocumentSource } from '../../types/metadata';
 
 const agentId = createAgentId('agent123');

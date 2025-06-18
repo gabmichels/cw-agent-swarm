@@ -6,7 +6,7 @@
  * when creating or consuming metadata.
  */
 
-import { StructuredId } from './structured-id';
+import { EntityIdentifier } from './entity-identifier';
 import { ImportanceLevel } from '../constants/memory';
 import { MessageRole as ImportedMessageRole } from '../agents/shared/types/MessageTypes';
 
@@ -183,9 +183,9 @@ export interface MessageReplyContext {
 export interface MessageMetadata extends BaseMetadata {
   // Core message fields
   role: ImportedMessageRole;
-  userId: string; // ULID
-  agentId: string; // ULID
-  chatId: string; // ULID
+  userId: EntityIdentifier; // Changed back to EntityIdentifier object
+  agentId: EntityIdentifier; // Changed back to EntityIdentifier object  
+  chatId: EntityIdentifier; // Changed back to EntityIdentifier object
   messageType?: string;
   
   // Thread information (required, not optional)
@@ -206,8 +206,8 @@ export interface MessageMetadata extends BaseMetadata {
   bookmarkedAt?: string; // ISO date string when bookmarked
   
   // Enhanced fields for multi-agent communication
-  senderAgentId?: string; // ULID
-  receiverAgentId?: string; // ULID
+  senderAgentId?: EntityIdentifier; // Changed back to EntityIdentifier object
+  receiverAgentId?: EntityIdentifier; // Changed back to EntityIdentifier object
   communicationType?: 'request' | 'response' | 'notification' | 'broadcast';
   priority?: MessagePriority;
   requiresResponse?: boolean;

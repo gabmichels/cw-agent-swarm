@@ -27,7 +27,7 @@ import {
   MessageRole
 } from '../metadata';
 import { ImportanceLevel } from '../../constants/memory';
-import { createUserId, createAgentId, createChatId } from '../structured-id';
+import { createUserId, createAgentId, createChatId } from '../entity-identifier';
 
 describe('Metadata Types', () => {
   describe('BaseMetadata', () => {

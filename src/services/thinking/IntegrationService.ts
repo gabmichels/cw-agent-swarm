@@ -14,7 +14,7 @@ import { QueryEnhancer } from './retrieval/QueryEnhancer';
 import { ResultReranker } from './retrieval/ResultReranker';
 import { ThinkingResult } from './types';
 import { UnifiedAgentService, UnifiedAgentConfig, UnifiedAgentResponse } from './UnifiedAgentService';
-import { StructuredId, structuredIdToString } from '@/types/structured-id';
+import { StructuredId, structuredIdToString } from '@/types/entity-identifier';
 import { ThinkingVisualizer } from './visualization/ThinkingVisualizer';
 import type { VisualizationNodeType, VisualizationEdgeType } from './visualization/types';
 

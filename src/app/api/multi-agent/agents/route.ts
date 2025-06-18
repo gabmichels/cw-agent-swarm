@@ -7,7 +7,7 @@ import { getMemoryServices } from '@/server/memory/services';
 import { AgentMemoryEntity, AgentStatus } from '@/server/memory/schema/agent';
 import { CapabilityMemoryEntity, CapabilityType } from '@/server/memory/schema/capability';
 import { AgentMetadata, AgentStatus as MetadataAgentStatus } from '@/types/metadata';
-import { StructuredId, structuredIdToString } from '@/types/structured-id';
+import { StructuredId, structuredIdToString } from '@/types/entity-identifier';
 
 // Extended type to handle the additional fields from the form
 interface ExtendedAgentRegistrationRequest extends AgentRegistrationRequest {

@@ -36,7 +36,7 @@ import ToolsTab from '@/components/tabs/ToolsTab';
 import BookmarksTab from '@/components/tabs/BookmarksTab';
 import { createReplyContextFromMessage } from '@/lib/metadata/reply-context-factory';
 import { MessageMetadata } from '@/types/metadata';
-import { createStructuredId, EntityNamespace, EntityType, structuredIdToString } from '@/types/structured-id';
+import { createStructuredId, EntityNamespace, EntityType, structuredIdToString } from '@/types/entity-identifier';
 
 // Define message priority enum
 enum MessagePriority {
@@ -405,8 +405,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
 
       // Prepare metadata with reply context
       const baseMetadata: ChatMessageMetadata = {
-        userId: structuredIdToString(createStructuredId(EntityNamespace.USER, EntityType.USER, userId)),
-        agentId: structuredIdToString(createStructuredId(EntityNamespace.AGENT, EntityType.AGENT, agentId)),
+        userId: createStructuredId(EntityNamespace.USER, EntityType.USER, userId),  // Keep as EntityIdentifier object
+        agentId: createStructuredId(EntityNamespace.AGENT, EntityType.AGENT, agentId), // Keep as EntityIdentifier object
         thinking: true // Enable thinking mode
       };
 

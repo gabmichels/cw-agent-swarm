@@ -376,7 +376,7 @@ import {
   createUserId, 
   createAgentId, 
   createChatId 
-} from '../../types/structured-id';
+} from '../../types/entity-identifier';
 import { 
   createThreadInfo 
 } from '../../server/memory/services/helpers/metadata-helpers';
@@ -418,7 +418,7 @@ await addMessageMemory(
 ```typescript
 import { 
   createAgentId 
-} from '../../types/structured-id';
+} from '../../types/entity-identifier';
 import {
   addCognitiveProcessMemory
 } from '../../server/memory/services/memory/memory-service-wrappers';
@@ -502,6 +502,6 @@ The current schema version is `1.0.0`. All metadata should include this version 
 
 - [METADATA_STYLE_GUIDE.md](METADATA_STYLE_GUIDE.md) - Best practices and patterns
 - [src/types/metadata.ts](src/types/metadata.ts) - Core type definitions
-- [src/types/structured-id.ts](src/types/structured-id.ts) - Structured identifier system
+- [src/types/entity-identifier.ts](src/types/entity-identifier.ts) - Structured identifier system
 - [src/server/memory/services/helpers/metadata-helpers.ts](src/server/memory/services/helpers/metadata-helpers.ts) - Factory functions
 - [src/server/memory/services/memory/memory-service-wrappers.ts](src/server/memory/services/memory/memory-service-wrappers.ts) - Memory service wrappers 

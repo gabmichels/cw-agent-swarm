@@ -6,7 +6,7 @@
  */
 
 import { AgentMetadata } from '../../types/metadata';
-import { StructuredId } from '../../types/structured-id';
+import { StructuredId } from '../../types/entity-identifier';
 import { PlatformConfigService, PlatformMode } from '../PlatformConfigService';
 import { AgentSchemaValidator, ValidationResult } from '../validation/AgentSchemaValidator';
 

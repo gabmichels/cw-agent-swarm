@@ -9,7 +9,7 @@ import { DocumentCapabilities } from '../../src/services/workspace/capabilities/
 import { CapabilityFactory } from '../../src/services/workspace/capabilities/CapabilityFactory';
 import { AgentService } from '../../src/services/AgentService';
 import { WorkspaceCapabilityType, AccessLevel, WorkspaceProvider } from '../../src/services/database/types';
-import { createAgentId } from '../../src/types/structured-id';
+import { createAgentId } from '../../src/types/entity-identifier';
 
 describe('Real Workspace Capabilities Execution Tests', () => {
   let db: DatabaseService;

@@ -7,14 +7,14 @@ import { MessageMetadata, ThreadInfo } from '../../../types/metadata';
 import { MessageRole } from '../../../agents/shared/types/MessageTypes';
 import { 
   IdPrefix, 
-  createStructuredId, 
+  createEntityIdentifier, 
   createUserId, 
   createAgentId, 
   createChatId, 
   EntityNamespace, 
   EntityType,
-  structuredIdToString
-} from '../../../types/structured-id';
+  entityIdentifierToString
+} from '../../../types/entity-identifier';
 import { generateUserId, generateAgentId, generateChatId } from '../../../lib/core/id-generation';
 
 /**
@@ -42,9 +42,9 @@ export const MESSAGE_DEFAULTS: Partial<MessageSchema> = {
     schemaVersion: '1.0.0',
     source: 'system',
     timestamp: Date.now(),
-    userId: generateUserId('default-user'),
-    agentId: generateAgentId('default-agent'),
-    chatId: generateChatId('chat-chloe-gab'),
+    userId: createUserId('default-user'),      // EntityIdentifier object
+    agentId: createAgentId('default-agent'),   // EntityIdentifier object
+    chatId: createChatId('chat-chloe-gab'),    // EntityIdentifier object
     role: MessageRole.ASSISTANT,
     messageType: 'chat',
     thread: {

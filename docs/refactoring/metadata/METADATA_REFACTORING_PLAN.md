@@ -774,7 +774,7 @@ Create comprehensive tests for the new metadata system:
 Create and update files:
 
 1. Create: `src/types/metadata.ts` - Central location for metadata type definitions
-2. Create: `src/types/structured-id.ts` - Structured identifier system
+2. Create: `src/types/entity-identifier.ts` - Structured identifier system
 3. Create: `src/server/memory/services/helpers/metadata-helpers.ts` - Centralized factory functions and helper utilities
 4. Update: `src/server/memory/models/message-schema.ts` - Update message schema
 5. Update: `src/server/memory/models/thought-schema.ts` - Update thought schema

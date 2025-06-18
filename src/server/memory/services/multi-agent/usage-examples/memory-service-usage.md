@@ -22,7 +22,7 @@ When migrating code to use the memory service wrappers, you might encounter the 
 
 ```typescript
 import { addMessageMemory } from '../../memory/services/memory/memory-service-wrappers';
-import { createUserId, createAgentId, createChatId } from '../../../types/structured-id';
+import { createUserId, createAgentId, createChatId } from '../../../types/entity-identifier';
 
 // Create structured IDs
 const userStructuredId = createUserId('user-123');
@@ -79,7 +79,7 @@ const messages = await searchMessages(
 
 ```typescript
 import { sendAgentToAgentMessage } from '../../memory/services/memory/memory-service-wrappers';
-import { createAgentId, createChatId } from '../../../types/structured-id';
+import { createAgentId, createChatId } from '../../../types/entity-identifier';
 
 // Create structured IDs
 const senderAgentId = createAgentId('agent-123');

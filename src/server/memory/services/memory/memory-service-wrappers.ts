@@ -42,6 +42,7 @@ import {
 } from '../helpers/metadata-helpers';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { MemoryResult } from './types';
+import { EntityIdentifier, createEnumEntityIdentifier, EntityNamespace, EntityType } from '../../../../types/entity-identifier';
 
 
 /**
@@ -77,10 +78,10 @@ export function getCognitiveProcessMemoryType(processType: CognitiveProcessType)
  * 
  * @param memoryService Memory service instance (either MemoryService or EnhancedMemoryService)
  * @param content Message content
- * @param role Message role (user, assistant, system)
- * @param userId User ID structured identifier
- * @param agentId Agent ID structured identifier
- * @param chatId Chat structured identifier
+ * @param role Message role
+ * @param userId User StructuredId object
+ * @param agentId Agent StructuredId object  
+ * @param chatId Chat StructuredId object
  * @param threadInfo Thread information
  * @param options Additional options
  * @returns Memory operation result
@@ -89,9 +90,9 @@ export async function addMessageMemory(
   memoryService: AnyMemoryService,
   content: string,
   role: MessageRole,
-  userId: string,
-  agentId: string,
-  chatId: string,
+  userId: EntityIdentifier,
+  agentId: EntityIdentifier,
+  chatId: EntityIdentifier,
   threadInfo: ThreadInfo,
   options: {
     messageType?: string;
@@ -110,9 +111,9 @@ export async function addMessageMemory(
   const metadata = createMessageMetadata(
     content,
     role,
-    userId,
-    agentId,
-    chatId,
+    userId,    // Pass EntityIdentifier object directly
+    agentId,   // Pass EntityIdentifier object directly
+    chatId,    // Pass EntityIdentifier object directly
     threadInfo,
     {
       messageType: options.messageType,
@@ -890,23 +891,25 @@ export async function sendAgentToAgentMessage(
     options.parentMessageId
   );
   
-  // System user (for agent-to-agent communication) - now a string
-  const systemUserId = generateSystemUserId('system');
+  // Create EntityIdentifier objects from string parameters
+  const systemUserStructuredId = createEnumEntityIdentifier(EntityNamespace.SYSTEM, EntityType.USER, 'system');
+  const senderAgentStructuredId = createEnumEntityIdentifier(EntityNamespace.AGENT, EntityType.AGENT, senderAgentId);
+  const chatStructuredId = createEnumEntityIdentifier(EntityNamespace.CHAT, EntityType.CHAT, chatId);
   
   // Add to memory using addMessageMemory with agent-to-agent metadata
   return addMessageMemory(
     memoryService,
     content,
     MessageRole.ASSISTANT, // Always assistant role for agent-to-agent
-    systemUserId,
-    senderAgentId,
-    chatId,
+    systemUserStructuredId,     // StructuredId object
+    senderAgentStructuredId,    // StructuredId object
+    chatStructuredId,           // StructuredId object
     threadInfo,
     {
       messageType: 'agent-communication',
       metadata: {
-        senderAgentId: senderAgentId,
-        receiverAgentId: receiverAgentId,
+        senderAgentId: senderAgentStructuredId,      // Store as StructuredId object
+        receiverAgentId: createEnumEntityIdentifier(EntityNamespace.AGENT, EntityType.AGENT, receiverAgentId), // EntityIdentifier object
         communicationType: options.communicationType || 'request',
         priority: options.priority as any || 'normal',
         requiresResponse: options.requiresResponse || false,

@@ -6,7 +6,7 @@ import {
   MemorySource
 } from '../../../constants/memory';
 import { CognitiveProcessType, TaskPriority, TaskStatus } from '../../../types/metadata';
-import { createAgentId } from '../../../types/structured-id';
+import { createAgentId } from '../../../types/entity-identifier';
 
 // Mock dependencies
 const mockMemoryService = {

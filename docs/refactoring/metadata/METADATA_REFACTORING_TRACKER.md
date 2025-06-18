@@ -57,7 +57,7 @@ This document tracks the implementation progress of the memory metadata refactor
 |------|--------|-------|
 | Analyze current metadata usage | ✅ Complete (100%) | Analyzed existing metadata usage in codebase |
 | Identify inconsistencies | ✅ Complete (100%) | Documented all major inconsistencies (see "Inconsistencies Identified" section) |
-| Define new metadata types | ✅ Complete (100%) | Created structured-id.ts and metadata.ts with comprehensive type definitions |
+| Define new metadata types | ✅ Complete (100%) | Created entity-identifier.ts and metadata.ts with comprehensive type definitions |
 | Create implementation document | ✅ Complete (100%) | Created file-by-file implementation plan |
 | Design factory function architecture | ✅ Complete (100%) | Designed centralized factory function approach |
 
@@ -67,7 +67,7 @@ This document tracks the implementation progress of the memory metadata refactor
 |------|--------|-------|
 | Create base metadata types | ✅ Complete (100%) | Created BaseMetadata, ThreadInfo and all enum types |
 | Implement thread info type | ✅ Complete (100%) | Created ThreadInfo implementation with validation |
-| Create structured identifier types | ✅ Complete (100%) | Created src/types/structured-id.ts with comprehensive ID system |
+| Create structured identifier types | ✅ Complete (100%) | Created src/types/entity-identifier.ts with comprehensive ID system |
 | Create message metadata | ✅ Complete (100%) | Implemented MessageMetadata with multi-agent support |
 | Create cognitive process metadata | ✅ Complete (100%) | Implemented ThoughtMetadata, ReflectionMetadata, InsightMetadata |
 | Create document metadata | ✅ Complete (100%) | Implemented DocumentMetadata with structured IDs |
@@ -125,7 +125,7 @@ This document tracks the implementation progress of the memory metadata refactor
 | File | Status | Changes Required |
 |------|--------|-----------------|
 | `src/types/metadata.ts` | ✅ Created | Create new file with metadata type definitions |
-| `src/types/structured-id.ts` | ✅ Created | Create structured identifier system |
+| `src/types/entity-identifier.ts` | ✅ Created | Create structured identifier system |
 | `src/server/memory/services/helpers/metadata-helpers.ts` | ✅ Created | Create helper utilities |
 | `src/types/__tests__/metadata.test.ts` | ✅ Created | Unit tests for metadata types |
 | `src/server/memory/services/helpers/__tests__/metadata-helpers.test.ts` | ✅ Created | Unit tests for metadata helpers |
@@ -153,7 +153,7 @@ This document tracks the implementation progress of the memory metadata refactor
 - **2023-06-XX**: Initial analysis of metadata usage across the codebase completed ✅
 - **2023-06-XX**: Documented inconsistencies in metadata fields, typing, and thread handling ✅
 - **2023-06-XX**: Created file-by-file implementation plan ✅
-- **2023-06-XX**: Implemented structured identifier system in `src/types/structured-id.ts` ✅
+- **2023-06-XX**: Implemented structured identifier system in `src/types/entity-identifier.ts` ✅
 - **2023-06-XX**: Created core metadata type definitions in `src/types/metadata.ts` ✅
 - **2023-06-XX**: Implemented factory functions and validation utilities in `src/server/memory/services/helpers/metadata-helpers.ts` ✅
 - **2023-06-XX**: Refactored metadata.ts to reuse existing enums rather than creating duplicates ✅
@@ -167,7 +167,7 @@ This document tracks the implementation progress of the memory metadata refactor
 - **2023-06-XX**: Updated constants.ts with new metadata fields for structured IDs and ThreadInfo ✅
 - **2023-06-XX**: Completed Phase 3 (Service Integration) ✅
 - **2023-06-XX**: Added proxy.ts to the implementation plan to update the API endpoint ✅
-- **2023-06-XX**: Fixed linter errors in structured-id.ts, metadata.ts, metadata-helpers.ts, thought-schema.ts, and message-schema.ts ✅
+- **2023-06-XX**: Fixed linter errors in entity-identifier.ts, metadata.ts, metadata-helpers.ts, thought-schema.ts, and message-schema.ts ✅
 - **2023-06-XX**: Updated storeInternalMessageToMemory.ts to use new metadata structure and factory functions ✅
 - **2023-06-XX**: Modified AgentBase.ts storeMessageInMemory method to use structured IDs and wrapper functions ✅
 - **2023-06-XX**: Updated proxy.ts saveToHistory function to use new metadata structure ✅

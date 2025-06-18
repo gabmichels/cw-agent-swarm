@@ -6,7 +6,7 @@
 import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
 import { ThoughtMetadata, CognitiveProcessType } from '../../../types/metadata';
-import { EntityNamespace, EntityType, createEnumStructuredId, structuredIdToString } from '../../../types/structured-id';
+import { EntityNamespace, EntityType, createEnumStructuredId, structuredIdToString } from '../../../types/entity-identifier';
 import { z } from 'zod';
 import { ImportanceLevel } from '../../../constants/memory';
 import { generateSystemAgentId } from '../../../lib/core/id-generation';

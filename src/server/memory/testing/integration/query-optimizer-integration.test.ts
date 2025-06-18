@@ -19,7 +19,7 @@ import { BaseMemorySchema } from '../../models/base-schema';
 import { MemoryType } from '../../config/types';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
-import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../../types/structured-id';
+import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../../types/entity-identifier';
 import { ImportanceLevel } from '../../config/types';
 
 // Extend MockEmbeddingService to include required method

@@ -11,7 +11,7 @@ import {
   migrateTimestampId,
   batchMigrateIds
 } from '../id';
-import { StructuredId } from '../../types/structured-id';
+import { StructuredId } from '../../types/entity-identifier';
 
 /**
  * Example memory document that uses the new ULID identifiers

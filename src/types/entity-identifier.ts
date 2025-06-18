@@ -1,5 +1,5 @@
 /**
- * Structured ID system for consistent and informative identifiers
+ * Entity Identifier system for consistent and informative identifiers
  */
 
 // Prefix types for different entity types
@@ -11,7 +11,7 @@ export enum IdPrefix {
   USER = 'user',
 }
 
-// Namespace enum for structured identifiers
+// Namespace enum for entity identifiers
 export enum EntityNamespace {
   USER = 'user',
   AGENT = 'agent',
@@ -20,7 +20,7 @@ export enum EntityNamespace {
   MEMORY = 'memory'
 }
 
-// Entity type enum for structured identifiers
+// Entity type enum for entity identifiers
 export enum EntityType {
   USER = 'user',
   AGENT = 'agent',
@@ -30,8 +30,8 @@ export enum EntityType {
   THREAD = 'thread'
 }
 
-// Export StructuredId interface
-export interface StructuredId {
+// Export EntityIdentifier interface (renamed from StructuredId)
+export interface EntityIdentifier {
   // New properties
   namespace: string;
   type: string;
@@ -48,95 +48,95 @@ export interface StructuredId {
   getTimestamp?(): Date;
 }
 
-// Interface for the structured ID components
-export interface StructuredIdComponents {
+// Interface for the entity identifier components
+export interface EntityIdentifierComponents {
   prefix: IdPrefix | string;
   timestamp: number;
   randomSuffix: string;
 }
 
 /**
- * Creates a structured ID with the namespace, type, id, and optional version
+ * Creates an entity identifier with the namespace, type, id, and optional version
  * @param namespace The entity namespace
  * @param type The entity type
  * @param id The entity ID or name
  * @param version Optional version number
- * @returns A structured ID object
+ * @returns An EntityIdentifier object
  */
-export function createStructuredId(
+export function createEntityIdentifier(
   namespace: string, 
   type: string, 
   id: string, 
   version?: number
-): StructuredId {
-  const structuredId: StructuredId = {
+): EntityIdentifier {
+  const entityIdentifier: EntityIdentifier = {
     namespace,
     type,
     id
   };
   
   if (version !== undefined) {
-    structuredId.version = version;
+    entityIdentifier.version = version;
   }
   
-  return structuredId;
+  return entityIdentifier;
 }
 
 /**
- * Creates a structured ID with enum values for namespace and type
+ * Creates an entity identifier with enum values for namespace and type
  * @param namespace The entity namespace enum value
  * @param type The entity type enum value
  * @param id The entity ID or name
  * @param version Optional version number
- * @returns A structured ID object
+ * @returns An EntityIdentifier object
  */
-export function createEnumStructuredId(
+export function createEnumEntityIdentifier(
   namespace: EntityNamespace,
   type: EntityType,
   id: string,
   version?: number
-): StructuredId {
-  return createStructuredId(namespace, type, id, version);
+): EntityIdentifier {
+  return createEntityIdentifier(namespace, type, id, version);
 }
 
 /**
  * Helper function to create a user ID
  * @param id The user ID or name
  * @param version Optional version number
- * @returns A structured user ID
+ * @returns An EntityIdentifier for a user
  */
-export function createUserId(id: string, version?: number): StructuredId {
-  return createEnumStructuredId(EntityNamespace.USER, EntityType.USER, id, version);
+export function createUserId(id: string, version?: number): EntityIdentifier {
+  return createEnumEntityIdentifier(EntityNamespace.USER, EntityType.USER, id, version);
 }
 
 /**
  * Helper function to create an agent ID
  * @param id The agent ID or name
  * @param version Optional version number
- * @returns A structured agent ID
+ * @returns An EntityIdentifier for an agent
  */
-export function createAgentId(id: string, version?: number): StructuredId {
-  return createEnumStructuredId(EntityNamespace.AGENT, EntityType.AGENT, id, version);
+export function createAgentId(id: string, version?: number): EntityIdentifier {
+  return createEnumEntityIdentifier(EntityNamespace.AGENT, EntityType.AGENT, id, version);
 }
 
 /**
  * Helper function to create a chat ID
  * @param id The chat ID or name
  * @param version Optional version number
- * @returns A structured chat ID
+ * @returns An EntityIdentifier for a chat
  */
-export function createChatId(id: string, version?: number): StructuredId {
-  return createEnumStructuredId(EntityNamespace.CHAT, EntityType.CHAT, id, version);
+export function createChatId(id: string, version?: number): EntityIdentifier {
+  return createEnumEntityIdentifier(EntityNamespace.CHAT, EntityType.CHAT, id, version);
 }
 
 /**
  * Helper function to create a thread ID
  * @param id The thread ID or name
  * @param version Optional version number
- * @returns A structured thread ID
+ * @returns An EntityIdentifier for a thread
  */
-export function createThreadId(id: string, version?: number): StructuredId {
-  return createEnumStructuredId(EntityNamespace.CHAT, EntityType.THREAD, id, version);
+export function createThreadId(id: string, version?: number): EntityIdentifier {
+  return createEnumEntityIdentifier(EntityNamespace.CHAT, EntityType.THREAD, id, version);
 }
 
 /**
@@ -144,18 +144,18 @@ export function createThreadId(id: string, version?: number): StructuredId {
  * @param type The entity type
  * @param id The entity ID or name
  * @param version Optional version number
- * @returns A structured system entity ID
+ * @returns An EntityIdentifier for a system entity
  */
-export function createSystemId(type: EntityType, id: string, version?: number): StructuredId {
-  return createEnumStructuredId(EntityNamespace.SYSTEM, type, id, version);
+export function createSystemId(type: EntityType, id: string, version?: number): EntityIdentifier {
+  return createEnumEntityIdentifier(EntityNamespace.SYSTEM, type, id, version);
 }
 
 /**
- * Parses a structured ID string into a StructuredId object
- * @param idString The structured ID string to parse (format: namespace:type:id[:version])
- * @returns The parsed StructuredId object or null if invalid
+ * Parses an entity identifier string into an EntityIdentifier object
+ * @param idString The entity identifier string to parse (format: namespace:type:id[:version])
+ * @returns The parsed EntityIdentifier object or null if invalid
  */
-export function parseStructuredId(idString: string): StructuredId | null {
+export function parseEntityIdentifier(idString: string): EntityIdentifier | null {
   const parts = idString.split(':');
   if (parts.length < 3) return null;
   
@@ -163,7 +163,7 @@ export function parseStructuredId(idString: string): StructuredId | null {
   const type = parts[1];
   const id = parts[2];
   
-  const structuredId: StructuredId = {
+  const entityIdentifier: EntityIdentifier = {
     namespace,
     type,
     id
@@ -173,19 +173,19 @@ export function parseStructuredId(idString: string): StructuredId | null {
   if (parts.length > 3) {
     const version = parseInt(parts[3], 10);
     if (!isNaN(version)) {
-      structuredId.version = version;
+      entityIdentifier.version = version;
     }
   }
   
-  return structuredId;
+  return entityIdentifier;
 }
 
 /**
- * Converts a StructuredId object to a string
- * @param id The StructuredId object to convert
+ * Converts an EntityIdentifier object to a string
+ * @param id The EntityIdentifier object to convert
  * @returns A string representation (format: namespace:type:id[:version])
  */
-export function structuredIdToString(id: StructuredId): string {
+export function entityIdentifierToString(id: EntityIdentifier): string {
   let result = `${id.namespace}:${id.type}:${id.id}`;
   if (id.version !== undefined) {
     result += `:${id.version}`;
@@ -194,28 +194,27 @@ export function structuredIdToString(id: StructuredId): string {
 }
 
 /**
- * Compares two StructuredId objects for equality
- * @param id1 The first StructuredId object
- * @param id2 The second StructuredId object
+ * Compares two EntityIdentifier objects for equality
+ * @param id1 The first EntityIdentifier object
+ * @param id2 The second EntityIdentifier object
  * @returns True if the IDs are equal, false otherwise
  */
-export function areStructuredIdsEqual(id1: StructuredId, id2: StructuredId): boolean {
-  if (id1.namespace !== id2.namespace) return false;
-  if (id1.type !== id2.type) return false;
-  if (id1.id !== id2.id) return false;
-  if (id1.version !== id2.version) return false;
-  return true;
+export function areEntityIdentifiersEqual(id1: EntityIdentifier, id2: EntityIdentifier): boolean {
+  return id1.namespace === id2.namespace &&
+         id1.type === id2.type &&
+         id1.id === id2.id &&
+         id1.version === id2.version;
 }
 
 /**
  * Interface for agent identifier
  */
 export interface AgentIdentifier {
-  id: StructuredId;
+  id: EntityIdentifier;
   capabilities: string[];
   domain: string[];
   trustLevel: number;
-  ownerUserId: StructuredId;
+  ownerUserId: EntityIdentifier;
 }
 
 /**
@@ -232,7 +231,7 @@ export function createAgentIdentifier(
   capabilities: string[],
   domain: string[],
   trustLevel: number,
-  ownerUserId: StructuredId
+  ownerUserId: EntityIdentifier
 ): AgentIdentifier {
   // Validate trust level
   if (trustLevel < 0.0 || trustLevel > 1.0) {
@@ -248,17 +247,19 @@ export function createAgentIdentifier(
   };
 }
 
-/**
- * Generates a random alphanumeric string
- * @param length The length of the string to generate
- * @returns A random alphanumeric string
- */
+// Legacy compatibility exports (deprecated)
+export type StructuredId = EntityIdentifier;
+export const createStructuredId = createEntityIdentifier;
+export const createEnumStructuredId = createEnumEntityIdentifier;
+export const parseStructuredId = parseEntityIdentifier;
+export const structuredIdToString = entityIdentifierToString;
+export const areStructuredIdsEqual = areEntityIdentifiersEqual;
+
 function generateRandomString(length: number): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let result = '';
   for (let i = 0; i < length; i++) {
-    const randomIndex = Math.floor(Math.random() * chars.length);
-    result += chars.charAt(randomIndex);
+    result += charset.charAt(Math.floor(Math.random() * charset.length));
   }
   return result;
 } 

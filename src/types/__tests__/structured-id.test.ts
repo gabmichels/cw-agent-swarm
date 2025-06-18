@@ -1,5 +1,5 @@
 /**
- * Unit tests for structured-id.ts
+ * Unit tests for entity-identifier.ts
  */
 
 import { describe, test, expect } from 'vitest';
@@ -19,7 +19,7 @@ import {
   createSystemId,
   AgentIdentifier,
   createAgentIdentifier
-} from '../structured-id';
+} from '../entity-identifier';
 
 describe('StructuredId', () => {
   describe('createStructuredId', () => {

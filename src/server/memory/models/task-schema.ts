@@ -5,7 +5,7 @@ import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
 import { TaskMetadata, TaskStatus, TaskPriority } from '../../../types/metadata';
 import { ImportanceLevel } from '../../../constants/memory';
-import { EntityNamespace, EntityType, createEnumStructuredId, structuredIdToString } from '../../../types/structured-id';
+import { EntityNamespace, EntityType, createEnumStructuredId, structuredIdToString } from '../../../types/entity-identifier';
 import { z } from 'zod';
 import { generateSystemUserId } from '../../../lib/core/id-generation';
 

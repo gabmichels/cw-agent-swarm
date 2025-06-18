@@ -8,6 +8,7 @@ import { MemoryType } from "../../config/types";
 import { getMemoryServices } from "..";
 import { BaseMetadata, MessageMetadata, MessageRole, ThreadInfo } from "../../../../types/metadata";
 import { generateSystemUserId, generateSystemAgentId, generateSystemChatId } from "../../../../lib/core/id-generation";
+import { createUserId, createAgentId, createChatId } from "../../../../types/entity-identifier";
 
 /**
  * Extended metadata schema for message memories that includes additional properties
@@ -128,10 +129,11 @@ export async function flagAsUnreliable(
           schemaVersion: '1.0.0',
           // Required MessageMetadata fields
           role: MessageRole.SYSTEM,
-          userId: systemUserId,
-          agentId: systemAgentId,
-          chatId: systemChatId,
+          userId: createUserId(systemUserId),     // Create EntityIdentifier object
+          agentId: createAgentId(systemAgentId),  // Create EntityIdentifier object
+          chatId: createChatId(systemChatId),     // Create EntityIdentifier object
           thread: threadInfo,
+          timestamp: Date.now(),  // Add proper numeric timestamp
           // Flagging specific fields
           messageId: messageId,
           flaggedUnreliable: true,

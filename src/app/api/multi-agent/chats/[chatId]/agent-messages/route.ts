@@ -4,6 +4,7 @@ import { MessageRole } from '../../../../../../agents/shared/types/MessageTypes'
 import { generateSystemUserId, generateAgentId, generateChatId } from '../../../../../../lib/core/id-generation';
 import { addMessageMemory } from '../../../../../../server/memory/services/memory/memory-service-wrappers';
 import { getOrCreateThreadInfo } from '../../../../chat/thread/helper';
+import { createUserId, createAgentId as createAgentEntityId, createChatId as createChatEntityId } from '../../../../../../types/entity-identifier';
 
 /**
  * POST /api/multi-agent/chats/[chatId]/agent-messages
@@ -45,10 +46,10 @@ export async function POST(
     // Get memory services
     const { memoryService } = await getMemoryServices();
 
-    // Create ULID strings following arch-refactor-guidelines
-    const systemUserId = generateSystemUserId(); // System user for agent messages  
-    const agentStructuredId = agentId; // Use agentId directly as string
-    const chatStructuredId = chatId; // Use chatId directly as string
+    // Create EntityIdentifier objects following arch-refactor-guidelines
+    const systemUserEntityId = createUserId('system'); // System user for agent messages  
+    const agentEntityId = createAgentEntityId(agentId); // Create EntityIdentifier object for agent
+    const chatEntityId = createChatEntityId(chatId); // Create EntityIdentifier object for chat
 
     // Create thread info for agent message
     const threadInfo = getOrCreateThreadInfo(chatId, 'assistant');
@@ -60,9 +61,9 @@ export async function POST(
       memoryService,
       content,
       MessageRole.ASSISTANT, // This ensures it appears as agent message
-      systemUserId,
-      agentStructuredId,
-      chatStructuredId,
+      systemUserEntityId,  // Pass EntityIdentifier object
+      agentEntityId,       // Pass EntityIdentifier object
+      chatEntityId,        // Pass EntityIdentifier object
       threadInfo,
       {
         messageType: metadata.messageType || 'scheduled_message',

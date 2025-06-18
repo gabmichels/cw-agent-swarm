@@ -18,7 +18,7 @@ import { MemoryRetriever } from '../../../src/services/thinking/memory/MemoryRet
 import { MemoryFormatter } from '../../../src/services/thinking/memory/MemoryFormatter';
 import { createBaseMetadata, createTaskMetadata } from '../../../src/server/memory/services/helpers/metadata-helpers';
 import { TaskStatus, TaskPriority } from '../../../src/types/metadata';
-import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../src/types/structured-id';
+import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../src/types/entity-identifier';
 import { WorkingMemoryItem } from '../../../src/services/thinking/types';
 
 // Mock LLM service for testing

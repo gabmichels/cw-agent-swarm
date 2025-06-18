@@ -24,6 +24,7 @@ import {
   generateSystemChatId
 } from '../core/id-generation';
 import { MessageRole } from '../../agents/shared/types/MessageTypes';
+import { createUserId, createAgentId, createChatId } from '../../types/entity-identifier';
 
 /**
  * Store an internal message to memory with proper metadata and typing
@@ -107,9 +108,9 @@ export async function storeInternalMessageToMemory(
         memoryService,
         message,
         MessageRole.SYSTEM,
-        userId,
-        agentId,
-        chatId,
+        createUserId(userId),   // Create EntityIdentifier object
+        createAgentId(agentId), // Create EntityIdentifier object
+        createChatId(chatId),   // Create EntityIdentifier object
         threadInfo,
         {
           messageType: type,

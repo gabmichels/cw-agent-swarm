@@ -205,7 +205,7 @@ Key best practices being implemented:
 | `src/server/memory/services/filters/filter-builder.ts` | ✅ Completed | Implemented type-safe Qdrant filter builder |
 | `src/server/memory/services/memory/memory-service.ts` | ⚪ Not Started | Replace timestamp-based IDs, optimize queries |
 | `src/server/memory/services/helpers/metadata-helpers.ts` | ⚪ Not Started | Update ID generation approach |
-| `src/types/structured-id.ts` | ✅ Completed | Enhanced with ULID-based identification |
+| `src/types/entity-identifier.ts` | ✅ Completed | Enhanced with ULID-based identification |
 | `src/constants/memory.ts` | ⚪ Not Started | Remove backward compatibility aliases |
 | `src/agents/chloe/knowledge/graphManager.ts` | ⚪ Not Started | Enhance graph traversal algorithms |
 | `src/lib/errors/index.ts` | ✅ Completed | Created comprehensive error handling framework |

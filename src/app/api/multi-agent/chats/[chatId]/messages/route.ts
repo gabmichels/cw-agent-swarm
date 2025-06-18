@@ -3,7 +3,7 @@ import { getMemoryServices } from '../../../../../../server/memory/services';
 import { MemoryType } from '../../../../../../server/memory/config';
 import { ImportanceLevel } from '../../../../../../constants/memory';
 import { MessageRole } from '../../../../../../agents/shared/types/MessageTypes';
-import { createUserId, createAgentId, createChatId } from '../../../../../../types/structured-id';
+import { createUserId, createAgentId, createChatId } from '../../../../../../types/entity-identifier';
 import { addMessageMemory } from '../../../../../../server/memory/services/memory/memory-service-wrappers';
 import { getOrCreateThreadInfo, createResponseThreadInfo } from '../../../../chat/thread/helper';
 import { AgentService } from '../../../../../../services/AgentService';
@@ -515,19 +515,23 @@ export async function POST(
       userImportanceScore
     });
     
+    // Create StructuredId objects from string IDs
+    const userEntityId = createUserId(actualUserId);
+    const agentEntityId = createAgentId(actualAgentId);
+    const chatEntityId = createChatId(chatId);
+    
     const userMemoryResult = await addMessageMemory(
       memoryService,
       content,
       MessageRole.USER,
-      userIdString,
-      agentIdString,
-      chatIdString,
+      userEntityId,    // Pass StructuredId object
+      agentEntityId,   // Pass StructuredId object
+      chatEntityId,    // Pass StructuredId object
       userThreadInfo,
       {
         attachments: processedAttachments,
         messageType: 'user_message',
         metadata: {
-          chatId: chatIdString, 
           tags: userMessageTags,
           ...(userImportance && { importance: userImportance }),
           ...(userImportanceScore && { importance_score: userImportanceScore }),
@@ -734,14 +738,13 @@ export async function POST(
       memoryService,
       responseContent,
       MessageRole.ASSISTANT,
-      userIdString,
-      agentIdString,
-      chatIdString,
+      userEntityId,    // Reuse the StructuredId objects created earlier
+      agentEntityId,   // Reuse the StructuredId objects created earlier
+      chatEntityId,    // Reuse the StructuredId objects created earlier
       assistantThreadInfo,
       {
         messageType: 'assistant_response',
         metadata: {
-          chatId: chatIdString,
           tags: responseMessageTags,
           category: 'response',
           ...(importance && { importance }),

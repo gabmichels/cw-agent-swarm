@@ -9,7 +9,7 @@ import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
 import { MemoryType } from '../../config';
 import { CognitiveProcessType } from '@/types/metadata';
-import { createAgentId } from '@/types/structured-id';
+import { createAgentId } from '@/types/entity-identifier';
 import { CachePriority } from '../../services/cache/types';
 import { BaseMemorySchema } from '../../models/base-schema';
 import { CognitiveProcessMetadata, TaskMetadata, MessageMetadata } from '@/types/metadata';

@@ -8,7 +8,7 @@ import { IMemoryClient } from '../../client/types';
 import { EmbeddingService, EmbeddingResult } from '../../client/embedding-service';
 import { MemoryType } from '../../../config';
 import { StructuredId } from '../../../../../utils/ulid';
-import { createAgentId, createChatId, createUserId } from '../../../../../types/structured-id';
+import { createAgentId, createChatId, createUserId } from '../../../../../types/entity-identifier';
 import { MemoryService } from '../../memory/memory-service';
 
 // Mock data

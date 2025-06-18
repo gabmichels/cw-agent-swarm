@@ -3,7 +3,7 @@
  * Follows implementation guidelines for type safety and structured IDs
  */
 
-import { StructuredId, createStructuredId, EntityNamespace, EntityType, structuredIdToString } from '../../types/structured-id';
+import { StructuredId, createStructuredId, EntityNamespace, EntityType, structuredIdToString } from '../../types/entity-identifier';
 import { MessageReplyContext } from '../../types/metadata';
 import { ImportanceLevel } from '../../constants/memory';
 import { MessageRole } from '../../agents/shared/types/MessageTypes';

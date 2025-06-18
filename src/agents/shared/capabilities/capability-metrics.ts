@@ -7,7 +7,7 @@
 
 import { AnyMemoryService } from '../../../server/memory/services/memory/memory-service-wrappers';
 import { MemoryType } from '../../../server/memory/config/types';
-import { StructuredId, structuredIdToString } from '../../../types/structured-id';
+import { StructuredId, structuredIdToString } from '../../../types/entity-identifier';
 import { v4 as uuidv4 } from 'uuid';
 import { AgentCapability, CapabilityLevel } from './types';
 

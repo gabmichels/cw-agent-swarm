@@ -42,7 +42,7 @@ import {
   createAgentId, 
   createChatId,
   StructuredId 
-} from '../../../../../types/structured-id';
+} from '../../../../../types/entity-identifier';
 
 // Mock UUID generation for predictable tests
 vi.mock('uuid', () => ({

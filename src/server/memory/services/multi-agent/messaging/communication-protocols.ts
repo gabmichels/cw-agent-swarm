@@ -6,7 +6,7 @@
  * standards for different interaction types.
  */
 
-import { StructuredId } from '../../../../../types/structured-id';
+import { StructuredId } from '../../../../../types/entity-identifier';
 
 /**
  * Communication protocol types supported by the system

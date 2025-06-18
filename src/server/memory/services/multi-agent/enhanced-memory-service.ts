@@ -13,7 +13,7 @@ import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { handleMemoryError, validateAddMemoryParams } from '../../utils';
 import { AddMemoryParams, MemoryResult, SearchMemoryParams } from '../memory/types';
 import { StructuredId } from '../../../../utils/ulid';
-import { structuredIdToString } from '../../../../types/structured-id';
+import { structuredIdToString } from '../../../../types/entity-identifier';
 import { EmbeddingService } from '../client/embedding-service';
 import { IMemoryClient } from '../client/types';
 

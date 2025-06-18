@@ -35,14 +35,14 @@ import {
 import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
 import { ImportanceLevel } from '../../../../constants/memory';
 import {
-  StructuredId,
-  createStructuredId,
-  createEnumStructuredId,
+  EntityIdentifier,
+  createEntityIdentifier,
+  createEnumEntityIdentifier,
   EntityNamespace,
   EntityType,
   IdPrefix,
-  structuredIdToString
-} from '../../../../types/structured-id';
+  entityIdentifierToString
+} from '../../../../types/entity-identifier';
 import { ContentSummaryGenerator } from '../../../../services/importance/ContentSummaryGenerator';
 import { ulid } from 'ulid';
 import {
@@ -153,12 +153,12 @@ export function validateThreadInfo(threadInfo: Partial<ThreadInfo>): ThreadInfo 
 // ================================
 
 /**
- * Create message metadata with string IDs
+ * Create message metadata with StructuredId objects
  * @param content Message content
  * @param role Message role
- * @param userId User ID string
- * @param agentId Agent ID string
- * @param chatId Chat ID string
+ * @param userId User StructuredId object
+ * @param agentId Agent StructuredId object
+ * @param chatId Chat StructuredId object
  * @param threadInfo Thread information
  * @param options Additional options
  * @returns Message metadata
@@ -166,9 +166,9 @@ export function validateThreadInfo(threadInfo: Partial<ThreadInfo>): ThreadInfo 
 export function createMessageMetadata(
   content: string,
   role: MessageRole,
-  userId: string,
-  agentId: string,
-  chatId: string,
+  userId: EntityIdentifier,
+  agentId: EntityIdentifier,
+  chatId: EntityIdentifier,
   threadInfo: ThreadInfo,
   options: {
     messageType?: string;
@@ -183,23 +183,40 @@ export function createMessageMetadata(
     metadata?: Partial<MessageMetadata>;
   } = {}
 ): MessageMetadata {
+  // Extract tags from content if not provided in metadata
+  const extractedTags = options.metadata?.tags || [];
+  if (content && extractedTags.length === 0) {
+    // Basic tag extraction from content - look for hashtags and keywords
+    const hashtagMatches = content.match(/#[a-zA-Z0-9_]+/g) || [];
+    const hashtags = hashtagMatches.map(tag => tag.substring(1).toLowerCase());
+    
+    // Extract key terms (simple approach - can be enhanced)
+    const words = content.toLowerCase().split(/\s+/);
+    const keyWords = words.filter(word => 
+      word.length > 3 && 
+      !['this', 'that', 'with', 'from', 'they', 'were', 'been', 'have', 'will', 'your', 'what', 'when', 'where', 'would', 'could', 'should'].includes(word)
+    );
+    
+    extractedTags.push(...hashtags, ...keyWords.slice(0, 10)); // Limit to first 10 key words
+  }
+
   const baseMetadata: MessageMetadata = {
     schemaVersion: '1.0.0',
     // Required MessageMetadata fields
-    role: role, // Use the provided role parameter instead of defaulting to SYSTEM
-    userId,
-    agentId,
-    chatId,
+    role: role, // Use the provided role parameter
+    userId,     // StructuredId object
+    agentId,    // StructuredId object
+    chatId,     // StructuredId object
     thread: threadInfo,
     messageType: options.messageType || 'text',
     attachments: options.attachments || [],
-    timestamp: new Date().toISOString(),
+    timestamp: Date.now(), // Use numeric timestamp
     
     // Importance
     importance: options.importance || ImportanceLevel.MEDIUM,
     
     // Memory metadata fields
-    tags: [],
+    tags: [...new Set(extractedTags)], // Remove duplicates
     
     // Custom metadata
     ...options.metadata
@@ -212,9 +229,9 @@ export function createMessageMetadata(
  * Create agent-to-agent message metadata
  */
 export function createAgentToAgentMessageMetadata(
-  senderAgentId: StructuredId,
-  receiverAgentId: StructuredId,
-  chatId: StructuredId,
+  senderAgentId: EntityIdentifier,
+  receiverAgentId: EntityIdentifier,
+  chatId: EntityIdentifier,
   threadInfo: ThreadInfo,
   options: {
     communicationType?: 'request' | 'response' | 'notification' | 'broadcast';
@@ -229,7 +246,7 @@ export function createAgentToAgentMessageMetadata(
   } = {}
 ): MessageMetadata {
   // Create system user ID (owner of the agent-to-agent conversation)
-  const systemUserId = createEnumStructuredId(
+  const systemUserId = createEnumEntityIdentifier(
     EntityNamespace.SYSTEM,
     EntityType.USER,
     'system'
@@ -238,15 +255,15 @@ export function createAgentToAgentMessageMetadata(
   return createMessageMetadata(
     '',
     MessageRole.ASSISTANT, // Always assistant role for agent-to-agent
-    structuredIdToString(systemUserId),
-    structuredIdToString(senderAgentId),
-    structuredIdToString(chatId),
+    systemUserId,    // Pass StructuredId object directly
+    senderAgentId,   // Pass StructuredId object directly
+    chatId,          // Pass StructuredId object directly
     threadInfo,
     {
       messageType: 'agent-communication',
       metadata: {
-        senderAgentId: structuredIdToString(senderAgentId),
-        receiverAgentId: structuredIdToString(receiverAgentId),
+        senderAgentId,     // Store as StructuredId object
+        receiverAgentId,   // Store as StructuredId object
         communicationType: options.communicationType || 'notification',
         priority: options.priority || MessagePriority.NORMAL,
         requiresResponse: options.requiresResponse || false,

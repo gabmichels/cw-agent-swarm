@@ -11,7 +11,7 @@ import {
   ConnectionStatus 
 } from '../../src/services/database/types';
 import { AgentProfile } from '../../src/lib/multi-agent/types/agent';
-import { createAgentId } from '../../src/types/structured-id';
+import { createAgentId } from '../../src/types/entity-identifier';
 
 describe('Workspace Capabilities Integration Tests', () => {
   let permissionService: AgentWorkspacePermissionService;

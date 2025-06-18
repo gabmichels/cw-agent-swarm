@@ -3,6 +3,7 @@ import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
 import { MessageMetadata, MessageRole, ThreadInfo } from '../../../../types/metadata';
 import { generateSystemUserId, generateSystemAgentId, generateChatId } from '../../../../lib/core/id-generation';
+import { createUserId, createAgentId, createChatId as createChatEntityId } from '../../../../types/entity-identifier';
 
 export const runtime = 'nodejs';
 
@@ -123,9 +124,9 @@ export async function POST(req: NextRequest) {
         metadata: {
           schemaVersion: "1.0.0",
           role: MessageRole.SYSTEM,
-          userId: systemUserId,
-          agentId: systemAgentId,
-          chatId: systemChatId,
+          userId: createUserId(systemUserId),       // Create EntityIdentifier object
+          agentId: createAgentId(systemAgentId),   // Create EntityIdentifier object
+          chatId: createChatEntityId(systemChatId), // Create EntityIdentifier object
           thread: threadInfo,
           messageId: messageId,
           flaggedUnreliable: true,
@@ -133,7 +134,8 @@ export async function POST(req: NextRequest) {
           unreliabilityReason: 'user_flagged',
           excludeFromRetrieval: true,
           confidence: 0,
-          source: 'user_flagged'
+          source: 'user_flagged',
+          timestamp: Date.now()  // Add proper numeric timestamp
         } as ExtendedMessageMetadata
       });
       

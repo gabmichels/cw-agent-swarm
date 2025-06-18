@@ -16,7 +16,7 @@ import {
   PlanningMetadata,
   CognitiveProcessType
 } from '../../../types/metadata';
-import { StructuredId, createEnumStructuredId, EntityNamespace, EntityType, structuredIdToString } from '../../../types/structured-id';
+import { StructuredId, createEnumStructuredId, EntityNamespace, EntityType, structuredIdToString } from '../../../types/entity-identifier';
 import { z } from 'zod';
 import { 
   ImportanceLevel
