@@ -27,7 +27,7 @@ export interface MigrationResult {
  * Migration error interface
  */
 export interface MigrationError {
-  agentId: StructuredId;
+  agentId: string;
   error: string;
   code: string;
   timestamp: Date;
@@ -37,7 +37,7 @@ export interface MigrationError {
  * Migration warning interface
  */
 export interface MigrationWarning {
-  agentId: StructuredId;
+  agentId: string;
   warning: string;
   code: string;
   suggestion?: string;
@@ -227,7 +227,7 @@ export class AgentOrganizationMigration {
       
     } catch (error) {
       result.errors.push({
-        agentId: { namespace: 'system', type: 'migration', id: 'batch_error' } as StructuredId,
+        agentId: 'system:migration:batch_error',
         error: error instanceof Error ? error.message : 'Unknown batch processing error',
         code: 'BATCH_PROCESSING_ERROR',
         timestamp: new Date()

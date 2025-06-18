@@ -329,8 +329,8 @@ export class DriveCapabilities {
         name: response.data.name!,
         createdTime: new Date(response.data.createdTime!),
         modifiedTime: new Date(response.data.modifiedTime!),
-        webViewLink: response.data.webViewLink,
-        parents: response.data.parents,
+        webViewLink: response.data.webViewLink || undefined,
+        parents: response.data.parents || undefined,
         shared: false
       };
     } catch (error) {
@@ -526,8 +526,8 @@ export class DriveCapabilities {
         usage: parseInt(quota?.usage || '0'),
         usageInDrive: parseInt(quota?.usageInDrive || '0'),
         usageInDriveTrash: parseInt(quota?.usageInDriveTrash || '0'),
-        usageInGmail: parseInt(quota?.usageInGmail || '0'),
-        usageInPhotos: parseInt(quota?.usageInPhotos || '0')
+        usageInGmail: 0, // Not available in Drive API
+        usageInPhotos: 0  // Not available in Drive API
       };
     } catch (error) {
       throw new Error(`Failed to get storage quota: ${error instanceof Error ? error.message : 'Unknown error'}`);

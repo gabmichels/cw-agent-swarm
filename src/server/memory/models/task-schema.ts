@@ -5,7 +5,9 @@ import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
 import { TaskMetadata, TaskStatus, TaskPriority } from '../../../types/metadata';
 import { ImportanceLevel } from '../../../constants/memory';
-import { EntityNamespace, EntityType, createEnumStructuredId } from '../../../types/structured-id';
+import { EntityNamespace, EntityType, createEnumStructuredId, structuredIdToString } from '../../../types/structured-id';
+import { z } from 'zod';
+import { generateSystemUserId } from '../../../lib/core/id-generation';
 
 /**
  * Task schema for storing objectives and goals
@@ -30,9 +32,11 @@ export const TASK_DEFAULTS: Partial<TaskSchema> = {
   type: MemoryType.TASK,
   metadata: {
     schemaVersion: "1.0.0",
+    title: "Default Task",
+    description: "",
     status: TaskStatus.PENDING,
     priority: TaskPriority.MEDIUM,
-    title: "Untitled Task",
-    createdBy: createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.USER, 'system')
+    createdBy: generateSystemUserId('system'),
+    timestamp: new Date().toISOString()
   }
 }; 

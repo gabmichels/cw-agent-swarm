@@ -10,6 +10,7 @@ import { logger } from '../../../../../../lib/logging';
 import { MarketSignal } from '../../MarketScanner.interface';
 import { IRssProcessor } from '../../interfaces/SourceProcessor.interface';
 import { RssSource } from '../../interfaces/MarketSource.interface';
+import { generateAgentId } from '../../../../../../lib/core/id-generation';
 
 /**
  * Error class for RSS processor operations
@@ -50,13 +51,13 @@ export class DefaultRssProcessor implements IRssProcessor {
       logger.info(`Processing RSS source: ${source.url}`);
       
       // Test feed validity
-      const isValid = await this.testFeed(source.url);
+      const isValid = await this.testFeed(source.url || '');
       if (!isValid) {
         throw new RssProcessorError(`Invalid or inaccessible RSS feed: ${source.url}`);
       }
       
       // Parse the feed
-      const feed = await this.parser.parseURL(source.url);
+      const feed = await this.parser.parseURL(source.url || '');
       
       // Process feed content
       const signals = await this.processFeedContent(feed, source);
@@ -150,15 +151,14 @@ export class DefaultRssProcessor implements IRssProcessor {
         
         // Create a market signal
         const signal: MarketSignal = {
+          id: generateAgentId(), // Generate unique ID for the signal
           title,
           content: this.cleanContent(content),
           source: feedTitle,
           sourceType: 'rss',
           category: source.category,
-          theme: source.theme,
           url: link,
-          published: publishedDate,
-          retrieved: now
+          timestamp: publishedDate // Use timestamp instead of published/retrieved
         };
         
         signals.push(signal);

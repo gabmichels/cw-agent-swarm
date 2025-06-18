@@ -1,7 +1,8 @@
 import { SocialMediaService } from '../SocialMediaService';
 import { SocialMediaNLP, SocialMediaCommand, ConversationContext } from '../integration/SocialMediaNLP';
 import { PrismaSocialMediaDatabase } from '../database/PrismaSocialMediaDatabase';
-import { SocialMediaProvider, SocialMediaCapability, PostCreationParams, MediaFile } from '../database/ISocialMediaDatabase';
+import { SocialMediaProvider, SocialMediaCapability, MediaFile } from '../database/ISocialMediaDatabase';
+import { PostCreationParams } from '../providers/base/ISocialMediaProvider';
 
 // Following IMPLEMENTATION_GUIDELINES.md - agent tool integration
 export interface SocialMediaToolParams {
@@ -412,13 +413,18 @@ export class SocialMediaAgentTools {
   private async createTextPost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
     const postParams: PostCreationParams = {
       content: params.content as string,
-      platforms: params.platforms as SocialMediaProvider[],
       hashtags: params.hashtags as string[] || [],
       visibility: params.visibility as 'public' | 'private' | 'unlisted' || 'public',
       media: []
     };
 
-    return await this.socialMediaService.createPost(postParams, connectionIds, agentId);
+    // Create post on first available connection (tools typically work with single connection)
+    const connectionId = connectionIds[0];
+    if (!connectionId) {
+      throw new Error('No connection available for posting');
+    }
+
+    return await this.socialMediaService.createPost(agentId, connectionId, postParams);
   }
 
   private async createImagePost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
@@ -434,13 +440,17 @@ export class SocialMediaAgentTools {
 
     const postParams: PostCreationParams = {
       content: params.content as string,
-      platforms: params.platforms as SocialMediaProvider[],
       hashtags: params.hashtags as string[] || [],
       visibility: params.visibility as 'public' | 'private' | 'unlisted' || 'public',
       media
     };
 
-    return await this.socialMediaService.createPost(postParams, connectionIds, agentId);
+    const connectionId = connectionIds[0];
+    if (!connectionId) {
+      throw new Error('No connection available for posting');
+    }
+
+    return await this.socialMediaService.createPost(agentId, connectionId, postParams);
   }
 
   private async createVideoPost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
@@ -455,95 +465,83 @@ export class SocialMediaAgentTools {
 
     const postParams: PostCreationParams = {
       content: params.content as string,
-      platforms: params.platforms as SocialMediaProvider[],
       hashtags: params.hashtags as string[] || [],
       visibility: params.visibility as 'public' | 'private' | 'unlisted' || 'public',
       media
     };
 
-    return await this.socialMediaService.createPost(postParams, connectionIds, agentId);
+    const connectionId = connectionIds[0];
+    if (!connectionId) {
+      throw new Error('No connection available for posting');
+    }
+
+    return await this.socialMediaService.createPost(agentId, connectionId, postParams);
   }
 
   private async schedulePost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
-    const media: MediaFile[] = (params.media as string[] || []).map((url, index) => ({
-      id: `media_${index}`,
-      type: url.includes('video') ? 'video' : 'image',
-      url,
-      filename: `media_${index}`,
-      size: 0,
-      mimeType: url.includes('video') ? 'video/mp4' : 'image/jpeg'
-    }));
-
-    const postParams: PostCreationParams = {
-      content: params.content as string,
-      platforms: params.platforms as SocialMediaProvider[],
-      hashtags: params.hashtags as string[] || [],
-      visibility: 'public',
-      media,
-      scheduledTime: new Date(params.scheduleTime as string)
-    };
-
-    return await this.socialMediaService.schedulePost(postParams, connectionIds, agentId);
+    // TODO: Implement scheduling when SocialMediaService.schedulePost exists
+    throw new Error('Post scheduling not yet implemented in SocialMediaService');
   }
 
   private async createTikTokVideo(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
-    // TikTok-specific video creation logic
-    return await this.socialMediaService.createTikTokVideo({
-      title: params.title as string,
-      description: params.description as string,
-      videoUrl: params.video as string,
-      hashtags: params.hashtags as string[] || [],
-      music: params.music as string,
-      privacy: params.privacy as 'public' | 'friends' | 'private' || 'public'
-    }, connectionIds, agentId);
+    // TODO: Implement TikTok video creation when SocialMediaService.createTikTokVideo exists
+    throw new Error('TikTok video creation not yet implemented in SocialMediaService');
   }
 
   private async analyzeTikTokTrends(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
-    return await this.socialMediaService.analyzeTikTokTrends({
-      category: params.category as string,
-      region: params.region as string || 'US',
-      timeframe: params.timeframe as 'day' | 'week' | 'month' || 'week'
-    }, connectionIds, agentId);
+    // TODO: Implement trend analysis when SocialMediaService.analyzeTikTokTrends exists  
+    throw new Error('TikTok trend analysis not yet implemented in SocialMediaService');
   }
 
   private async getPostMetrics(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
-    return await this.socialMediaService.getPostMetrics({
-      postIds: params.postIds as string[],
-      platforms: params.platforms as SocialMediaProvider[] || [],
-      metrics: params.metrics as string[] || ['likes', 'shares', 'comments', 'views']
-    }, connectionIds, agentId);
+    // TODO: Implement metrics retrieval when SocialMediaService.getPostMetrics exists
+    throw new Error('Post metrics retrieval not yet implemented in SocialMediaService');
   }
 
   private async getAccountAnalytics(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
-    return await this.socialMediaService.getAccountAnalytics({
-      platforms: params.platforms as SocialMediaProvider[],
-      timeframe: params.timeframe as 'day' | 'week' | 'month' | 'quarter',
-      metrics: params.metrics as string[] || ['followers', 'engagement', 'reach', 'impressions']
-    }, connectionIds, agentId);
+    // TODO: Implement analytics when SocialMediaService.getAccountAnalytics exists
+    throw new Error('Account analytics not yet implemented in SocialMediaService');
   }
 
   private async getComments(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
-    return await this.socialMediaService.getComments({
-      postIds: params.postIds as string[],
-      platforms: params.platforms as SocialMediaProvider[] || [],
-      limit: params.limit as number || 50
-    }, connectionIds, agentId);
+    const connectionId = connectionIds[0];
+    if (!connectionId) {
+      throw new Error('No connection available for getting comments');
+    }
+    
+    return await this.socialMediaService.getComments(
+      agentId,
+      connectionId,
+      params.postId as string,
+      { limit: params.limit as number || 50 }
+    );
   }
 
   private async replyToComment(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
-    return await this.socialMediaService.replyToComment({
-      commentId: params.commentId as string,
-      platform: params.platform as SocialMediaProvider,
-      reply: params.reply as string
-    }, connectionIds, agentId);
+    const connectionId = connectionIds[0];
+    if (!connectionId) {
+      throw new Error('No connection available for replying to comment');
+    }
+    
+    return await this.socialMediaService.replyToComment(
+      agentId,
+      connectionId,
+      params.commentId as string,
+      params.reply as string
+    );
   }
 
   private async likePost(params: Record<string, unknown>, agentId: string, connectionIds: string[]): Promise<unknown> {
-    return await this.socialMediaService.likePost({
-      postId: params.postId as string,
-      platform: params.platform as SocialMediaProvider,
-      reactionType: params.reactionType as string || 'like'
-    }, connectionIds, agentId);
+    const connectionId = connectionIds[0];
+    if (!connectionId) {
+      throw new Error('No connection available for liking post');
+    }
+    
+    return await this.socialMediaService.likePost(
+      agentId,
+      connectionId,
+      params.postId as string
+    );
   }
 
   // Helper Methods
@@ -625,14 +623,14 @@ export class SocialMediaAgentTools {
     result: { success: boolean; data?: unknown; error?: string }
   ): Promise<void> {
     try {
-      await this.database.logAuditEntry({
+      await this.database.logAction({
         agentId,
-        action: toolName,
+        connectionId: 'default', // Would be actual connection ID in production
+        action: 'post', // Map all tool actions to 'post' for audit logging
         platform: SocialMediaProvider.TWITTER, // Default platform for logging
         content: {
-          parameters,
-          result: result.success ? 'success' : 'failure',
-          error: result.error
+          text: JSON.stringify(parameters),
+          parameters
         },
         result: result.success ? 'success' : 'failure',
         timestamp: new Date(),

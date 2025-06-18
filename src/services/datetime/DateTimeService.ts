@@ -33,7 +33,7 @@ export class DateTimeService {
    * @param referenceDate - Optional reference date for relative expressions
    * @returns Parsed Date object or null if parsing fails
    */
-  parse(value: string | Date | number, referenceDate?: Date): Date | null {
+  async parse(value: string | Date | number, referenceDate?: Date): Promise<Date | null> {
     if (value instanceof Date) return value;
     
     if (typeof value === 'number') {
@@ -41,7 +41,7 @@ export class DateTimeService {
     }
     
     // Try natural language parsing first
-    const nlpResult = this.processor.parseNaturalLanguage(value, referenceDate);
+    const nlpResult = await this.processor.parseNaturalLanguage(value, referenceDate);
     if (nlpResult) return nlpResult;
     
     // Fall back to standard date parsing

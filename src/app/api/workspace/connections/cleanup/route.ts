@@ -47,15 +47,15 @@ export async function POST(request: NextRequest) {
           if (connection.email === 'test@example.com' || !connection.refreshToken) {
             try {
               // Delete related records first to avoid foreign key constraint violations
-              await db.prisma.agentWorkspacePermission.deleteMany({
+              await db.getClient().agentWorkspacePermission.deleteMany({
                 where: { workspaceConnectionId: connection.id }
               });
               
-              await db.prisma.workspaceAuditLog.deleteMany({
-                where: { workspaceConnectionId: connection.id }
-              });
-              
-              await db.prisma.agentNotification.deleteMany({
+                              await db.getClient().workspaceAuditLog.deleteMany({
+                  where: { workspaceConnectionId: connection.id }
+                });
+                
+                await db.getClient().agentNotification.deleteMany({
                 where: { connectionId: connection.id }
               });
               

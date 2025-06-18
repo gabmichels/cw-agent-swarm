@@ -304,7 +304,7 @@ export async function GET(request: NextRequest) {
     await database.logAction({
       timestamp: new Date(),
       connectionId: connection.id,
-      agentId: undefined,
+      agentId: 'system',
       action: 'authenticate',
       platform: validatedQuery.provider,
       result: 'success',

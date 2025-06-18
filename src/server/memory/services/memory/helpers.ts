@@ -7,7 +7,7 @@
 import { MemoryType } from "../../config/types";
 import { getMemoryServices } from "..";
 import { BaseMetadata, MessageMetadata, MessageRole, ThreadInfo } from "../../../../types/metadata";
-import { createEnumStructuredId, EntityNamespace, EntityType } from "../../../../types/structured-id";
+import { generateSystemUserId, generateSystemAgentId, generateSystemChatId } from "../../../../lib/core/id-generation";
 
 /**
  * Extended metadata schema for message memories that includes additional properties
@@ -115,10 +115,10 @@ export async function flagAsUnreliable(
         position: 0
       };
       
-      // Create structured IDs
-      const systemUserId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.USER, 'system');
-      const systemAgentId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.AGENT, 'system');
-      const systemChatId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.CHAT, 'flagged-content');
+      // Create ULID strings
+      const systemUserId = generateSystemUserId('system');
+      const systemAgentId = generateSystemAgentId('system');
+      const systemChatId = generateSystemChatId('flagged-content');
       
       // Add as a new memory with unreliable flag
       const result = await memoryService.addMemory({

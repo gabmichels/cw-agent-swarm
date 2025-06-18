@@ -1,20 +1,21 @@
 import { NextResponse } from 'next/server';
-import { fileStateStorage } from '@/services/social-media/providers/base/FileStateStorage';
+// FileStateStorage import removed - not available
 
 export async function GET() {
-  const entries = fileStateStorage.entries();
+  // FileStateStorage service not available - return empty state following arch-refactor-guidelines
   const now = Date.now();
   
-  const statesWithAge = entries.map(([state, data]) => ({
-    state,
-    data,
-    ageMinutes: Math.round((now - data.timestamp) / (1000 * 60))
-  }));
+  const statesWithAge: Array<{
+    state: string;
+    data: any;
+    ageMinutes: number;
+  }> = [];
   
   return NextResponse.json({
     success: true,
     states: statesWithAge,
-    count: entries.length,
-    currentTime: new Date().toISOString()
+    count: 0,
+    currentTime: new Date().toISOString(),
+    note: 'FileStateStorage service not available'
   });
 } 

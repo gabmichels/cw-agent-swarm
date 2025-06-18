@@ -13,8 +13,8 @@ import { dateTime } from '../../services/datetime/DateTimeService';
  * @param value - Date string, number, or Date object to parse
  * @returns Parsed Date (defaults to current time if parsing fails)
  */
-export function parseDate(value: string | Date | number): Date {
-  const result = dateTime.parse(value);
+export async function parseDate(value: string | Date | number): Promise<Date> {
+  const result = await dateTime.parse(value);
   return result || new Date(); // Default to current time if parsing fails
 }
 
@@ -48,8 +48,8 @@ export function isDateWithinWindow(date: Date, targetDate: Date, windowMs: numbe
  * @param referenceDate - Optional reference date (defaults to now)
  * @returns Parsed Date or null if parsing fails
  */
-export function parseNaturalDate(expression: string, referenceDate?: Date): Date | null {
-  return dateTime.getProcessor().parseNaturalLanguage(expression, referenceDate);
+export async function parseNaturalDate(expression: string, referenceDate?: Date): Promise<Date | null> {
+  return await dateTime.getProcessor().parseNaturalLanguage(expression, referenceDate);
 }
 
 /**

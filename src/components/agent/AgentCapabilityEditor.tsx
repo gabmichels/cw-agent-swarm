@@ -77,7 +77,7 @@ const convertAgentCapabilities = (agentCapabilities: AgentProfile['capabilities'
     
     // Skip if we've already processed this originalCapabilityId
     const originalCapabilityId = cap.parameters?.originalCapabilityId;
-    if (originalCapabilityId && processedOriginalIds.has(originalCapabilityId)) {
+    if (originalCapabilityId && typeof originalCapabilityId === 'string' && processedOriginalIds.has(originalCapabilityId)) {
       return;
     }
     
@@ -90,7 +90,7 @@ const convertAgentCapabilities = (agentCapabilities: AgentProfile['capabilities'
     
     // Add to processed sets
     processedIds.add(cap.id);
-    if (originalCapabilityId) {
+    if (originalCapabilityId && typeof originalCapabilityId === 'string') {
       processedOriginalIds.add(originalCapabilityId);
     }
     processedNameTypes.add(nameTypeKey);
@@ -233,7 +233,7 @@ const AgentCapabilityEditor: React.FC<AgentCapabilityEditorProps> = ({
       // Check for duplicate originalCapabilityId (from agent capabilities)
       const originalCapabilityId = (agent.capabilities || [])
         .find(agentCap => agentCap.id === cap.id)?.parameters?.originalCapabilityId;
-      if (originalCapabilityId && seenOriginalIds.has(originalCapabilityId)) {
+      if (originalCapabilityId && typeof originalCapabilityId === 'string' && seenOriginalIds.has(originalCapabilityId)) {
         return false;
       }
       
@@ -245,7 +245,7 @@ const AgentCapabilityEditor: React.FC<AgentCapabilityEditorProps> = ({
       
       // Add to seen sets
       seenIds.add(cap.id);
-      if (originalCapabilityId) {
+      if (originalCapabilityId && typeof originalCapabilityId === 'string') {
         seenOriginalIds.add(originalCapabilityId);
       }
       seenNames.add(nameTypeKey);

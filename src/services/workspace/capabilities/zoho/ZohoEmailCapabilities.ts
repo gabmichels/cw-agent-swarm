@@ -1,15 +1,71 @@
 import { IEmailCapabilities } from '../interfaces/IEmailCapabilities';
-import { EmailCapabilities } from '../EmailCapabilities';
+import { EmailCapabilities, EmailMessage, EmailAttachment, SendEmailParams } from '../EmailCapabilities';
 import { ZohoWorkspaceProvider } from '../../providers/ZohoWorkspaceProvider';
 import { AxiosInstance } from 'axios';
-import { 
-  SendEmailParams, 
-  EmailResult, 
-  EmailQuery, 
-  Email, 
-  EmailMessage,
-  EmailAttachment 
-} from '../../types/EmailTypes';
+import { FileService } from '../../../../lib/storage/FileService';
+import { StorageProvider } from '../../../../lib/storage/StorageService';
+import FormData from 'form-data';
+
+// Local interfaces for Zoho-specific functionality
+interface EmailResult {
+  success: boolean;
+  id?: string;
+  message: string;
+}
+
+interface EmailQuery {
+  maxResults?: number;
+  pageToken?: string;
+  q?: string;
+  labelIds?: string[];
+}
+
+interface Email {
+  id: string;
+  threadId: string;
+  labelIds: string[];
+  snippet: string;
+  payload: {
+    partId: string;
+    mimeType: string;
+    filename: string;
+    headers: Array<{ name: string; value: string }>;
+    body: {
+      size: number;
+      data?: string;
+      attachmentId?: string;
+    };
+    parts?: any[];
+  };
+  sizeEstimate: number;
+  historyId: string;
+  internalDate: string;
+}
+
+/**
+ * Zoho-specific attachment upload response
+ */
+interface ZohoAttachmentUploadResponse {
+  status: {
+    code: number;
+    description: string;
+  };
+  data: Array<{
+    storeName: string;
+    attachmentName: string;
+    attachmentPath: string;
+    url?: string; // Only present for inline attachments
+  }>;
+}
+
+/**
+ * Zoho attachment metadata for email sending
+ */
+interface ZohoAttachmentMetadata {
+  storeName: string;
+  attachmentName: string;
+  attachmentPath: string;
+}
 
 /**
  * Zoho Mail Capabilities Implementation
@@ -18,34 +74,87 @@ import {
 export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCapabilities {
   private zohoProvider: ZohoWorkspaceProvider;
   private connectionId: string;
+  private fileService: FileService;
 
   constructor(connectionId: string, zohoProvider: ZohoWorkspaceProvider) {
     super();
     this.connectionId = connectionId;
     this.zohoProvider = zohoProvider;
+    
+    // Initialize FileService with environment-based configuration
+    this.fileService = new FileService({
+      storageProvider: (process.env.STORAGE_PROVIDER as StorageProvider) || StorageProvider.LOCAL,
+      bucket: process.env.STORAGE_BUCKET || 'email-attachments',
+      gcpProjectId: process.env.GCP_PROJECT_ID,
+      gcpKeyFilename: process.env.GCP_KEY_FILENAME,
+      minioEndpoint: process.env.MINIO_ENDPOINT,
+      minioAccessKey: process.env.MINIO_ACCESS_KEY,
+      minioSecretKey: process.env.MINIO_SECRET_KEY,
+      azureAccountName: process.env.AZURE_ACCOUNT_NAME,
+      azureAccountKey: process.env.AZURE_ACCOUNT_KEY
+    });
   }
 
   /**
-   * Send email using Zoho Mail API
+   * Send email using Zoho Mail API - implements IEmailCapabilities
    */
-  async sendEmail(params: SendEmailParams): Promise<EmailResult> {
+  async sendEmail(params: SendEmailParams, connectionId: string, agentId: string): Promise<EmailMessage> {
+    const result = await this.sendZohoEmail(params);
+    
+    // Convert result to EmailMessage format expected by interface
+    return {
+      id: result.id || 'unknown',
+      threadId: result.id || 'unknown',
+      from: params.to[0] || '', // Zoho doesn't return full message details
+      to: params.to,
+      cc: params.cc,
+      bcc: params.bcc,
+      subject: params.subject,
+      body: params.body,
+      date: new Date(),
+      isRead: false,
+      isImportant: false,
+      labels: [],
+      attachments: []
+    };
+  }
+
+  /**
+   * Internal Zoho email sending method
+   */
+  private async sendZohoEmail(params: SendEmailParams): Promise<EmailResult> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
       
       // Get account ID first
       const accountId = await this.getAccountId(client);
       
+      // Handle attachments if present
+      let zohoAttachments: ZohoAttachmentMetadata[] = [];
+      if (params.attachments && params.attachments.length > 0) {
+        try {
+          zohoAttachments = await this.uploadAttachments(client, params.attachments);
+        } catch (error) {
+          console.warn('Failed to upload attachments, sending email without attachments:', error);
+        }
+      }
+      
       // Build email content for Zoho Mail API
-      const emailData = {
-        fromAddress: params.from || await this.getDefaultFromAddress(client, accountId),
+      const emailData: Record<string, any> = {
+        fromAddress: await this.getDefaultFromAddress(client, accountId),
         toAddress: Array.isArray(params.to) ? params.to.join(',') : params.to,
         ccAddress: params.cc ? (Array.isArray(params.cc) ? params.cc.join(',') : params.cc) : undefined,
         bccAddress: params.bcc ? (Array.isArray(params.bcc) ? params.bcc.join(',') : params.bcc) : undefined,
         subject: params.subject,
-        content: params.body || params.html || '',
-        mailFormat: params.html ? 'html' : 'plaintext',
-        askReceipt: params.requestReadReceipt ? 'yes' : 'no'
+        content: params.body || '',
+        mailFormat: 'plaintext',
+        askReceipt: 'no'
       };
+
+      // Add attachments if any were successfully uploaded
+      if (zohoAttachments.length > 0) {
+        emailData.attachments = zohoAttachments;
+      }
 
       // Remove undefined fields
       Object.keys(emailData).forEach(key => {
@@ -59,7 +168,8 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
         hasFromAddress: !!emailData.fromAddress,
         hasToAddress: !!emailData.toAddress,
         hasSubject: !!emailData.subject,
-        hasContent: !!emailData.content
+        hasContent: !!emailData.content,
+        attachmentCount: zohoAttachments.length
       });
 
       const response = await client.post(`/api/accounts/${accountId}/messages`, emailData);
@@ -219,39 +329,113 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
   }
 
   /**
-   * Upload attachments to Zoho Mail
+   * Upload attachments to Zoho Mail using proper file retrieval and API
    */
-  private async uploadAttachments(client: AxiosInstance, attachments: EmailAttachment[]): Promise<string[]> {
-    const attachmentIds: string[] = [];
+  private async uploadAttachments(client: AxiosInstance, attachments: EmailAttachment[]): Promise<ZohoAttachmentMetadata[]> {
+    const accountId = await this.getAccountId(client);
+    const uploadedAttachments: ZohoAttachmentMetadata[] = [];
 
     for (const attachment of attachments) {
       try {
-        const formData = new FormData();
+        // Retrieve actual file data using the attachmentId
+        const fileBuffer = await this.retrieveFileData(attachment.attachmentId);
         
-        if (attachment.content) {
-          // Handle base64 content
-          const buffer = Buffer.from(attachment.content, 'base64');
-          formData.append('file', buffer, attachment.filename);
-        } else if (attachment.path) {
-          // Handle file path (would need fs.createReadStream in real implementation)
-          throw new Error('File path attachments not yet implemented for Zoho');
-        }
-
-        const uploadResponse = await client.post('/mail/v1/accounts/primary/attachments', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        });
-
-        if (uploadResponse.data.status?.code === 200) {
-          attachmentIds.push(uploadResponse.data.data?.attachmentId);
-        }
+        // Upload to Zoho Mail using multipart form data
+        const zohoAttachment = await this.uploadSingleAttachment(
+          client,
+          accountId,
+          attachment,
+          fileBuffer
+        );
+        
+        uploadedAttachments.push(zohoAttachment);
+        
+        console.log(`Successfully uploaded attachment: ${attachment.filename}`);
       } catch (error) {
-        console.warn(`Failed to upload attachment ${attachment.filename}:`, error);
+        console.error(`Failed to upload attachment ${attachment.filename}:`, error);
+        throw new Error(
+          `Failed to upload attachment ${attachment.filename}: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`
+        );
       }
     }
 
-    return attachmentIds;
+    return uploadedAttachments;
+  }
+
+  /**
+   * Retrieve file data from storage using attachmentId
+   */
+  private async retrieveFileData(attachmentId: string): Promise<Buffer> {
+    try {
+      return await this.fileService.getFile(attachmentId);
+    } catch (error) {
+      throw new Error(
+        `Failed to retrieve file data for attachment ${attachmentId}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  /**
+   * Upload a single attachment to Zoho Mail API
+   */
+  private async uploadSingleAttachment(
+    client: AxiosInstance,
+    accountId: string,
+    attachment: EmailAttachment,
+    fileBuffer: Buffer
+  ): Promise<ZohoAttachmentMetadata> {
+    const formData = new FormData();
+    formData.append('attach', fileBuffer, {
+      filename: attachment.filename,
+      contentType: attachment.mimeType
+    });
+
+    try {
+      const response = await client.post(
+        `/api/accounts/${accountId}/messages/attachments?uploadType=multipart`,
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+            'Content-Type': 'multipart/form-data'
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity
+        }
+      );
+
+      const uploadResponse = response.data as ZohoAttachmentUploadResponse;
+      
+      if (uploadResponse.status?.code !== 200) {
+        throw new Error(
+          uploadResponse.status?.description || 'Failed to upload attachment to Zoho'
+        );
+      }
+
+      if (!uploadResponse.data || uploadResponse.data.length === 0) {
+        throw new Error('No attachment data returned from Zoho API');
+      }
+
+      const zohoAttachment = uploadResponse.data[0];
+      return {
+        storeName: zohoAttachment.storeName,
+        attachmentName: zohoAttachment.attachmentName,
+        attachmentPath: zohoAttachment.attachmentPath
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Failed to upload attachment to Zoho')) {
+        throw error;
+      }
+      throw new Error(
+        `Zoho attachment upload API error: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
   }
 
   /**
@@ -305,37 +489,5 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       console.warn('Failed to get default from address:', error);
       return '';
     }
-  }
-
-  /**
-   * Build email content in Zoho Mail format
-   */
-  buildEmailContent(params: SendEmailParams): string {
-    const headers = [
-      `From: ${params.from || 'noreply@example.com'}`,
-      `To: ${Array.isArray(params.to) ? params.to.join(', ') : params.to}`,
-      `Subject: ${params.subject || '(No Subject)'}`,
-      `Date: ${new Date().toUTCString()}`,
-      `Message-ID: <${Date.now()}.${Math.random().toString(36).substr(2, 9)}@zoho-agent>`,
-      `MIME-Version: 1.0`
-    ];
-
-    if (params.cc) {
-      headers.push(`Cc: ${Array.isArray(params.cc) ? params.cc.join(', ') : params.cc}`);
-    }
-
-    if (params.bcc) {
-      headers.push(`Bcc: ${Array.isArray(params.bcc) ? params.bcc.join(', ') : params.bcc}`);
-    }
-
-    if (params.html) {
-      headers.push(`Content-Type: text/html; charset=UTF-8`);
-    } else {
-      headers.push(`Content-Type: text/plain; charset=UTF-8`);
-    }
-
-    const body = params.html || params.body || '';
-    
-    return headers.join('\r\n') + '\r\n\r\n' + body;
   }
 }

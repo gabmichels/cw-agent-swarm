@@ -11,11 +11,7 @@ import {
   createTaskMetadata
 } from '../../../server/memory/services/helpers/metadata-helpers';
 
-import {
-  createStructuredId,
-  createAgentId,
-  StructuredId
-} from '../../../types/structured-id';
+import { generateSystemAgentId } from '../../../lib/core/id-generation';
 
 import {
   CognitiveProcessType,
@@ -37,11 +33,11 @@ import { ImportanceLevel, MemorySource } from '../../../constants/memory';
  */
 export class CognitiveArtifactService {
   private memoryService: MemoryService;
-  private agentId: StructuredId;
+  private agentId: string;
   
   constructor(memoryService: MemoryService, agentId?: string) {
     this.memoryService = memoryService;
-    this.agentId = createAgentId(agentId || 'default');
+    this.agentId = agentId || generateSystemAgentId('default');
   }
   
   /**
@@ -337,8 +333,10 @@ ${steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
           dependsOn: options.dependsOn || [],
           blockedBy: options.blockedBy || [],
           importance: options.importance || ImportanceLevel.MEDIUM,
-          tags: [...(options.tags || []), 'task'],
-          source: MemorySource.AGENT
+          metadata: {
+            tags: [...(options.tags || []), 'task'],
+            source: MemorySource.AGENT
+          }
         }
       );
       

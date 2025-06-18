@@ -14,8 +14,8 @@ import { dateTime } from '../../services/datetime/DateTimeService';
  * @param format - Optional format specification
  * @returns Formatted date string
  */
-export function formatDisplayDate(date: Date | string | number, format?: string): string {
-  const parsedDate = dateTime.parse(date);
+export async function formatDisplayDate(date: Date | string | number, format?: string): Promise<string> {
+  const parsedDate = await dateTime.parse(date);
   if (!parsedDate) return 'Invalid date';
   
   if (format) {
@@ -32,8 +32,8 @@ export function formatDisplayDate(date: Date | string | number, format?: string)
  * @param referenceDate - Optional reference date (defaults to now)
  * @returns Relative time string
  */
-export function getRelativeTime(date: Date | string | number, referenceDate?: Date): string {
-  const parsedDate = dateTime.parse(date);
+export async function getRelativeTime(date: Date | string | number, referenceDate?: Date): Promise<string> {
+  const parsedDate = await dateTime.parse(date);
   if (!parsedDate) return 'Unknown time';
   
   return dateTime.getRelativeTime(parsedDate, referenceDate);
@@ -46,9 +46,9 @@ export function getRelativeTime(date: Date | string | number, referenceDate?: Da
  * @param b - Second date (can be Date, string, or timestamp)
  * @returns Negative if a < b, positive if a > b, 0 if equal
  */
-export function compareDates(a: Date | string | number, b: Date | string | number): number {
-  const dateA = dateTime.parse(a);
-  const dateB = dateTime.parse(b);
+export async function compareDates(a: Date | string | number, b: Date | string | number): Promise<number> {
+  const dateA = await dateTime.parse(a);
+  const dateB = await dateTime.parse(b);
   
   if (!dateA && !dateB) return 0;
   if (!dateA) return 1;
@@ -63,8 +63,8 @@ export function compareDates(a: Date | string | number, b: Date | string | numbe
  * @param date - Date to check (can be Date, string, or timestamp)
  * @returns True if the date is today
  */
-export function isToday(date: Date | string | number): boolean {
-  const parsedDate = dateTime.parse(date);
+export async function isToday(date: Date | string | number): Promise<boolean> {
+  const parsedDate = await dateTime.parse(date);
   if (!parsedDate) return false;
   
   const today = new Date();
@@ -77,8 +77,8 @@ export function isToday(date: Date | string | number): boolean {
  * @param date - Date to format (can be Date, string, or timestamp)
  * @returns Formatted time string
  */
-export function formatTime(date: Date | string | number): string {
-  const parsedDate = dateTime.parse(date);
+export async function formatTime(date: Date | string | number): Promise<string> {
+  const parsedDate = await dateTime.parse(date);
   if (!parsedDate) return 'Invalid time';
   
   return parsedDate.toLocaleTimeString(undefined, { 
@@ -94,8 +94,8 @@ export function formatTime(date: Date | string | number): string {
  * @param date - Date to format (can be Date, string, or timestamp)
  * @returns Formatted date string
  */
-export function formatDate(date: Date | string | number): string {
-  const parsedDate = dateTime.parse(date);
+export async function formatDate(date: Date | string | number): Promise<string> {
+  const parsedDate = await dateTime.parse(date);
   if (!parsedDate) return 'Invalid date';
   
   return parsedDate.toLocaleDateString(undefined, {
@@ -112,8 +112,8 @@ export function formatDate(date: Date | string | number): string {
  * @param date - Date to format (can be Date, string, or timestamp)
  * @returns Smart date string
  */
-export function getSmartDateString(date: Date | string | number): string {
-  const parsedDate = dateTime.parse(date);
+export async function getSmartDateString(date: Date | string | number): Promise<string> {
+  const parsedDate = await dateTime.parse(date);
   if (!parsedDate) return 'Invalid date';
   
   const now = new Date();

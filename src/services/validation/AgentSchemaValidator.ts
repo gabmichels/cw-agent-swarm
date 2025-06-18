@@ -175,12 +175,12 @@ export class AgentSchemaValidator {
       });
     }
     
-    // Validate StructuredId format
-    if (metadata.agentId && !this.isValidStructuredId(metadata.agentId)) {
+    // Validate ULID string format
+    if (metadata.agentId && !this.isValidUlidString(metadata.agentId)) {
       errors.push({
         field: 'agentId',
-        message: 'Agent ID must be a valid StructuredId',
-        code: 'INVALID_STRUCTURED_ID',
+        message: 'Agent ID must be a valid ULID string',
+        code: 'INVALID_ULID_STRING',
         severity: 'error'
       });
     }
@@ -278,24 +278,32 @@ export class AgentSchemaValidator {
     errors: ValidationError[], 
     warnings: ValidationWarning[]
   ): void {
-    // Department validation
+    // Department validation (department is an object with id, name, code)
     if (metadata.department) {
-      if (metadata.department.trim().length === 0) {
+      if (!metadata.department.id || !metadata.department.name || !metadata.department.code) {
         errors.push({
           field: 'department',
-          message: 'Department name cannot be empty if specified',
-          code: 'EMPTY_DEPARTMENT',
+          message: 'Department must have id, name, and code properties',
+          code: 'INCOMPLETE_DEPARTMENT',
           severity: 'error'
         });
-      }
-      
-      if (metadata.department.length > 50) {
-        errors.push({
-          field: 'department',
-          message: 'Department name cannot exceed 50 characters',
-          code: 'DEPARTMENT_NAME_TOO_LONG',
-          severity: 'error'
-        });
+      } else {
+        if (metadata.department.name.trim().length === 0) {
+          errors.push({
+            field: 'department',
+            message: 'Department name cannot be empty',
+            code: 'EMPTY_DEPARTMENT',
+            severity: 'error'
+          });
+        }
+        if (metadata.department.name.length > 50) {
+          errors.push({
+            field: 'department',
+            message: 'Department name cannot exceed 50 characters',
+            code: 'DEPARTMENT_NAME_TOO_LONG',
+            severity: 'error'
+          });
+        }
       }
     }
     
@@ -372,10 +380,10 @@ export class AgentSchemaValidator {
     }
     
     // Reporting relationship validation
-    if (metadata.reportingTo && !this.isValidStructuredId(metadata.reportingTo)) {
+    if (metadata.reportingTo && !this.isValidUlidString(metadata.reportingTo)) {
       errors.push({
         field: 'reportingTo',
-        message: 'ReportingTo must be a valid agent StructuredId',
+        message: 'ReportingTo must be a valid agent ULID string',
         code: 'INVALID_REPORTING_ID',
         severity: 'error'
       });
@@ -394,7 +402,7 @@ export class AgentSchemaValidator {
       
       // Validate each managed agent ID
       metadata.managedAgents.forEach((agentId, index) => {
-        if (!this.isValidStructuredId(agentId)) {
+        if (!this.isValidUlidString(agentId)) {
           errors.push({
             field: `managedAgents[${index}]`,
             message: `Managed agent ID at index ${index} is not a valid StructuredId`,
@@ -438,7 +446,7 @@ export class AgentSchemaValidator {
   ): void {
     // Self-reference check
     if (metadata.reportingTo && metadata.agentId && 
-        this.structuredIdsEqual(metadata.reportingTo, metadata.agentId)) {
+        this.ulidStringsEqual(metadata.reportingTo, metadata.agentId)) {
       errors.push({
         field: 'reportingTo',
         message: 'Agent cannot report to themselves',
@@ -450,7 +458,7 @@ export class AgentSchemaValidator {
     // Check if agent appears in their own managed agents list
     if (metadata.managedAgents && metadata.agentId) {
       const selfManaged = metadata.managedAgents.some(id => 
-        this.structuredIdsEqual(id, metadata.agentId!)
+        this.ulidStringsEqual(id, metadata.agentId!)
       );
       
       if (selfManaged) {
@@ -533,20 +541,19 @@ export class AgentSchemaValidator {
   }
   
   /**
-   * Validate StructuredId format
+   * Validate ULID string format
    */
-  private isValidStructuredId(id: StructuredId): boolean {
-    return !!(id && id.namespace && id.type && id.id);
+  private isValidUlidString(id: string): boolean {
+    // ULID format: namespace:type:ulid_string
+    const parts = id.split(':');
+    return parts.length >= 3 && Boolean(parts[0]) && Boolean(parts[1]) && Boolean(parts[2]);
   }
   
   /**
-   * Compare two StructuredIds for equality
+   * Compare two ULID strings for equality
    */
-  private structuredIdsEqual(id1: StructuredId, id2: StructuredId): boolean {
-    return id1.namespace === id2.namespace && 
-           id1.type === id2.type && 
-           id1.id === id2.id &&
-           id1.version === id2.version;
+  private ulidStringsEqual(id1: string, id2: string): boolean {
+    return id1 === id2;
   }
   
   /**

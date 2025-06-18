@@ -34,19 +34,51 @@ const MessagePreview: React.FC<MessagePreviewProps> = ({
 
   // Determine sender info
   const getSenderInfo = () => {
-    if (typeof message.sender === 'string') {
+    try {
+      if (typeof message.sender === 'string') {
+        return {
+          name: message.sender,
+          isUser: message.sender === 'You' || message.sender === 'User',
+          icon: message.sender === 'You' || message.sender === 'User' ? User : Bot
+        };
+      }
+      
+      // Handle structured ID format {namespace, type, id}
+      if (message.sender && typeof message.sender === 'object') {
+        if ('namespace' in message.sender && 'type' in message.sender && 'id' in message.sender) {
+          const structuredSender = message.sender as any;
+          const name = structuredSender.id || 'Unknown';
+          return {
+            name: typeof name === 'string' ? name : String(name),
+            isUser: structuredSender.namespace === 'user' || structuredSender.type === 'user',
+            icon: (structuredSender.namespace === 'user' || structuredSender.type === 'user') ? User : Bot
+          };
+        }
+        
+        // Handle standard format
+        if ('name' in message.sender || 'role' in message.sender) {
+          const name = (message.sender as any).name || 'Unknown';
+          return {
+            name: typeof name === 'string' ? name : String(name),
+            isUser: (message.sender as any).role === 'user',
+            icon: (message.sender as any).role === 'user' ? User : Bot
+          };
+        }
+      }
+      
       return {
-        name: message.sender,
-        isUser: message.sender === 'You' || message.sender === 'User',
-        icon: message.sender === 'You' || message.sender === 'User' ? User : Bot
+        name: 'Unknown',
+        isUser: false,
+        icon: Bot
+      };
+    } catch (error) {
+      console.error('Error processing sender in MessagePreview:', error, message.sender);
+      return {
+        name: 'Unknown',
+        isUser: false,
+        icon: Bot
       };
     }
-    
-    return {
-      name: message.sender?.name || 'Unknown',
-      isUser: message.sender?.role === 'user',
-      icon: message.sender?.role === 'user' ? User : Bot
-    };
   };
 
   const senderInfo = getSenderInfo();

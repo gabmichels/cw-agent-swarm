@@ -334,15 +334,14 @@ export class WorkspaceAgentIntegration {
         return await this.workspaceTools.uploadFileTool.execute({
           name: entities.fileName || 'agent-upload.txt',
           content: entities.content || 'File uploaded by agent',
-          mimeType: entities.mimeType || 'text/plain',
-          parentFolderId: entities.folderId,
+          parentFolder: entities.folderId,
           connectionId
         }, context);
 
       case WorkspaceCommandType.SHARE_FILE:
         return await this.workspaceTools.shareFileTool.execute({
           fileId: entities.fileId || 'default',
-          email: entities.email,
+          emails: [entities.email],
           role: entities.role || 'reader',
           connectionId
         }, context);

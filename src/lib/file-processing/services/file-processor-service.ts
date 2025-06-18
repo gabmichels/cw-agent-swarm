@@ -23,15 +23,15 @@ import { DocumentTypeDetector } from './document-type-detector';
 import { LanguageDetector } from './language-detector';
 import { BasicSummaryGenerator } from './summary-generator';
 import { v4 as uuidv4 } from 'uuid';
-import { StructuredId, IdGenerator } from '../../../utils/ulid';
-import { importanceCalculatorService } from '../../importance/ImportanceCalculatorService';
+import { generateId } from '../../core/id-generation';
 
 /**
- * Generate a file ID using proper StructuredId
+ * Generate a file ID using ULID string format
  */
-const generateFileId = (): StructuredId => {
-  return IdGenerator.generate('file');
+const generateFileId = (): string => {
+  return generateId('file', 'document');
 };
+import { importanceCalculatorService } from '../../importance/ImportanceCalculatorService';
 
 /**
  * Error codes for file processor service operations
@@ -314,7 +314,7 @@ export class FileProcessorService implements IFileProcessorService {
    * @returns File metadata or null if not found
    * @throws AppError if metadata storage is not available
    */
-  async getFileMetadata(fileId: string | StructuredId): Promise<FileMetadata | null> {
+  async getFileMetadata(fileId: string): Promise<FileMetadata | null> {
     if (!this.metadataStorage) {
       throw new AppError(
         'Metadata storage not available',
@@ -364,7 +364,7 @@ export class FileProcessorService implements IFileProcessorService {
    * @returns Whether the deletion was successful
    * @throws AppError if metadata storage is not available
    */
-  async deleteFile(fileId: string | StructuredId): Promise<boolean> {
+  async deleteFile(fileId: string): Promise<boolean> {
     if (!this.metadataStorage) {
       throw new AppError(
         'Metadata storage not available',

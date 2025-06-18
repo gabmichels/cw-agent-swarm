@@ -7,7 +7,14 @@ import {
   AccessLevel,
   SocialMediaError
 } from './database/ISocialMediaDatabase';
-import { ISocialMediaProvider, PostCreationParams, SocialMediaPost } from './providers/base/ISocialMediaProvider';
+import { 
+  ISocialMediaProvider, 
+  PostCreationParams, 
+  SocialMediaPost,
+  Comment,
+  PostMetrics,
+  AccountAnalytics
+} from './providers/base/ISocialMediaProvider';
 import { ulid } from 'ulid';
 
 // Following IMPLEMENTATION_GUIDELINES.md - service orchestration pattern
@@ -400,6 +407,266 @@ export class SocialMediaService {
         }
       });
 
+      throw error;
+    }
+  }
+
+  // Comment and engagement methods
+  async getComments(
+    agentId: string,
+    connectionId: string,
+    postId: string,
+    options: { limit?: number } = {}
+  ): Promise<Comment[]> {
+    const hasPermission = await this.validateAgentPermissions(
+      agentId,
+      connectionId,
+      [SocialMediaCapability.COMMENT_READ]
+    );
+
+    if (!hasPermission) {
+      throw new SocialMediaError(
+        'Agent does not have permission to read comments',
+        'INSUFFICIENT_PERMISSIONS',
+        { agentId, connectionId }
+      );
+    }
+
+    const connection = await this.database.getConnection(connectionId);
+    if (!connection) {
+      throw new SocialMediaError('Connection not found', 'CONNECTION_NOT_FOUND', { connectionId });
+    }
+
+    const provider = this.getProvider(connection.provider);
+    
+    try {
+      return await provider.getComments(connectionId, postId);
+    } catch (error) {
+      await this.database.logAction({
+        timestamp: new Date(),
+        agentId,
+        connectionId,
+        action: 'read',
+        platform: connection.provider,
+        result: 'failure',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        ipAddress: 'system',
+        userAgent: 'AgentSwarm/1.0',
+        metadata: { postId, action: 'getComments' }
+      });
+      throw error;
+    }
+  }
+
+  async replyToComment(
+    agentId: string,
+    connectionId: string,
+    commentId: string,
+    content: string
+  ): Promise<Comment> {
+    const hasPermission = await this.validateAgentPermissions(
+      agentId,
+      connectionId,
+      [SocialMediaCapability.COMMENT_CREATE]
+    );
+
+    if (!hasPermission) {
+      throw new SocialMediaError(
+        'Agent does not have permission to create comments',
+        'INSUFFICIENT_PERMISSIONS',
+        { agentId, connectionId }
+      );
+    }
+
+    const connection = await this.database.getConnection(connectionId);
+    if (!connection) {
+      throw new SocialMediaError('Connection not found', 'CONNECTION_NOT_FOUND', { connectionId });
+    }
+
+    const provider = this.getProvider(connection.provider);
+    
+    try {
+      const reply = await provider.replyToComment(connectionId, commentId, content);
+
+      await this.database.logAction({
+        timestamp: new Date(),
+        agentId,
+        connectionId,
+        action: 'post',
+        platform: connection.provider,
+        content: { text: content },
+        result: 'success',
+        ipAddress: 'system',
+        userAgent: 'AgentSwarm/1.0',
+        metadata: { 
+          commentId,
+          replyId: reply.id,
+          action: 'replyToComment'
+        }
+      });
+
+      return reply;
+    } catch (error) {
+      await this.database.logAction({
+        timestamp: new Date(),
+        agentId,
+        connectionId,
+        action: 'post',
+        platform: connection.provider,
+        result: 'failure',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        ipAddress: 'system',
+        userAgent: 'AgentSwarm/1.0',
+        metadata: { commentId, content, action: 'replyToComment' }
+      });
+      throw error;
+    }
+  }
+
+  async likePost(
+    agentId: string,
+    connectionId: string,
+    postId: string
+  ): Promise<void> {
+    const hasPermission = await this.validateAgentPermissions(
+      agentId,
+      connectionId,
+      [SocialMediaCapability.LIKE_CREATE]
+    );
+
+    if (!hasPermission) {
+      throw new SocialMediaError(
+        'Agent does not have permission to like posts',
+        'INSUFFICIENT_PERMISSIONS',
+        { agentId, connectionId }
+      );
+    }
+
+    const connection = await this.database.getConnection(connectionId);
+    if (!connection) {
+      throw new SocialMediaError('Connection not found', 'CONNECTION_NOT_FOUND', { connectionId });
+    }
+
+    const provider = this.getProvider(connection.provider);
+    
+    try {
+      await provider.likePost(connectionId, postId);
+
+      await this.database.logAction({
+        timestamp: new Date(),
+        agentId,
+        connectionId,
+        action: 'like',
+        platform: connection.provider,
+        result: 'success',
+        ipAddress: 'system',
+        userAgent: 'AgentSwarm/1.0',
+        metadata: { postId, action: 'likePost' }
+      });
+    } catch (error) {
+      await this.database.logAction({
+        timestamp: new Date(),
+        agentId,
+        connectionId,
+        action: 'like',
+        platform: connection.provider,
+        result: 'failure',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        ipAddress: 'system',
+        userAgent: 'AgentSwarm/1.0',
+        metadata: { postId, action: 'likePost' }
+      });
+      throw error;
+    }
+  }
+
+  // Analytics methods
+  async getPostMetrics(
+    agentId: string,
+    connectionId: string,
+    postId: string
+  ): Promise<PostMetrics> {
+    const hasPermission = await this.validateAgentPermissions(
+      agentId,
+      connectionId,
+      [SocialMediaCapability.METRICS_READ]
+    );
+
+    if (!hasPermission) {
+      throw new SocialMediaError(
+        'Agent does not have permission to read metrics',
+        'INSUFFICIENT_PERMISSIONS',
+        { agentId, connectionId }
+      );
+    }
+
+    const connection = await this.database.getConnection(connectionId);
+    if (!connection) {
+      throw new SocialMediaError('Connection not found', 'CONNECTION_NOT_FOUND', { connectionId });
+    }
+
+    const provider = this.getProvider(connection.provider);
+    
+    try {
+      return await provider.getPostMetrics(connectionId, postId);
+    } catch (error) {
+      await this.database.logAction({
+        timestamp: new Date(),
+        agentId,
+        connectionId,
+        action: 'read',
+        platform: connection.provider,
+        result: 'failure',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        ipAddress: 'system',
+        userAgent: 'AgentSwarm/1.0',
+        metadata: { postId, action: 'getPostMetrics' }
+      });
+      throw error;
+    }
+  }
+
+  async getAccountAnalytics(
+    agentId: string,
+    connectionId: string,
+    timeframe: string
+  ): Promise<AccountAnalytics> {
+    const hasPermission = await this.validateAgentPermissions(
+      agentId,
+      connectionId,
+      [SocialMediaCapability.ANALYTICS_READ]
+    );
+
+    if (!hasPermission) {
+      throw new SocialMediaError(
+        'Agent does not have permission to read analytics',
+        'INSUFFICIENT_PERMISSIONS',
+        { agentId, connectionId }
+      );
+    }
+
+    const connection = await this.database.getConnection(connectionId);
+    if (!connection) {
+      throw new SocialMediaError('Connection not found', 'CONNECTION_NOT_FOUND', { connectionId });
+    }
+
+    const provider = this.getProvider(connection.provider);
+    
+    try {
+      return await provider.getAccountAnalytics(connectionId, timeframe);
+    } catch (error) {
+      await this.database.logAction({
+        timestamp: new Date(),
+        agentId,
+        connectionId,
+        action: 'read',
+        platform: connection.provider,
+        result: 'failure',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        ipAddress: 'system',
+        userAgent: 'AgentSwarm/1.0',
+        metadata: { timeframe, action: 'getAccountAnalytics' }
+      });
       throw error;
     }
   }

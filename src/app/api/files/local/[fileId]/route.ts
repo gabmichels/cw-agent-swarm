@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getStorageConfig } from '@/lib/storage/config';
 import * as fs from 'fs';
 import * as path from 'path';
-import prisma from '@/lib/prisma';
+import { prisma } from '@/lib/prisma';
 import sharp from 'sharp';
 
 // Cache of base64 encoded files to improve performance
@@ -147,7 +147,9 @@ async function getOrCreateBase64Data(fileId: string): Promise<{ base64: string, 
     
     // Get file from database to determine MIME type
     const attachment = await prisma.chatAttachment.findFirst({
-      where: { fileId }
+      where: { 
+        url: { contains: fileId }
+      }
     });
     
     // Default MIME type if not found in database
@@ -159,7 +161,7 @@ async function getOrCreateBase64Data(fileId: string): Promise<{ base64: string, 
     // Optimize if it's an image
     const { buffer: optimizedBuffer, mimeType } = await optimizeImageForVision(
       fileBuffer, 
-      attachment?.fileType || defaultMimeType
+      attachment?.type || defaultMimeType
     );
     
     // Convert to base64
@@ -266,7 +268,9 @@ export async function GET(
     
     // Verify this is a valid file request by checking in the database
     const attachment = await prisma.chatAttachment.findFirst({
-      where: { fileId }
+      where: { 
+        url: { contains: fileId }
+      }
     });
     
     if (!attachment) {
@@ -312,8 +316,8 @@ export async function GET(
     // Return the file with appropriate content type
     return new NextResponse(new Uint8Array(fileBuffer), {
       headers: {
-        'Content-Type': attachment.fileType || 'application/octet-stream',
-        'Content-Disposition': `inline; filename="${attachment.fileName}"`,
+        'Content-Type': attachment.type || 'application/octet-stream',
+        'Content-Disposition': `inline; filename="file-${fileId}"`,
         // Add cache control headers to improve performance
         'Cache-Control': 'public, max-age=86400',
         // Add CORS headers to allow access from OpenAI's vision API

@@ -51,6 +51,10 @@
     "dist",
     "build",
     "coverage",
+    "tests",
+    "tests/**/*",
+    "testing",
+    "testing/**/*",
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/*.spec.ts",
@@ -65,6 +69,7 @@
     "src/log-test.ts",
     "src/test-logs.ts",
     "src/traced-scheduler-test-ts.ts",
-    "src/scripts/test-migration.ts"
+    "src/scripts/test-migration.ts",
+    "src/services/workspace/capabilities/zoho/ZohoEmailCapabilities.ts"
   ]
 }

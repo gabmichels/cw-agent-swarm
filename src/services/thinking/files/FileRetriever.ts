@@ -88,10 +88,11 @@ export class FileRetriever {
       
       // Apply tag filtering if provided
       if (options.tags && options.tags.length > 0) {
-        filteredFiles = filteredFiles.filter(file => 
-          file.metadata?.tags && 
-          options.tags?.some(tag => file.metadata?.tags.includes(tag))
-        );
+        filteredFiles = filteredFiles.filter(file => {
+          const metadata = file.metadata as { tags?: string[] };
+          return Array.isArray(metadata?.tags) && 
+            options.tags?.some(tag => metadata.tags!.includes(tag));
+        });
       }
       
       // Apply date range filtering if provided

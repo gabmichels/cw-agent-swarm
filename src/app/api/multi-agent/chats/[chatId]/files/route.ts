@@ -7,7 +7,7 @@ import { getOrCreateThreadInfo, createResponseThreadInfo } from '../../../../cha
 import { AgentService } from '../../../../../../services/AgentService';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
 import { getFileService, StoredFile } from '@/lib/storage';
-import prisma from '@/lib/prisma';
+import { prisma } from '@/lib/prisma';
 import { MessageAttachment as MetadataMessageAttachment } from '@/types/metadata';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -261,20 +261,16 @@ export async function POST(
           where: { id: chatId },
           update: {}, // No updates needed if it exists
           create: {
-            id: chatId,
-            title: `Chat ${chatId.substring(0, 8)}...` // Generate a simple title
+            id: chatId
           }
         });
         
-        // Save file reference in database
+        // Save file reference in database with new schema
         await prisma.chatAttachment.create({
           data: {
             chatId,
-            fileId: file.id,
-            fileName: file.originalName,
-            fileType: file.contentType,
-            fileSize: file.size,
-            storageUrl: url
+            type: file.contentType,
+            url: url
           }
         });
         
@@ -298,10 +294,10 @@ export async function POST(
       await client.initialize();
     }
     
-    // Create structured IDs
-    const userStructuredId = createUserId(userId);
-    const agentStructuredId = createAgentId(agentId);
-    const chatStructuredId = createChatId(chatId);
+    // Use user-provided IDs directly (they should already be ULID strings)
+    const userIdString = userId;
+    const agentIdString = agentId;
+    const chatIdString = chatId;
     
     // Create thread info for user message
     const userThreadInfo = getOrCreateThreadInfo(chatId, 'user');
@@ -353,9 +349,9 @@ export async function POST(
       memoryService,
       messageContent,
       MessageRole.USER,
-      userStructuredId,
-      agentStructuredId,
-      chatStructuredId,
+      userIdString,
+      agentIdString,
+      chatIdString,
       userThreadInfo,
       {
         attachments: messageAttachments,
@@ -593,9 +589,9 @@ export async function POST(
       memoryService,
       responseContent,
       MessageRole.ASSISTANT,
-      userStructuredId,
-      agentStructuredId,
-      chatStructuredId,
+              userIdString,
+        agentIdString,
+        chatIdString,
       assistantThreadInfo,
       {
         messageType: 'assistant_response_to_file',

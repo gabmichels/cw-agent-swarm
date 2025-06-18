@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
 import { MessageMetadata, MessageRole, ThreadInfo } from '../../../../types/metadata';
-import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../../types/structured-id';
+import { generateSystemUserId, generateSystemAgentId, generateChatId } from '../../../../lib/core/id-generation';
 
 export const runtime = 'nodejs';
 
@@ -105,10 +105,10 @@ export async function POST(req: NextRequest) {
       // If message doesn't exist in memory yet, create a new entry with unreliable flag
       console.log('Creating new memory entry with unreliable flag');
       
-      // Create structured IDs
-      const systemUserId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.USER, 'system');
-      const systemAgentId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.AGENT, 'system');
-      const systemChatId = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.CHAT, 'flagged-content');
+      // Create ULID strings following arch-refactor-guidelines
+      const systemUserId = generateSystemUserId();
+      const systemAgentId = generateSystemAgentId();
+      const systemChatId = generateChatId();
       
       // Create default thread info
       const threadInfo: ThreadInfo = {

@@ -418,7 +418,10 @@ export class MemoryRetriever {
       const tagMatchScore = this.calculateTagMatchScore(memory.tags, queryTags);
       
       // Calculate recency score (0-1.0 range)
-      const timestamp = memory.metadata?.timestamp || memory.addedAt.getTime();
+      const metadataTimestamp = memory.metadata?.timestamp;
+      const timestamp = typeof metadataTimestamp === 'number' ? metadataTimestamp : 
+                       typeof metadataTimestamp === 'string' ? new Date(metadataTimestamp).getTime() :
+                       memory.addedAt.getTime();
       const recencyScore = timestamp > recentTimestamp ? 1.0 : 0.5;
       
       // Calculate content value score (0-1.0 range)
@@ -968,8 +971,8 @@ export class MemoryRetriever {
       // Get memory services
       const { searchService } = await getMemoryServices();
       
-      // Extract the actual message ID from the StructuredId
-      const messageId = replyContext.messageId.id;
+      // Extract the actual message ID (it's already a string)
+      const messageId = replyContext.messageId;
       
       // Check if the referenced message is already in our memory list
       const existingMessage = memories.find(memory => memory.id === messageId);

@@ -143,7 +143,7 @@ export async function GET(
         };
       } catch (decryptError) {
         console.error('❌ Token decryption failed:', decryptError);
-        throw new Error(`Token decryption failed: ${decryptError.message}`);
+        throw new Error(`Token decryption failed: ${decryptError instanceof Error ? decryptError.message : String(decryptError)}`);
       }
 
       // Pass the credentials to the database - it will handle encryption
@@ -155,7 +155,7 @@ export async function GET(
         accountDisplayName: tokenData.accountDisplayName,
         accountUsername: tokenData.accountUsername,
         accountType: accountType,
-        encryptedCredentials: credentials, // Database will encrypt these
+        encryptedCredentials: JSON.stringify(credentials), // Database expects string format
         scopes: tokenData.scopes,
         connectionStatus: SocialMediaConnectionStatus.ACTIVE,
         metadata: {},

@@ -457,6 +457,55 @@ export interface DocumentMetadata extends BaseMetadata {
 }
 
 /**
+ * File metadata interface for file processing and relevance scoring
+ */
+export interface FileMetadata extends BaseMetadata {
+  // File identification
+  fileName: string;
+  filePath?: string;
+  fileType: string;
+  mimeType?: string;
+  
+  // File properties
+  fileSize: number;           // Size in bytes
+  createdAt: string | Date;   // Creation timestamp
+  lastModified?: string | Date; // Last modification timestamp
+  
+  // Content analysis
+  contentSnippets: string[];  // Text snippets from the file
+  keyTerms?: string[];        // Extracted key terms
+  contentSummary?: string;    // Brief summary of file contents
+  
+  // Processing metadata
+  processingStatus?: 'pending' | 'processed' | 'failed';
+  indexedAt?: string;         // When file was indexed
+  lastScanned?: string;       // Last time file was scanned
+  
+  // User feedback and scoring
+  userFeedback?: {
+    upvotes: number;
+    downvotes: number;
+    relevanceScore?: number;
+    lastFeedbackAt?: string;
+  };
+  
+  // File relationships
+  relatedFiles?: string[];    // IDs of related files
+  duplicateOf?: string;       // ID if this is a duplicate
+  
+  // Domain-specific categorization
+  domain?: string;
+  subDomain?: string;
+  
+  // Access and usage tracking
+  accessCount?: number;
+  lastAccessed?: string;
+  
+  // File-specific tags for organization
+  tags?: string[];
+}
+
+/**
  * Social media metadata interface
  */
 export interface SocialMediaMetadata extends BaseMetadata {

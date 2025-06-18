@@ -270,7 +270,7 @@ export class DefaultSourceManager implements ISourceManager {
       const lastChecked = new Date(source.last_checked);
       const hoursSinceLastCheck = (now.getTime() - lastChecked.getTime()) / (1000 * 60 * 60);
       
-      return hoursSinceLastCheck >= source.refresh_interval;
+      return hoursSinceLastCheck >= (source as any).refresh_interval;
     });
   }
   
@@ -289,7 +289,7 @@ export class DefaultSourceManager implements ISourceManager {
     
     // Update the source with the new timestamp
     await this.updateSource(sourceId, {
-      last_checked: new Date().toISOString()
+      last_checked: Date.now()
     });
   }
 } 

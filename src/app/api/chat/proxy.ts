@@ -12,9 +12,8 @@ import { STORAGE_KEYS, DEFAULTS } from '../../../constants/qdrant';
 import { MemorySource } from '../../../constants/memory';
 import { addMessageMemory } from '../../../server/memory/services/memory/memory-service-wrappers';
 import { createThreadInfo } from '../../../server/memory/services/helpers/metadata-helpers';
-import { createUserId, createAgentId, createChatId } from '../../../types/structured-id';
+import { generateUserId, generateAgentId, generateChatId } from '../../../lib/core/id-generation';
 import { MessageRole } from '../../../agents/shared/types/MessageTypes';
-import { generateChatId } from '../../../utils/uuid';
 import { getChatService } from '../../../server/memory/services/chat-service';
 import { getOrCreateThreadInfo, createResponseThreadInfo } from './thread/helper';
 import { AgentService } from '../../../services/AgentService';
@@ -296,9 +295,9 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
         // Convert role to the right format
         const messageRole = role === 'user' ? MessageRole.USER : MessageRole.ASSISTANT;
         
-        // Create structured IDs
-        const userStructuredId = createUserId(userId || 'default');
-        const agentStructuredId = createAgentId('assistant');
+        // Create ULID strings following arch-refactor-guidelines
+        const userStructuredId = userId || 'default';
+        const agentStructuredId = 'assistant';
         
         // Get or create a chat session for this user-agent pair
         let chatSession;
@@ -336,12 +335,12 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
             });
           }
           
-          // Create a structured chat ID
-          chatStructuredId = createChatId(chatId);
+          // Use chatId directly as string following arch-refactor-guidelines
+          chatStructuredId = chatId;
         } catch (error) {
           console.warn('Error checking/creating chat session:', error);
-          // Create a fallback structured ID
-          chatStructuredId = createChatId(chatId);
+          // Use chatId directly as string
+          chatStructuredId = chatId;
           
           // Create a minimal fallback session object to avoid null errors
           chatSession = {
@@ -606,9 +605,9 @@ export async function POST(req: Request) {
         // Use the UUID directly - no longer need to create a structured ID from it
         const chatId = chatSession.id;
         
-        // Create structured IDs for user and agent
-        const userStructuredId = createUserId(userId || 'default');
-        const agentStructuredId = createAgentId('assistant');
+        // Use string IDs directly following arch-refactor-guidelines
+        const userStructuredId = userId || 'default';
+        const agentStructuredId = 'assistant';
         
         // Create thread info
         const threadInfo = createThreadInfo(`thread_${Date.now()}`, 0);

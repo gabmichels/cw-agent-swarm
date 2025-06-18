@@ -13,8 +13,8 @@ import {
   AgentTaskExecutor as IAgentTaskExecutor, 
   AgentTaskError 
 } from '../../interfaces/AgentTaskHandler.interface';
-import { PlanAndExecuteOptions } from '../../../../agents/chloe/planAndExecute';
-import { PlanningState } from '../../../../agents/chloe/graph/nodes/types';
+import { PlanAndExecuteOptions } from '../../../../lib/shared/types/agentTypes';
+import { PlanningState } from '../../../../app/debug/graph/types';
 import { PlanExecutionResult } from '../../../../agents/shared/base/managers/PlanningManager.interface';
 import { createLogger } from '@/lib/logging/winston-logger';
 
@@ -435,11 +435,11 @@ export class AgentTaskExecutor implements IAgentTaskExecutor {
 
     try {
       // Determine if execution was successful
-      const successful = agentResult?.task?.status === 'complete' || Boolean(agentResult?.finalResult);
+      const successful = agentResult?.task?.status === 'completed' || Boolean(agentResult?.finalResult);
       
       // Map agent status to task status
       let status: TaskStatus;
-      if (agentResult?.task?.status === 'complete') {
+      if (agentResult?.task?.status === 'completed') {
         status = TaskStatus.COMPLETED;
       } else if (agentResult?.task?.status === 'failed') {
         status = TaskStatus.FAILED;

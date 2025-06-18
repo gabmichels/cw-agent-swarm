@@ -202,8 +202,8 @@ export async function GET(
         id: point.id,
         content: payload.text,
         sender: {
-          id: metadata.role === 'user' ? metadata.userId?.id || 'unknown' : metadata.agentId?.id || 'unknown',
-          name: metadata.role === 'user' ? 'You' : metadata.agentId?.id || 'Assistant',
+          id: metadata.role === 'user' ? metadata.userId || 'unknown' : metadata.agentId || 'unknown',
+          name: metadata.role === 'user' ? 'You' : metadata.agentId || 'Assistant',
           role: metadata.role || 'assistant'
         },
         // Convert numeric string timestamps to numbers for the client
@@ -387,10 +387,10 @@ export async function POST(
       console.log('🧪 DEBUG: Fallback chat session created:', !!chatSession);
     }
     
-    // Create structured IDs
-    const userStructuredId = createUserId(actualUserId);
-    const agentStructuredId = createAgentId(actualAgentId);
-    const chatStructuredId = createChatId(chatId);
+    // Use user-provided IDs directly (they should already be ULID strings)
+    const userIdString = actualUserId;
+    const agentIdString = actualAgentId;
+    const chatIdString = chatId;
 
     // Process any attachments
     let processedAttachments = attachments;
@@ -512,15 +512,15 @@ export async function POST(
       memoryService,
       content,
       MessageRole.USER,
-      userStructuredId,
-      agentStructuredId,
-      chatStructuredId,
+      userIdString,
+      agentIdString,
+      chatIdString,
       userThreadInfo,
       {
         attachments: processedAttachments,
         messageType: 'user_message',
         metadata: {
-          chatId: chatStructuredId, 
+          chatId: chatIdString, 
           tags: userMessageTags,
           ...(userImportance && { importance: userImportance }),
           ...(userImportanceScore && { importance_score: userImportanceScore }),
@@ -727,14 +727,14 @@ export async function POST(
       memoryService,
       responseContent,
       MessageRole.ASSISTANT,
-      userStructuredId,
-      agentStructuredId,
-      chatStructuredId,
+      userIdString,
+      agentIdString,
+      chatIdString,
       assistantThreadInfo,
       {
         messageType: 'assistant_response',
         metadata: {
-          chatId: chatStructuredId,
+          chatId: chatIdString,
           tags: responseMessageTags,
           category: 'response',
           ...(importance && { importance }),

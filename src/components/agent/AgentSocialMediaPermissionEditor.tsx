@@ -186,7 +186,7 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
   };
 
   const getCapabilityDescription = (capability: SocialMediaCapability): string => {
-    const descriptions: Record<SocialMediaCapability, string> = {
+    const descriptions: Partial<Record<SocialMediaCapability, string>> = {
       [SocialMediaCapability.POST_CREATE]: 'Create and publish posts',
       [SocialMediaCapability.POST_READ]: 'Read and view posts',
       [SocialMediaCapability.POST_EDIT]: 'Edit existing posts',

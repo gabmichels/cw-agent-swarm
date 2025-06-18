@@ -3,7 +3,7 @@
  * Follows implementation guidelines for type safety and structured IDs
  */
 
-import { StructuredId, createStructuredId, EntityNamespace, EntityType } from '../../types/structured-id';
+import { StructuredId, createStructuredId, EntityNamespace, EntityType, structuredIdToString } from '../../types/structured-id';
 import { MessageReplyContext } from '../../types/metadata';
 import { ImportanceLevel } from '../../constants/memory';
 import { MessageRole } from '../../agents/shared/types/MessageTypes';
@@ -21,18 +21,24 @@ export function createMessageReplyContext(
   messageId: StructuredId,
   content: string,
   senderRole: MessageRole,
-  options: Partial<MessageReplyContext> = {}
+  options: {
+    senderAgentId?: StructuredId;
+    senderUserId?: StructuredId;
+    timestamp?: string;
+    importance?: ImportanceLevel;
+    threadId?: string;
+  } = {}
 ): MessageReplyContext {
   const now = new Date().toISOString();
   
   return {
-    messageId,
+    messageId: structuredIdToString(messageId),
     content,
     senderRole,
     timestamp: options.timestamp || now,
     importance: options.importance || ImportanceLevel.MEDIUM, // Use medium importance, let memory retrieval handle prioritization
-    senderAgentId: options.senderAgentId,
-    senderUserId: options.senderUserId,
+    senderAgentId: options.senderAgentId ? structuredIdToString(options.senderAgentId) : undefined,
+    senderUserId: options.senderUserId ? structuredIdToString(options.senderUserId) : undefined,
     threadId: options.threadId,
   };
 }

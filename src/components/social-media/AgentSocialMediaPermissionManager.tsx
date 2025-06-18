@@ -208,7 +208,7 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
   };
 
   const getCapabilityDisplayName = (capability: SocialMediaCapability): string => {
-    const names: Record<SocialMediaCapability, string> = {
+    const names: Partial<Record<SocialMediaCapability, string>> = {
       [SocialMediaCapability.POST_CREATE]: 'Create Posts',
       [SocialMediaCapability.POST_READ]: 'Read Posts',
       [SocialMediaCapability.POST_EDIT]: 'Edit Posts',

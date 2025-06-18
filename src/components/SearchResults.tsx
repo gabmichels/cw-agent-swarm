@@ -111,7 +111,28 @@ const SearchResults: React.FC<SearchResultsProps> = ({
                     {highlightTerm(context, searchQuery)}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {format(timestamp, 'MMM d, yyyy • h:mm a')} • {message.sender.name}
+                    {format(timestamp, 'MMM d, yyyy • h:mm a')} • {(() => {
+                      // Handle different sender formats safely
+                      try {
+                        if (typeof message.sender === 'object' && message.sender) {
+                          if ('name' in message.sender) {
+                            const name = message.sender.name;
+                            return typeof name === 'string' ? name : String(name);
+                          }
+                          if ('id' in message.sender) {
+                            const id = (message.sender as any).id;
+                            return typeof id === 'string' ? id : String(id);
+                          }
+                        }
+                        if (typeof message.sender === 'string') {
+                          return message.sender;
+                        }
+                        return 'Unknown';
+                      } catch (error) {
+                        console.error('Error processing sender in SearchResults:', error, message.sender);
+                        return 'Unknown';
+                      }
+                    })()}
                   </div>
                 </div>
               </div>

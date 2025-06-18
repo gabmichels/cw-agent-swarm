@@ -57,11 +57,11 @@ export class TikTokProvider implements ISocialMediaProvider {
     this.connections.set(connection.id, connection);
   }
 
-  async validateConnection(connectionId: string): Promise<SocialMediaConnectionStatus> {
+  async validateConnection(connectionId: string): Promise<boolean> {
     try {
       const connection = this.connections.get(connectionId);
       if (!connection) {
-        return SocialMediaConnectionStatus.ERROR;
+        return false;
       }
 
       // Test connection with TikTok API
@@ -73,13 +73,9 @@ export class TikTokProvider implements ISocialMediaProvider {
         },
       });
 
-      if (response.ok) {
-        return SocialMediaConnectionStatus.ACTIVE;
-      } else {
-        return SocialMediaConnectionStatus.ERROR;
-      }
+      return response.ok;
     } catch (error) {
-      return SocialMediaConnectionStatus.ERROR;
+      return false;
     }
   }
 
@@ -358,6 +354,329 @@ export class TikTokProvider implements ISocialMediaProvider {
         error as Error
       );
     }
+  }
+
+  // Required interface methods
+  async connect(connectionParams: any): Promise<SocialMediaConnection> {
+    throw new SocialMediaError(
+      'TikTok OAuth connection not implemented - use external OAuth flow',
+      'TIKTOK_OAUTH_NOT_IMPLEMENTED',
+      SocialMediaProvider.TIKTOK
+    );
+  }
+
+  async disconnect(connectionId: string): Promise<void> {
+    try {
+      const connection = this.connections.get(connectionId);
+      if (!connection) {
+        throw new SocialMediaError(
+          'Connection not found',
+          'CONNECTION_NOT_FOUND',
+          SocialMediaProvider.TIKTOK
+        );
+      }
+
+      // Revoke TikTok access token
+      const credentials = JSON.parse(connection.encryptedCredentials);
+      await fetch('https://open-api.tiktok.com/oauth/revoke/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_key: process.env.TIKTOK_CLIENT_KEY || '',
+          client_secret: process.env.TIKTOK_CLIENT_SECRET || '',
+          token: credentials.accessToken
+        })
+      });
+
+      this.connections.delete(connectionId);
+    } catch (error) {
+      throw new SocialMediaError(
+        'Failed to disconnect TikTok account',
+        'TIKTOK_DISCONNECT_FAILED',
+        SocialMediaProvider.TIKTOK,
+        error as Error
+      );
+    }
+  }
+
+  async refreshConnection(connectionId: string): Promise<SocialMediaConnection> {
+    const connection = this.connections.get(connectionId);
+    if (!connection) {
+      throw new SocialMediaError(
+        'Connection not found',
+        'CONNECTION_NOT_FOUND',
+        SocialMediaProvider.TIKTOK
+      );
+    }
+
+    try {
+      const credentials = JSON.parse(connection.encryptedCredentials);
+      
+      // Refresh TikTok access token
+      const response = await fetch('https://open-api.tiktok.com/oauth/refresh_token/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_key: process.env.TIKTOK_CLIENT_KEY || '',
+          client_secret: process.env.TIKTOK_CLIENT_SECRET || '',
+          grant_type: 'refresh_token',
+          refresh_token: credentials.refreshToken
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Token refresh failed');
+      }
+
+      const tokenData = await response.json();
+      
+      // Update connection with new tokens
+      const updatedCredentials = {
+        ...credentials,
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token,
+        expiresAt: Date.now() + (tokenData.expires_in * 1000)
+      };
+
+      const updatedConnection = {
+        ...connection,
+        encryptedCredentials: JSON.stringify(updatedCredentials),
+        updatedAt: new Date()
+      };
+
+      this.connections.set(connectionId, updatedConnection);
+      return updatedConnection;
+    } catch (error) {
+      throw new SocialMediaError(
+        'Failed to refresh TikTok connection',
+        'TIKTOK_REFRESH_FAILED',
+        SocialMediaProvider.TIKTOK,
+        error as Error
+      );
+    }
+  }
+
+  async getScheduledPosts(connectionId: string): Promise<ScheduledPost[]> {
+    // TikTok doesn't have native scheduling API
+    return [];
+  }
+
+  async getDrafts(connectionId: string): Promise<any[]> {
+    // TikTok doesn't have native draft API
+    return [];
+  }
+
+  async getDraft(connectionId: string, draftId: string): Promise<any> {
+    throw new SocialMediaError(
+      'TikTok does not support native drafts',
+      'TIKTOK_DRAFTS_NOT_SUPPORTED',
+      SocialMediaProvider.TIKTOK
+    );
+  }
+
+  async publishDraft(connectionId: string, params: any): Promise<SocialMediaPost> {
+    throw new SocialMediaError(
+      'TikTok does not support native drafts',
+      'TIKTOK_DRAFTS_NOT_SUPPORTED',
+      SocialMediaProvider.TIKTOK
+    );
+  }
+
+  async scheduleDraft(connectionId: string, params: any): Promise<ScheduledPost> {
+    throw new SocialMediaError(
+      'TikTok does not support native drafts or scheduling',
+      'TIKTOK_DRAFTS_NOT_SUPPORTED',
+      SocialMediaProvider.TIKTOK
+    );
+  }
+
+  async getAccountAnalytics(connectionId: string, timeframe: string): Promise<any> {
+    try {
+      const connection = this.connections.get(connectionId);
+      if (!connection) {
+        throw new SocialMediaError(
+          'Connection not found',
+          'CONNECTION_NOT_FOUND',
+          SocialMediaProvider.TIKTOK
+        );
+      }
+
+      const credentials = JSON.parse(connection.encryptedCredentials);
+      
+      // Get account analytics from TikTok Business API
+      const response = await fetch(`https://business-api.tiktok.com/open_api/v1.3/business/get/`, {
+        headers: {
+          'Access-Token': credentials.accessToken,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch analytics');
+      }
+
+      const data = await response.json();
+      
+      return {
+        followerCount: data.data?.business_info?.follower_count || 0,
+        followingCount: data.data?.business_info?.following_count || 0,
+        likesCount: data.data?.business_info?.likes_count || 0,
+        videoCount: data.data?.business_info?.video_count || 0,
+        profileViews: 0, // Not available in basic API
+        engagement: {
+          totalLikes: data.data?.business_info?.likes_count || 0,
+          totalComments: 0, // Requires aggregation
+          totalShares: 0, // Requires aggregation
+          engagementRate: 0.05 // Estimated
+        },
+        timeframe
+      };
+    } catch (error) {
+      throw new SocialMediaError(
+        'Failed to get TikTok account analytics',
+        'TIKTOK_ANALYTICS_FAILED',
+        SocialMediaProvider.TIKTOK,
+        error as Error
+      );
+    }
+  }
+
+  async replyToComment(connectionId: string, commentId: string, content: string): Promise<any> {
+    try {
+      const connection = this.connections.get(connectionId);
+      if (!connection) {
+        throw new SocialMediaError(
+          'Connection not found',
+          'CONNECTION_NOT_FOUND',
+          SocialMediaProvider.TIKTOK
+        );
+      }
+
+      const credentials = JSON.parse(connection.encryptedCredentials);
+      
+      // Reply to comment using TikTok API
+      const response = await fetch('https://open-api.tiktok.com/comment/reply/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${credentials.accessToken}`,
+        },
+        body: JSON.stringify({
+          comment_id: commentId,
+          text: content
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reply to comment');
+      }
+
+      const data = await response.json();
+      
+      return {
+        id: data.data.comment_id,
+        content: content,
+        author: 'current_user',
+        createdAt: new Date(),
+        likes: 0,
+        replies: 0
+      };
+    } catch (error) {
+      throw new SocialMediaError(
+        'Failed to reply to TikTok comment',
+        'TIKTOK_COMMENT_REPLY_FAILED',
+        SocialMediaProvider.TIKTOK,
+        error as Error
+      );
+    }
+  }
+
+  async likePost(connectionId: string, postId: string): Promise<void> {
+    try {
+      const connection = this.connections.get(connectionId);
+      if (!connection) {
+        throw new SocialMediaError(
+          'Connection not found',
+          'CONNECTION_NOT_FOUND',
+          SocialMediaProvider.TIKTOK
+        );
+      }
+
+      const credentials = JSON.parse(connection.encryptedCredentials);
+      
+      // Like post using TikTok API
+      const response = await fetch('https://open-api.tiktok.com/video/like/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${credentials.accessToken}`,
+        },
+        body: JSON.stringify({
+          video_id: postId
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to like post');
+      }
+    } catch (error) {
+      throw new SocialMediaError(
+        'Failed to like TikTok post',
+        'TIKTOK_LIKE_FAILED',
+        SocialMediaProvider.TIKTOK,
+        error as Error
+      );
+    }
+  }
+
+  async sharePost(connectionId: string, postId: string): Promise<void> {
+    try {
+      const connection = this.connections.get(connectionId);
+      if (!connection) {
+        throw new SocialMediaError(
+          'Connection not found',
+          'CONNECTION_NOT_FOUND',
+          SocialMediaProvider.TIKTOK
+        );
+      }
+
+      const credentials = JSON.parse(connection.encryptedCredentials);
+      
+      // Share post using TikTok API
+      const response = await fetch('https://open-api.tiktok.com/video/share/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${credentials.accessToken}`,
+        },
+        body: JSON.stringify({
+          video_id: postId
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to share post');
+      }
+    } catch (error) {
+      throw new SocialMediaError(
+        'Failed to share TikTok post',
+        'TIKTOK_SHARE_FAILED',
+        SocialMediaProvider.TIKTOK,
+        error as Error
+      );
+    }
+  }
+
+  handleError(error: Error): SocialMediaError {
+    return new SocialMediaError(
+      error.message,
+      'TIKTOK_ERROR',
+      SocialMediaProvider.TIKTOK,
+      error
+    );
   }
 
   private calculateEngagementRate(stats: any): number {

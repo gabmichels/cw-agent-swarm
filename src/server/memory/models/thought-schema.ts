@@ -6,7 +6,10 @@
 import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
 import { ThoughtMetadata, CognitiveProcessType } from '../../../types/metadata';
-import { EntityNamespace, EntityType, createEnumStructuredId } from '../../../types/structured-id';
+import { EntityNamespace, EntityType, createEnumStructuredId, structuredIdToString } from '../../../types/structured-id';
+import { z } from 'zod';
+import { ImportanceLevel } from '../../../constants/memory';
+import { generateSystemAgentId } from '../../../lib/core/id-generation';
 
 /**
  * Thought metadata schema (legacy)
@@ -31,11 +34,10 @@ export interface ThoughtSchema extends BaseMemorySchema {
 export const THOUGHT_DEFAULTS: Partial<ThoughtSchema> = {
   type: MemoryType.THOUGHT,
   metadata: {
-    schemaVersion: '1.0.0',
-    source: 'agent',
-    timestamp: Date.now(),
-    intention: 'reasoning',
+    schemaVersion: "1.0.0",
     processType: CognitiveProcessType.THOUGHT,
-    agentId: createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.AGENT, 'default-agent')
+    importance: ImportanceLevel.MEDIUM,
+    agentId: generateSystemAgentId('default-agent'),
+    timestamp: new Date().toISOString()
   }
 }; 

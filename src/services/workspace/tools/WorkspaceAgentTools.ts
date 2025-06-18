@@ -180,7 +180,7 @@ export class WorkspaceAgentTools {
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
-    return CapabilityFactory.createEmailCapabilities(connection.provider);
+    return CapabilityFactory.createEmailCapabilities(connection.provider, connection.id);
   }
 
   /**
@@ -191,7 +191,7 @@ export class WorkspaceAgentTools {
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
-    return CapabilityFactory.createCalendarCapabilities(connection.provider);
+    return CapabilityFactory.createCalendarCapabilities(connection.provider, connection.id);
   }
 
   /**
@@ -202,7 +202,7 @@ export class WorkspaceAgentTools {
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
-    return CapabilityFactory.createSheetsCapabilities(connection.provider);
+    return CapabilityFactory.createSheetsCapabilities(connection.provider, connection.id);
   }
 
   /**
@@ -213,7 +213,7 @@ export class WorkspaceAgentTools {
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
-    return CapabilityFactory.createDriveCapabilities(connection.provider);
+    return CapabilityFactory.createDriveCapabilities(connection.provider, connection.id);
   }
 
   /**
@@ -841,7 +841,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private readSpreadsheetTool: AgentTool<ReadSpreadsheetParams, any> = {
+  public readSpreadsheetTool: AgentTool<ReadSpreadsheetParams, any> = {
     name: "read_spreadsheet",
     description: "Read data from a Google Spreadsheet range",
     parameters: {
@@ -869,7 +869,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private updateSpreadsheetTool: AgentTool<UpdateSpreadsheetParams, any> = {
+  public updateSpreadsheetTool: AgentTool<UpdateSpreadsheetParams, any> = {
     name: "update_spreadsheet",
     description: "Update cells in a Google Spreadsheet",
     parameters: {
@@ -1065,7 +1065,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private shareFileTool: AgentTool<ShareFileParams, any> = {
+  public shareFileTool: AgentTool<ShareFileParams, any> = {
     name: "share_file",
     description: "Share a Google Drive file with other users",
     parameters: {
@@ -1101,6 +1101,39 @@ export class WorkspaceAgentTools {
           role: params.role,
           emailAddress: email
         }))
+      }, params.connectionId, context.agentId);
+    }
+  };
+
+  public uploadFileTool: AgentTool<CreateFileParams, any> = {
+    name: "upload_file",
+    description: "Upload a file to Google Drive",
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Name of the file to upload' },
+        content: { type: 'string', description: 'Content of the file' },
+        parentFolder: { type: 'string', description: 'ID of parent folder (optional)' },
+        connectionId: { type: 'string', description: 'Workspace connection ID' }
+      },
+      required: ['name', 'connectionId']
+    },
+    execute: async (params: CreateFileParams, context: AgentContext) => {
+      const validation = await this.permissionService.validatePermissions(
+        context.agentId,
+        'DRIVE_UPLOAD' as any,
+        params.connectionId
+      );
+      
+      if (!validation.isValid) {
+        throw new Error(validation.error || 'Permission denied for file upload');
+      }
+
+      const driveCapabilities = await this.getDriveCapabilities(params.connectionId);
+      return await driveCapabilities.createFile({
+        name: params.name,
+        content: params.content || '',
+        parents: params.parentFolder ? [params.parentFolder] : undefined
       }, params.connectionId, context.agentId);
     }
   };

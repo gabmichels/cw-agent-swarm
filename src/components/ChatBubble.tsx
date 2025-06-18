@@ -368,13 +368,64 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
     onImageClick(attachment, e);
   };
 
-  // Determine the sender display name
-  let senderName: string;
-  if (typeof message.sender === 'string') {
-    senderName = message.sender === 'You' || message.sender === 'user' ? 'You' : message.sender;
-  } else if (message.sender && typeof message.sender === 'object') {
-    senderName = message.sender.name || (message.sender.role === 'user' ? 'You' : 'Assistant');
-  } else {
+  // Determine the sender display name with better type safety
+  let senderName: string = 'Unknown'; // Initialize with default value
+  
+  try {
+    if (typeof message.sender === 'string') {
+      senderName = message.sender === 'You' || message.sender === 'user' ? 'You' : message.sender;
+    } else if (message.sender && typeof message.sender === 'object') {
+      // Handle standard sender format with name and role
+      if ('name' in message.sender && 'role' in message.sender) {
+        const name = (message.sender as any).name;
+        const role = (message.sender as any).role;
+        
+        if (typeof name === 'string' && name.trim()) {
+          senderName = name;
+        } else if (typeof role === 'string') {
+          senderName = role === 'user' ? 'You' : 'Assistant';
+        } else {
+          senderName = 'Unknown';
+        }
+      }
+      // Handle structured ID format {namespace, type, id}
+      else if ('namespace' in message.sender && 'type' in message.sender && 'id' in message.sender) {
+        const structuredSender = message.sender as any;
+        const id = structuredSender.id;
+        
+        if (typeof id === 'string' && id.trim()) {
+          senderName = id;
+        } else {
+          senderName = 'Unknown';
+        }
+      }
+      // Fallback for any other object format
+      else {
+        console.warn('Unknown sender object format:', message.sender);
+        // Try to extract any string value from the object
+        const values = Object.values(message.sender).filter(v => typeof v === 'string' && v.trim());
+        senderName = values.length > 0 ? String(values[0]) : 'Unknown';
+      }
+    } else if (message.sender === null || message.sender === undefined) {
+      senderName = 'Unknown';
+    } else {
+      // Handle any other type by converting to string
+      senderName = String(message.sender);
+    }
+  } catch (error) {
+    console.error('Error processing sender:', error, message.sender);
+    senderName = 'Unknown';
+  }
+  
+  // Additional safety check - ensure senderName is always a string
+  if (typeof senderName !== 'string') {
+    console.error('senderName is not a string:', senderName, 'Type:', typeof senderName, 'Original sender:', message.sender);
+    senderName = String(senderName) || 'Unknown';
+  }
+  
+  // Final validation - ensure it's not empty
+  if (!senderName || senderName.trim() === '' || senderName === '[object Object]') {
+    console.warn('senderName is empty or invalid:', senderName, 'Original sender:', message.sender);
     senderName = 'Unknown';
   }
     
@@ -747,7 +798,22 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
         <div className={`transition-opacity duration-200 ${showMenu ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <ChatBubbleMenu
             message={{...message, content: currentContent}}
-            isAssistantMessage={message.sender.role === 'assistant'}
+            isAssistantMessage={(() => {
+              // Handle different sender formats safely
+              if (typeof message.sender === 'object' && message.sender) {
+                // Check for standard format with role property
+                if ('role' in message.sender) {
+                  return (message.sender as any).role === 'assistant';
+                }
+                // Check for structured ID format {namespace, type, id}
+                if ('namespace' in message.sender && 'type' in message.sender) {
+                  const structuredSender = message.sender as any;
+                  return structuredSender.namespace === 'agent' || structuredSender.type === 'agent';
+                }
+              }
+              // Default to false for safety
+              return false;
+            })()}
             showVersionControls={messageVersions.length > 1}
             currentVersionIndex={currentVersionIndex}
             totalVersions={messageVersions.length}

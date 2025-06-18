@@ -7,7 +7,7 @@ import { getMemoryServices } from '@/server/memory/services';
 import { AgentMemoryEntity, AgentStatus } from '@/server/memory/schema/agent';
 import { CapabilityMemoryEntity, CapabilityType } from '@/server/memory/schema/capability';
 import { AgentMetadata, AgentStatus as MetadataAgentStatus } from '@/types/metadata';
-import { StructuredId } from '@/types/structured-id';
+import { StructuredId, structuredIdToString } from '@/types/structured-id';
 
 // Extended type to handle the additional fields from the form
 interface ExtendedAgentRegistrationRequest extends AgentRegistrationRequest {
@@ -52,7 +52,7 @@ function createAgentMetadata(
     timestamp: timestamp.toISOString(),
     
     // Agent-specific identification
-    agentId: structuredAgentId,
+    agentId: structuredIdToString(structuredAgentId),
     name: agent.name,
     description: agent.description,
     

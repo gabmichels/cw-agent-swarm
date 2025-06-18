@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fileProcessor } from '../../../../lib/file-processing';
-import prisma from '@/lib/prisma';
+import { prisma } from '@/lib/prisma';
 
 /**
  * POST handler for deleting a file
@@ -41,9 +41,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Also delete from Prisma
+    // Also delete from Prisma - search by URL pattern since fileId doesn't exist
     await prisma.chatAttachment.deleteMany({
-      where: { fileId }
+      where: { 
+        url: { contains: fileId }
+      }
     });
     
     // Return success

@@ -19,14 +19,10 @@ import {
   AnyMemoryService
 } from '../../server/memory/services/memory/memory-service-wrappers';
 import { 
-  createSystemId,
-  createAgentId,
-  createUserId,
-  createChatId,
-  parseStructuredId,
-  EntityType,
-  StructuredId
-} from '../../types/structured-id';
+  generateSystemAgentId,
+  generateSystemUserId,
+  generateSystemChatId
+} from '../core/id-generation';
 import { MessageRole } from '../../agents/shared/types/MessageTypes';
 
 /**
@@ -45,9 +41,9 @@ export async function storeInternalMessageToMemory(
     originTaskId?: string,
     toolUsed?: string,
     importance?: ImportanceLevel,
-    agentId?: string | StructuredId,
-    userId?: string | StructuredId,
-    chatId?: string | StructuredId,
+    agentId?: string,
+    userId?: string,
+    chatId?: string,
     threadId?: string,
     [key: string]: any
   } = {}
@@ -55,24 +51,10 @@ export async function storeInternalMessageToMemory(
   // Default importance
   const importance = metadata.importance || ImportanceLevel.MEDIUM;
   
-  // Create structured IDs or use system entity ID if not provided
-  const agentId: StructuredId = metadata.agentId 
-    ? (typeof metadata.agentId === 'string' && !metadata.agentId.includes(':') 
-        ? createAgentId(metadata.agentId) 
-        : metadata.agentId as StructuredId)
-    : createSystemId(EntityType.AGENT, 'system');
-    
-  const userId: StructuredId = metadata.userId 
-    ? (typeof metadata.userId === 'string' && !metadata.userId.includes(':') 
-        ? createUserId(metadata.userId) 
-        : metadata.userId as StructuredId)
-    : createSystemId(EntityType.USER, 'system');
-    
-  const chatId: StructuredId = metadata.chatId 
-    ? (typeof metadata.chatId === 'string' && !metadata.chatId.includes(':') 
-        ? createChatId(metadata.chatId) 
-        : metadata.chatId as StructuredId)
-    : createSystemId(EntityType.CHAT, 'system');
+  // Use provided IDs or generate system defaults
+  const agentId: string = metadata.agentId || generateSystemAgentId('system');
+  const userId: string = metadata.userId || generateSystemUserId('system');
+  const chatId: string = metadata.chatId || generateSystemChatId('system');
   
   // Create thread info
   const threadInfo = createThreadInfo(

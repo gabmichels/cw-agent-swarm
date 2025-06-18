@@ -14,7 +14,7 @@ export interface FileMetadata {
   /**
    * Unique identifier for the file
    */
-  id: StructuredId;
+  id: string;
   
   /**
    * Display filename
@@ -268,7 +268,7 @@ export interface IFileMetadataStorage {
   /**
    * Get metadata for a file by ID
    */
-  getFileMetadata(fileId: string | StructuredId): Promise<FileMetadata | null>;
+  getFileMetadata(fileId: string): Promise<FileMetadata | null>;
   
   /**
    * Get metadata for all files
@@ -283,7 +283,7 @@ export interface IFileMetadataStorage {
   /**
    * Delete metadata for a file
    */
-  deleteFileMetadata(fileId: string | StructuredId): Promise<boolean>;
+  deleteFileMetadata(fileId: string): Promise<boolean>;
 }
 
 /**
@@ -312,7 +312,7 @@ export interface IFileProcessorService {
   /**
    * Get metadata for a processed file
    */
-  getFileMetadata(fileId: string | StructuredId): Promise<FileMetadata | null>;
+  getFileMetadata(fileId: string): Promise<FileMetadata | null>;
   
   /**
    * Get metadata for all processed files
@@ -322,5 +322,5 @@ export interface IFileProcessorService {
   /**
    * Delete a processed file and its metadata
    */
-  deleteFile(fileId: string | StructuredId): Promise<boolean>;
+  deleteFile(fileId: string): Promise<boolean>;
 } 

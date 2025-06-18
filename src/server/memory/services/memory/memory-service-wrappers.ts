@@ -23,7 +23,7 @@ import {
   TaskStatus,
   TaskPriority
 } from '../../../../types/metadata';
-import { StructuredId } from '../../../../types/structured-id';
+import { generateSystemUserId } from '../../../../lib/core/id-generation';
 import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
 import { MemoryType } from '../../config/types';
 import { ImportanceLevel } from '../../../../constants/memory';
@@ -42,6 +42,7 @@ import {
 } from '../helpers/metadata-helpers';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { MemoryResult } from './types';
+
 
 /**
  * Type definition for either a MemoryService or EnhancedMemoryService
@@ -88,9 +89,9 @@ export async function addMessageMemory(
   memoryService: AnyMemoryService,
   content: string,
   role: MessageRole,
-  userId: StructuredId,
-  agentId: StructuredId,
-  chatId: StructuredId,
+  userId: string,
+  agentId: string,
+  chatId: string,
   threadInfo: ThreadInfo,
   options: {
     messageType?: string;
@@ -107,6 +108,7 @@ export async function addMessageMemory(
 ): Promise<MemoryResult> {
   // Create metadata with proper structure
   const metadata = createMessageMetadata(
+    content,
     role,
     userId,
     agentId,
@@ -142,7 +144,7 @@ export async function addCognitiveProcessMemory(
   memoryService: AnyMemoryService,
   content: string,
   processType: CognitiveProcessType,
-  agentId: StructuredId,
+  agentId: string,
   options: {
     contextId?: string;
     relatedTo?: string[];
@@ -251,8 +253,8 @@ export async function addDocumentMemory(
     contentType?: string;
     fileType?: string;
     url?: string;
-    userId?: StructuredId;
-    agentId?: StructuredId;
+    userId?: string;
+    agentId?: string;
     chunkIndex?: number;
     totalChunks?: number;
     parentDocumentId?: string;
@@ -316,10 +318,10 @@ export async function addTaskMemory(
   title: string,
   status: TaskStatus,
   priority: TaskPriority,
-  createdBy: StructuredId,
+  createdBy: string,
   options: {
     description?: string;
-    assignedTo?: StructuredId;
+    assignedTo?: string;
     dueDate?: string;
     startDate?: string;
     completedDate?: string;
@@ -364,9 +366,9 @@ export async function addTaskMemory(
  * Strongly typed search filters for messages
  */
 export interface MessageSearchFilters {
-  userId?: string | StructuredId;
-  agentId?: string | StructuredId;
-  chatId?: string | StructuredId;
+  userId?: string;
+  agentId?: string;
+  chatId?: string;
   role?: MessageRole;
   threadId?: string;
   messageType?: string;
@@ -395,21 +397,15 @@ export async function searchMessages(
   const metadataFilters: Record<string, any> = {};
   
   if (filters.userId) {
-    metadataFilters['userId.id'] = typeof filters.userId === 'string' 
-      ? filters.userId 
-      : filters.userId.id;
+    metadataFilters['userId.id'] = filters.userId;
   }
   
   if (filters.agentId) {
-    metadataFilters['agentId.id'] = typeof filters.agentId === 'string'
-      ? filters.agentId
-      : filters.agentId.id;
+    metadataFilters['agentId.id'] = filters.agentId;
   }
   
   if (filters.chatId) {
-    metadataFilters['chatId.id'] = typeof filters.chatId === 'string'
-      ? filters.chatId
-      : filters.chatId.id;
+    metadataFilters['chatId.id'] = filters.chatId;
   }
   
   if (filters.role) {
@@ -435,21 +431,15 @@ export async function searchMessages(
   if (isEnhancedMemoryService(memoryService)) {
     // Use the top-level fields for frequently accessed properties
     if (filters.userId) {
-      optimizedFilter.userId = typeof filters.userId === 'string' 
-        ? filters.userId 
-        : filters.userId.id;
+      optimizedFilter.userId = filters.userId;
     }
     
     if (filters.agentId) {
-      optimizedFilter.agentId = typeof filters.agentId === 'string'
-        ? filters.agentId
-        : filters.agentId.id;
+      optimizedFilter.agentId = filters.agentId;
     }
     
     if (filters.chatId) {
-      optimizedFilter.chatId = typeof filters.chatId === 'string'
-        ? filters.chatId
-        : filters.chatId.id;
+      optimizedFilter.chatId = filters.chatId;
     }
     
     if (filters.threadId) {
@@ -487,7 +477,7 @@ export async function searchMessages(
  * Strongly typed search filters for cognitive processes
  */
 export interface CognitiveProcessSearchFilters {
-  agentId?: string | StructuredId;
+  agentId?: string;
   processType?: CognitiveProcessType;
   contextId?: string;
   relatedTo?: string;
@@ -518,9 +508,7 @@ export async function searchCognitiveProcesses(
   const metadataFilters: Record<string, any> = {};
   
   if (filters.agentId) {
-    metadataFilters['agentId.id'] = typeof filters.agentId === 'string'
-      ? filters.agentId
-      : filters.agentId.id;
+    metadataFilters['agentId.id'] = filters.agentId;
   }
   
   if (filters.processType) {
@@ -554,9 +542,7 @@ export async function searchCognitiveProcesses(
   if (isEnhancedMemoryService(memoryService)) {
     // Use the top-level fields for frequently accessed properties
     if (filters.agentId) {
-      optimizedFilter.agentId = typeof filters.agentId === 'string'
-        ? filters.agentId
-        : filters.agentId.id;
+      optimizedFilter.agentId = filters.agentId;
     }
     
     if (filters.importance) {
@@ -611,8 +597,8 @@ export async function searchCognitiveProcesses(
  */
 export interface DocumentSearchFilters {
   source?: DocumentSource;
-  userId?: string | StructuredId;
-  agentId?: string | StructuredId;
+  userId?: string;
+  agentId?: string;
   title?: string;
   fileName?: string;
   contentType?: string;
@@ -647,15 +633,11 @@ export async function searchDocuments(
   }
   
   if (filters.userId) {
-    metadataFilters['userId.id'] = typeof filters.userId === 'string'
-      ? filters.userId
-      : filters.userId.id;
+    metadataFilters['userId'] = filters.userId;
   }
   
   if (filters.agentId) {
-    metadataFilters['agentId.id'] = typeof filters.agentId === 'string'
-      ? filters.agentId
-      : filters.agentId.id;
+    metadataFilters['agentId'] = filters.agentId;
   }
   
   if (filters.title) {
@@ -689,15 +671,11 @@ export async function searchDocuments(
   if (isEnhancedMemoryService(memoryService)) {
     // Use the top-level fields for frequently accessed properties
     if (filters.userId) {
-      optimizedFilter.userId = typeof filters.userId === 'string'
-        ? filters.userId
-        : filters.userId.id;
+      optimizedFilter.userId = filters.userId;
     }
     
     if (filters.agentId) {
-      optimizedFilter.agentId = typeof filters.agentId === 'string'
-        ? filters.agentId
-        : filters.agentId.id;
+      optimizedFilter.agentId = filters.agentId;
     }
     
     if (filters.importance) {
@@ -752,8 +730,8 @@ export interface TaskSearchFilters {
   title?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
-  createdBy?: string | StructuredId;
-  assignedTo?: string | StructuredId;
+  createdBy?: string;
+  assignedTo?: string;
   dueDate?: string;
   parentTaskId?: string;
   importance?: ImportanceLevel;
@@ -793,15 +771,11 @@ export async function searchTasks(
   }
   
   if (filters.createdBy) {
-    metadataFilters['createdBy.id'] = typeof filters.createdBy === 'string'
-      ? filters.createdBy
-      : filters.createdBy.id;
+    metadataFilters['createdBy'] = filters.createdBy;
   }
   
   if (filters.assignedTo) {
-    metadataFilters['assignedTo.id'] = typeof filters.assignedTo === 'string'
-      ? filters.assignedTo
-      : filters.assignedTo.id;
+    metadataFilters['assignedTo'] = filters.assignedTo;
   }
   
   if (filters.dueDate) {
@@ -842,15 +816,11 @@ export async function searchTasks(
     }
     
     if (filters.createdBy) {
-      optimizedFilter.metadata['createdBy.id'] = typeof filters.createdBy === 'string'
-        ? filters.createdBy
-        : filters.createdBy.id;
+      optimizedFilter.metadata.createdBy = filters.createdBy;
     }
     
     if (filters.assignedTo) {
-      optimizedFilter.metadata['assignedTo.id'] = typeof filters.assignedTo === 'string'
-        ? filters.assignedTo
-        : filters.assignedTo.id;
+      optimizedFilter.metadata.assignedTo = filters.assignedTo;
     }
     
     if (filters.dueDate) {
@@ -905,9 +875,9 @@ export interface AgentCommunicationOptions {
 export async function sendAgentToAgentMessage(
   memoryService: AnyMemoryService,
   content: string,
-  senderAgentId: StructuredId,
-  receiverAgentId: StructuredId,
-  chatId: StructuredId,
+  senderAgentId: string,
+  receiverAgentId: string,
+  chatId: string,
   options: AgentCommunicationOptions = {}
 ): Promise<MemoryResult> {
   // Import thread helper to avoid circular dependencies
@@ -915,17 +885,13 @@ export async function sendAgentToAgentMessage(
   
   // Get appropriate thread info
   const threadInfo = getOrCreateThreadInfo(
-    chatId.id, 
+    chatId, 
     'assistant', // Agent-to-agent is always an assistant role
     options.parentMessageId
   );
   
-  // System user (for agent-to-agent communication)
-  const systemUserId = {
-    namespace: 'system',
-    type: 'user',
-    id: 'system'
-  };
+  // System user (for agent-to-agent communication) - now a string
+  const systemUserId = generateSystemUserId('system');
   
   // Add to memory using addMessageMemory with agent-to-agent metadata
   return addMessageMemory(
@@ -939,8 +905,8 @@ export async function sendAgentToAgentMessage(
     {
       messageType: 'agent-communication',
       metadata: {
-        senderAgentId,
-        receiverAgentId,
+        senderAgentId: senderAgentId,
+        receiverAgentId: receiverAgentId,
         communicationType: options.communicationType || 'request',
         priority: options.priority as any || 'normal',
         requiresResponse: options.requiresResponse || false,
@@ -949,4 +915,6 @@ export async function sendAgentToAgentMessage(
       }
     }
   );
-} 
+}
+
+ 

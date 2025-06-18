@@ -127,23 +127,24 @@ export interface AuditEntry {
 }
 
 export interface SocialMediaAuditLog {
-  id: string;                            // ULID
+  id: string;
   timestamp: Date;
-  agentId?: string;                      // ULID - Optional for system actions
-  connectionId: string;                  // ULID
-  action: 'post' | 'schedule' | 'delete' | 'authenticate' | 'permission_grant' | 'permission_revoke';
+  agentId: string;
+  connectionId: string;
+  action: 'post' | 'schedule' | 'delete' | 'authenticate' | 'permission_grant' | 'permission_revoke' | 'read' | 'like' | 'share' | 'comment' | 'analytics';
   platform: SocialMediaProvider;
   content?: {
     text?: string;
     hashtags?: string[];
     media?: string[];
     targetAudience?: string;
+    parameters?: Record<string, unknown>;
   };
-  result: 'success' | 'failure' | 'pending';
+  result: 'success' | 'failure';
   error?: string;
   ipAddress: string;
   userAgent: string;
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, any>;
 }
 
 // NEW: Draft post interfaces

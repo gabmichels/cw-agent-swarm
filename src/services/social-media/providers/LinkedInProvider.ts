@@ -260,7 +260,10 @@ export class LinkedInProvider implements ISocialMediaProvider {
     }
   }
 
-  async schedulePost(connectionId: string, params: PostScheduleParams): Promise<ScheduledPost> {
+  // Overload signatures to satisfy both single-tenant and multi-tenant interfaces
+  async schedulePost(connectionId: string, params: PostScheduleParams): Promise<ScheduledPost>;
+  async schedulePost(tenantId: string, accountId: string, params: PostScheduleParams): Promise<ScheduledPost>;
+  async schedulePost(connectionIdOrTenantId: string, paramsOrAccountId: PostScheduleParams | string, params?: PostScheduleParams): Promise<ScheduledPost> {
     // LinkedIn API doesn't support native scheduling
     throw new SocialMediaError(
       'LinkedIn does not support native post scheduling',
@@ -457,14 +460,16 @@ export class LinkedInProvider implements ISocialMediaProvider {
     return {
       sentiment: 'neutral',
       topics: [],
+      hashtags: [],
+      mentions: [],
+      readabilityScore: 0.7,
+      engagementPrediction: 0,
+      suggestedImprovements: ['Add professional context', 'Include industry hashtags', 'Ask engaging questions'],
       suggestedHashtags: [],
       estimatedReach: 0,
-      engagementPrediction: 0,
       platformOptimization: {
-        linkedin: {
-          score: 0.5,
-          suggestions: ['Add professional context', 'Include industry hashtags', 'Ask engaging questions']
-        }
+        score: 0.5,
+        suggestions: ['Add professional context', 'Include industry hashtags', 'Ask engaging questions']
       }
     };
   }
@@ -625,21 +630,23 @@ export class LinkedInProvider implements ISocialMediaProvider {
   async optimizeContent(content: string, platform: SocialMediaProvider): Promise<OptimizedContent> {
     // Basic LinkedIn content optimization
     return {
+      originalContent: content,
       optimizedContent: content,
-      suggestedHashtags: [],
-      suggestedMentions: [],
-      estimatedPerformance: {
-        engagementRate: 0.05,
-        reach: 1000,
-        impressions: 5000,
-      },
-      optimizationScore: 0.7,
-      suggestions: [
+      platform: platform,
+      improvements: [
         'Add professional context',
         'Include industry-relevant hashtags',
         'Ask thought-provoking questions',
         'Share insights or experiences'
-      ]
+      ],
+      estimatedEngagement: 0.05,
+      suggestedHashtags: [],
+      suggestedMentions: [],
+      estimatedPerformance: {
+        likesEstimate: 50,
+        sharesEstimate: 10,
+        engagementRate: 0.05,
+      }
     };
   }
 

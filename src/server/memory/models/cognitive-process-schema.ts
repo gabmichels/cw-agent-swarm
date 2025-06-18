@@ -16,7 +16,13 @@ import {
   PlanningMetadata,
   CognitiveProcessType
 } from '../../../types/metadata';
-import { StructuredId, createEnumStructuredId, EntityNamespace, EntityType } from '../../../types/structured-id';
+import { StructuredId, createEnumStructuredId, EntityNamespace, EntityType, structuredIdToString } from '../../../types/structured-id';
+import { z } from 'zod';
+import { 
+  ImportanceLevel
+} from '../../../constants/memory';
+import { MessageRole } from '../../../agents/shared/types/MessageTypes';
+import { generateSystemAgentId } from '../../../lib/core/id-generation';
 
 /**
  * Base cognitive process metadata schema
@@ -99,11 +105,7 @@ export interface PlanningSchema extends CognitiveProcessSchema {
 }
 
 // Default agent ID for system assistant
-const DEFAULT_AGENT_ID = createEnumStructuredId(
-  EntityNamespace.SYSTEM,
-  EntityType.AGENT,
-  'assistant'
-);
+const DEFAULT_AGENT_ID = generateSystemAgentId('default-agent');
 
 /**
  * Default values for thought schema
@@ -151,4 +153,41 @@ export const PLANNING_DEFAULTS: Partial<PlanningSchema> = {
     processType: CognitiveProcessType.PLANNING,
     agentId: DEFAULT_AGENT_ID
   }
+};
+
+// Default cognitive process metadata following our naming conventions
+export const defaultCognitiveProcessMetadata = {
+  schemaVersion: '1.0.0',
+  processType: CognitiveProcessType.THOUGHT,
+  contextId: 'default-context',
+  timestamp: new Date().toISOString(),
+  importance: ImportanceLevel.MEDIUM,
+  agentId: DEFAULT_AGENT_ID
+};
+
+export const defaultThoughtMetadata = {
+  schemaVersion: '1.0.0',
+  processType: CognitiveProcessType.THOUGHT,
+  contextId: 'thought-context',
+  timestamp: new Date().toISOString(),
+  importance: ImportanceLevel.MEDIUM,
+  agentId: DEFAULT_AGENT_ID
+};
+
+export const defaultReflectionMetadata = {
+  schemaVersion: '1.0.0',
+  processType: CognitiveProcessType.REFLECTION,
+  contextId: 'reflection-context',
+  timestamp: new Date().toISOString(),
+  importance: ImportanceLevel.MEDIUM,
+  agentId: DEFAULT_AGENT_ID
+};
+
+export const defaultInsightMetadata = {
+  schemaVersion: '1.0.0',
+  processType: CognitiveProcessType.INSIGHT,
+  contextId: 'insight-context',
+  timestamp: new Date().toISOString(),
+  importance: ImportanceLevel.MEDIUM,
+  agentId: DEFAULT_AGENT_ID
 }; 

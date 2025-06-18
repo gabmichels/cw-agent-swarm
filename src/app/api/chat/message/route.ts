@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../server/memory/services';
 import { MemoryType } from '../../../../server/memory/config';
-import prisma from '@/lib/prisma';
+import { prisma } from '@/lib/prisma';
 import { getFileService } from '@/lib/storage';
 
 // Make sure this is server-side only
@@ -190,8 +190,13 @@ export async function DELETE(request: NextRequest) {
           if (fileId) {
             try {
               // First check if this is a valid ID in our database
-              let dbAttachment = await prisma.chatAttachment.findUnique({
-                where: { fileId }
+              // ChatAttachment doesn't have fileId anymore, search by URL pattern
+              let dbAttachment = await prisma.chatAttachment.findFirst({
+                where: { 
+                  url: { 
+                    contains: fileId 
+                  }
+                }
               });
               
               // If not found, try looking up by a more flexible approach
@@ -199,10 +204,7 @@ export async function DELETE(request: NextRequest) {
                 // Try to find by contained text - this might help if the URL format varies
                 const potentialAttachments = await prisma.chatAttachment.findMany({
                   where: {
-                    OR: [
-                      { fileId: { contains: fileId } },
-                      { storageUrl: { contains: fileId } }
-                    ]
+                    url: { contains: fileId }
                   }
                 });
                 
@@ -212,17 +214,17 @@ export async function DELETE(request: NextRequest) {
               }
               
               if (dbAttachment) {
-                console.log(`Deleting file: ${dbAttachment.fileId}`);
+                console.log(`Deleting file: ${fileId}`);
                 
                 // Delete from storage
-                await fileService.deleteFile(dbAttachment.fileId);
+                await fileService.deleteFile(fileId);
                 
                 // Delete from database
                 await prisma.chatAttachment.delete({
                   where: { id: dbAttachment.id }
                 });
                 
-                console.log(`Successfully deleted attachment: ${dbAttachment.fileId}`);
+                console.log(`Successfully deleted attachment: ${fileId}`);
               } else {
                 console.log(`No database record found for attachment: ${fileId}`);
               }

@@ -3,7 +3,7 @@
  */
 import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
-import { MessageMetadata } from '../../../types/metadata';
+import { MessageMetadata, ThreadInfo } from '../../../types/metadata';
 import { MessageRole } from '../../../agents/shared/types/MessageTypes';
 import { 
   IdPrefix, 
@@ -12,8 +12,10 @@ import {
   createAgentId, 
   createChatId, 
   EntityNamespace, 
-  EntityType 
+  EntityType,
+  structuredIdToString
 } from '../../../types/structured-id';
+import { generateUserId, generateAgentId, generateChatId } from '../../../lib/core/id-generation';
 
 /**
  * Message-specific metadata schema
@@ -40,9 +42,9 @@ export const MESSAGE_DEFAULTS: Partial<MessageSchema> = {
     schemaVersion: '1.0.0',
     source: 'system',
     timestamp: Date.now(),
-    userId: createUserId('default-user'),
-    agentId: createAgentId('default-agent'),
-    chatId: createChatId('chat-chloe-gab'),
+    userId: generateUserId('default-user'),
+    agentId: generateAgentId('default-agent'),
+    chatId: generateChatId('chat-chloe-gab'),
     role: MessageRole.ASSISTANT,
     messageType: 'chat',
     thread: {

@@ -115,7 +115,30 @@ const TestSearch: React.FC = () => {
                 : 'bg-gray-800 mr-12'
             }`}
           >
-            <div className="font-bold text-sm mb-1">{message.sender.name}</div>
+            <div className="font-bold text-sm mb-1">
+              {(() => {
+                // Handle different sender formats safely
+                try {
+                  if (typeof message.sender === 'object' && message.sender) {
+                    if ('name' in message.sender) {
+                      const name = message.sender.name;
+                      return typeof name === 'string' ? name : String(name);
+                    }
+                    if ('id' in message.sender) {
+                      const id = (message.sender as any).id;
+                      return typeof id === 'string' ? id : String(id);
+                    }
+                  }
+                  if (typeof message.sender === 'string') {
+                    return message.sender;
+                  }
+                  return 'Unknown';
+                } catch (error) {
+                  console.error('Error processing sender in TestSearch:', error, message.sender);
+                  return 'Unknown';
+                }
+              })()}
+            </div>
             <div>
               {highlightSearchMatches(message.content, searchQuery)}
             </div>

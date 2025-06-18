@@ -190,7 +190,7 @@ export class WorkspaceService {
   /**
    * Get all workspace connections for a user
    */
-  async getUserConnections(userId: string): Promise<WorkspaceConnection[]> {
+  async getUserConnections(userId: string): Promise<Omit<WorkspaceConnection, 'accessToken' | 'refreshToken'>[]> {
     const db = DatabaseService.getInstance();
     const connections = await db.findWorkspaceConnections({ userId });
     return this.sanitizeConnectionsForAPI(connections);
@@ -199,7 +199,7 @@ export class WorkspaceService {
   /**
    * Get all workspace connections for an organization
    */
-  async getOrganizationConnections(organizationId: string): Promise<WorkspaceConnection[]> {
+  async getOrganizationConnections(organizationId: string): Promise<Omit<WorkspaceConnection, 'accessToken' | 'refreshToken'>[]> {
     const db = DatabaseService.getInstance();
     const connections = await db.findWorkspaceConnections({ organizationId });
     return this.sanitizeConnectionsForAPI(connections);
@@ -208,7 +208,7 @@ export class WorkspaceService {
   /**
    * Get all workspace connections (for development/admin purposes)
    */
-  async getAllConnections(): Promise<WorkspaceConnection[]> {
+  async getAllConnections(): Promise<Omit<WorkspaceConnection, 'accessToken' | 'refreshToken'>[]> {
     const db = DatabaseService.getInstance();
     const connections = await db.findWorkspaceConnections({});
     return this.sanitizeConnectionsForAPI(connections);
@@ -217,12 +217,11 @@ export class WorkspaceService {
   /**
    * Sanitize workspace connections for API responses by removing sensitive data
    */
-  private sanitizeConnectionsForAPI(connections: WorkspaceConnection[]): WorkspaceConnection[] {
-    return connections.map(connection => ({
-      ...connection,
-      accessToken: undefined, // Remove sensitive token data
-      refreshToken: undefined // Remove sensitive token data
-    })) as WorkspaceConnection[];
+  private sanitizeConnectionsForAPI(connections: WorkspaceConnection[]): Omit<WorkspaceConnection, 'accessToken' | 'refreshToken'>[] {
+    return connections.map(connection => {
+      const { accessToken, refreshToken, ...sanitizedConnection } = connection;
+      return sanitizedConnection;
+    });
   }
 
   /**

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getFileService } from '@/lib/storage';
 import { getStorageConfig } from '@/lib/storage/config';
 import { StorageProvider } from '@/lib/storage/StorageService';
-import prisma from '@/lib/prisma';
+import { prisma } from '@/lib/prisma';
 
 // Helper function to create a response with CORS headers
 function createCorsResponse(response: Response) {
@@ -51,7 +51,9 @@ export async function GET(
     
     // Verify this is a valid file request
     const attachment = await prisma.chatAttachment.findFirst({
-      where: { fileId }
+      where: { 
+        url: { contains: fileId }
+      }
     });
     
     if (!attachment) {

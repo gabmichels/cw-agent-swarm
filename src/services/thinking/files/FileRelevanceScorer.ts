@@ -1,5 +1,6 @@
 import { FileReference } from '../types';
 import { ExtractedEntity } from '../memory/EntityExtractor';
+import { FileMetadata } from '../../../types/metadata';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 
@@ -155,10 +156,11 @@ Consider:
 
 Respond with ONLY a number between 0.0 and 1.0.`;
 
+      const metadata = file.metadata as unknown as FileMetadata;
       const fileDescription = `File: ${file.name}
 Type: ${file.type}
-Content: ${file.metadata?.contentSnippets?.join('\n') || 'No content available'}
-Tags: ${file.metadata?.tags?.join(', ') || 'No tags'}`;
+Content: ${Array.isArray(metadata?.contentSnippets) ? metadata.contentSnippets.join('\n') : 'No content available'}
+Tags: ${Array.isArray(metadata?.tags) ? metadata.tags.join(', ') : 'No tags'}`;
 
       const messages = [
         new SystemMessage(systemPrompt),
@@ -189,15 +191,16 @@ Tags: ${file.metadata?.tags?.join(', ') || 'No tags'}`;
     matches += queryTerms.filter(term => filename.includes(term)).length;
     
     // Check content snippets
-    if (file.metadata?.contentSnippets) {
-      const content = file.metadata.contentSnippets.join(' ').toLowerCase();
+    const metadata = file.metadata as unknown as FileMetadata;
+    if (Array.isArray(metadata?.contentSnippets)) {
+      const content = metadata.contentSnippets.join(' ').toLowerCase();
       matches += queryTerms.filter(term => content.includes(term)).length;
     }
     
     // Check tags
-    if (file.metadata?.tags) {
-      const tags = file.metadata.tags.join(' ').toLowerCase();
-      matches += queryTerms.filter(term => tags.includes(term)).length;
+    if (Array.isArray(metadata?.tags)) {
+      const tagContent = metadata.tags.join(' ').toLowerCase();
+      matches += queryTerms.filter(term => tagContent.includes(term)).length;
     }
     
     // Normalize score
@@ -209,7 +212,16 @@ Tags: ${file.metadata?.tags?.join(', ') || 'No tags'}`;
    */
   private calculateRecency(file: FileReference): number {
     const now = new Date().getTime();
-    const fileDate = new Date(file.metadata?.createdAt || now).getTime();
+    const metadata = file.metadata as unknown as FileMetadata;
+    const createdAt = metadata?.createdAt;
+    
+    let fileDate: number;
+    if (typeof createdAt === 'string' || typeof createdAt === 'number' || createdAt instanceof Date) {
+      fileDate = new Date(createdAt).getTime();
+    } else {
+      fileDate = now; // Use current time if no valid date
+    }
+    
     const age = now - fileDate;
     
     // Score decreases with age, with a half-life of 30 days
@@ -224,12 +236,13 @@ Tags: ${file.metadata?.tags?.join(', ') || 'No tags'}`;
     file: FileReference,
     queryEntities: ExtractedEntity[]
   ): Promise<number> {
-    if (!file.metadata?.contentSnippets || queryEntities.length === 0) {
+    const metadata = file.metadata as unknown as FileMetadata;
+    if (!Array.isArray(metadata?.contentSnippets) || queryEntities.length === 0) {
       return 0;
     }
     
     // Extract entities from file content
-    const fileContent = file.metadata.contentSnippets.join('\n');
+    const fileContent = metadata.contentSnippets.join('\n');
     const fileEntities = queryEntities.filter(entity => 
       fileContent.toLowerCase().includes(entity.value.toLowerCase())
     );
@@ -268,7 +281,8 @@ Tags: ${file.metadata?.tags?.join(', ') || 'No tags'}`;
    * Prefers medium-sized files over very small or very large ones
    */
   private calculateFileSizeScore(file: FileReference): number {
-    const size = file.metadata?.size || 0;
+    const metadata = file.metadata as unknown as FileMetadata;
+    const size = typeof metadata?.fileSize === 'number' ? metadata.fileSize : 0;
     
     // Size ranges in bytes
     const tooSmall = 100; // 100B
@@ -296,7 +310,8 @@ Tags: ${file.metadata?.tags?.join(', ') || 'No tags'}`;
    * Calculate access frequency score
    */
   private calculateAccessFrequency(file: FileReference): number {
-    const accessCount = file.metadata?.accessCount || 0;
+    const metadata = file.metadata as unknown as FileMetadata;
+    const accessCount = typeof metadata?.accessCount === 'number' ? metadata.accessCount : 0;
     // Score increases with access count but has diminishing returns
     return 1 - Math.exp(-accessCount / 10);
   }
@@ -305,11 +320,14 @@ Tags: ${file.metadata?.tags?.join(', ') || 'No tags'}`;
    * Calculate user feedback score
    */
   private calculateUserFeedback(file: FileReference): number {
-    const feedback = file.metadata?.userFeedback;
-    if (!feedback) return 0.5; // Neutral score if no feedback
+    const metadata = file.metadata as unknown as FileMetadata;
+    const feedback = metadata?.userFeedback;
+    if (!feedback || typeof feedback !== 'object') return 0.5; // Neutral score if no feedback
     
     // Normalize feedback to 0-1 range
-    const { upvotes = 0, downvotes = 0 } = feedback;
+    const upvotes = typeof feedback.upvotes === 'number' ? feedback.upvotes : 0;
+    const downvotes = typeof feedback.downvotes === 'number' ? feedback.downvotes : 0;
+    
     if (upvotes + downvotes === 0) return 0.5;
     
     return upvotes / (upvotes + downvotes);

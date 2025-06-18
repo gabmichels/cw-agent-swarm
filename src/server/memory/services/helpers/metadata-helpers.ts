@@ -40,9 +40,22 @@ import {
   createEnumStructuredId,
   EntityNamespace,
   EntityType,
-  IdPrefix
+  IdPrefix,
+  structuredIdToString
 } from '../../../../types/structured-id';
 import { ContentSummaryGenerator } from '../../../../services/importance/ContentSummaryGenerator';
+import { ulid } from 'ulid';
+import {
+  generateUserId,
+  generateAgentId,
+  generateChatId,
+  generateSystemUserId,
+  generateSystemAgentId,
+  generateSystemChatId,
+  generateMessageId,
+  generateThoughtId,
+  generateTaskId
+} from '../../../../lib/core/id-generation';
 
 /**
  * Current schema version for metadata
@@ -140,111 +153,59 @@ export function validateThreadInfo(threadInfo: Partial<ThreadInfo>): ThreadInfo 
 // ================================
 
 /**
- * Create message metadata with required fields
+ * Create message metadata with string IDs
+ * @param content Message content
+ * @param role Message role
+ * @param userId User ID string
+ * @param agentId Agent ID string
+ * @param chatId Chat ID string
+ * @param threadInfo Thread information
+ * @param options Additional options
+ * @returns Message metadata
  */
 export function createMessageMetadata(
+  content: string,
   role: MessageRole,
-  userId: StructuredId,
-  agentId: StructuredId,
-  chatId: StructuredId,
+  userId: string,
+  agentId: string,
+  chatId: string,
   threadInfo: ThreadInfo,
-  options: Partial<MessageMetadata> = {}
+  options: {
+    messageType?: string;
+    attachments?: Array<{
+      type: string;
+      url?: string;
+      data?: string;
+      filename?: string;
+      contentType?: string;
+    }>;
+    importance?: ImportanceLevel;
+    metadata?: Partial<MessageMetadata>;
+  } = {}
 ): MessageMetadata {
-  return validateMessageMetadata({
-    ...createBaseMetadata(options),
-    role,
+  const baseMetadata: MessageMetadata = {
+    schemaVersion: '1.0.0',
+    // Required MessageMetadata fields
+    role: MessageRole.SYSTEM,
     userId,
     agentId,
     chatId,
     thread: threadInfo,
-    ...options
-  });
-}
-
-/**
- * Validate and normalize message metadata
- */
-export function validateMessageMetadata(metadata: Partial<MessageMetadata>): MessageMetadata {
-  // Validate required fields
-  if (!metadata.role) {
-    throw new Error(`Missing required field: ${MetadataField.ROLE}`);
-  }
-  
-  if (!metadata.userId) {
-    throw new Error(`Missing required field: ${MetadataField.USER_ID}`);
-  }
-  
-  if (!metadata.agentId) {
-    throw new Error(`Missing required field: ${MetadataField.AGENT_ID}`);
-  }
-  
-  if (!metadata.chatId) {
-    throw new Error(`Missing required field: ${MetadataField.CHAT_ID}`);
-  }
-  
-  if (!metadata.thread) {
-    throw new Error(`Missing required field: ${MetadataField.THREAD}`);
-  }
-  
-  const baseMetadata = validateBaseMetadata(metadata);
-  
-  // Create validated metadata
-  const validatedMetadata: MessageMetadata = {
-    ...baseMetadata,
-    role: metadata.role,
-    userId: metadata.userId,
-    agentId: metadata.agentId,
-    chatId: metadata.chatId,
-    thread: validateThreadInfo(metadata.thread)
+    messageType: options.messageType || 'text',
+    attachments: options.attachments || [],
+    timestamp: new Date().toISOString(),
+    
+    // Importance
+    importance: options.importance || ImportanceLevel.MEDIUM,
+    
+    // Memory metadata fields
+    tags: [],
+    
+    // Custom metadata
+    ...options.metadata
   };
-  
-  // Copy optional fields if they exist
-  if (metadata.messageType) {
-    validatedMetadata.messageType = metadata.messageType;
-  }
-  
-  if (metadata.attachments) {
-    validatedMetadata.attachments = metadata.attachments;
-  }
-  
-  if (metadata.source) {
-    validatedMetadata.source = metadata.source;
-  }
-  
-  if (metadata.category) {
-    validatedMetadata.category = metadata.category;
-  }
-  
-  // Multi-agent communication fields
-  if (metadata.senderAgentId) {
-    validatedMetadata.senderAgentId = metadata.senderAgentId;
-  }
-  
-  if (metadata.receiverAgentId) {
-    validatedMetadata.receiverAgentId = metadata.receiverAgentId;
-  }
-  
-  if (metadata.communicationType) {
-    validatedMetadata.communicationType = metadata.communicationType;
-  }
-  
-  if (metadata.priority) {
-    validatedMetadata.priority = metadata.priority;
-  }
-  
-  if (metadata.requiresResponse !== undefined) {
-    validatedMetadata.requiresResponse = metadata.requiresResponse;
-  }
-  
-  if (metadata.responseDeadline) {
-    validatedMetadata.responseDeadline = metadata.responseDeadline;
-  }
-  
-  if (metadata.conversationContext) {
-    validatedMetadata.conversationContext = metadata.conversationContext;
-  }
-  
-  return validatedMetadata;
+
+  return baseMetadata;
 }
 
 /**
@@ -275,20 +236,23 @@ export function createAgentToAgentMessageMetadata(
   );
   
   return createMessageMetadata(
+    '',
     MessageRole.ASSISTANT, // Always assistant role for agent-to-agent
-    systemUserId,
-    senderAgentId,
-    chatId,
+    structuredIdToString(systemUserId),
+    structuredIdToString(senderAgentId),
+    structuredIdToString(chatId),
     threadInfo,
     {
       messageType: 'agent-communication',
-      senderAgentId,
-      receiverAgentId,
-      communicationType: options.communicationType || 'notification',
-      priority: options.priority || MessagePriority.NORMAL,
-      requiresResponse: options.requiresResponse || false,
-      ...(options.responseDeadline ? { responseDeadline: options.responseDeadline } : {}),
-      ...(options.conversationContext ? { conversationContext: options.conversationContext } : {})
+      metadata: {
+        senderAgentId: structuredIdToString(senderAgentId),
+        receiverAgentId: structuredIdToString(receiverAgentId),
+        communicationType: options.communicationType || 'notification',
+        priority: options.priority || MessagePriority.NORMAL,
+        requiresResponse: options.requiresResponse || false,
+        ...(options.responseDeadline ? { responseDeadline: options.responseDeadline } : {}),
+        ...(options.conversationContext ? { conversationContext: options.conversationContext } : {})
+      }
     }
   );
 }
@@ -298,78 +262,52 @@ export function createAgentToAgentMessageMetadata(
 // ================================
 
 /**
- * Create base cognitive process metadata
+ * Create cognitive process metadata with string IDs
+ * @param processType Cognitive process type
+ * @param agentId Agent ID string
+ * @param options Additional options
+ * @returns Cognitive process metadata
  */
 export function createCognitiveProcessMetadata(
   processType: CognitiveProcessType,
-  agentId: StructuredId,
-  options: Partial<CognitiveProcessMetadata> = {}
+  agentId: string,
+  options: {
+    contextId?: string;
+    relatedTo?: string[];
+    influences?: string[];
+    influencedBy?: string[];
+    importance?: ImportanceLevel;
+    metadata?: Partial<CognitiveProcessMetadata>;
+  } = {}
 ): CognitiveProcessMetadata {
-  return validateCognitiveProcessMetadata({
-    ...createBaseMetadata(options),
+  const baseMetadata: CognitiveProcessMetadata = {
+    schemaVersion: '1.0.0',
     processType,
     agentId,
-    ...options
-  });
-}
-
-/**
- * Validate cognitive process metadata
- */
-export function validateCognitiveProcessMetadata(
-  metadata: Partial<CognitiveProcessMetadata>
-): CognitiveProcessMetadata {
-  // Validate required fields
-  if (!metadata.processType) {
-    throw new Error(`Missing required field: ${MetadataField.PROCESS_TYPE}`);
-  }
-  
-  if (!metadata.agentId) {
-    throw new Error(`Missing required field: ${MetadataField.AGENT_ID}`);
-  }
-  
-  const baseMetadata = validateBaseMetadata(metadata);
-  
-  // Create validated metadata
-  const validatedMetadata: CognitiveProcessMetadata = {
-    ...baseMetadata,
-    processType: metadata.processType,
-    agentId: metadata.agentId
+    contextId: options.contextId,
+    relatedTo: options.relatedTo || [],
+    influences: options.influences || [],
+    influencedBy: options.influencedBy || [],
+    timestamp: new Date().toISOString(),
+    
+    // Importance
+    importance: options.importance || ImportanceLevel.MEDIUM,
+    
+    // Memory metadata fields
+    tags: [],
+    
+    // Custom metadata
+    ...options.metadata
   };
-  
-  // Copy optional fields if they exist
-  if (metadata.contextId) {
-    validatedMetadata.contextId = metadata.contextId;
-  }
-  
-  if (metadata.relatedTo) {
-    validatedMetadata.relatedTo = metadata.relatedTo;
-  }
-  
-  if (metadata.influences) {
-    validatedMetadata.influences = metadata.influences;
-  }
-  
-  if (metadata.influencedBy) {
-    validatedMetadata.influencedBy = metadata.influencedBy;
-  }
-  
-  if (metadata.source) {
-    validatedMetadata.source = metadata.source;
-  }
-  
-  if (metadata.category) {
-    validatedMetadata.category = metadata.category;
-  }
-  
-  return validatedMetadata;
+
+  return baseMetadata;
 }
 
 /**
  * Create thought metadata
  */
 export function createThoughtMetadata(
-  agentId: StructuredId,
+  agentId: string,
   options: Partial<ThoughtMetadata> = {}
 ): ThoughtMetadata {
   const baseMetadata = createCognitiveProcessMetadata(
@@ -398,7 +336,7 @@ export function createThoughtMetadata(
  * Create reflection metadata
  */
 export function createReflectionMetadata(
-  agentId: StructuredId,
+  agentId: string,
   options: Partial<ReflectionMetadata> = {}
 ): ReflectionMetadata {
   const baseMetadata = createCognitiveProcessMetadata(
@@ -427,7 +365,7 @@ export function createReflectionMetadata(
  * Create insight metadata
  */
 export function createInsightMetadata(
-  agentId: StructuredId,
+  agentId: string,
   options: Partial<InsightMetadata> = {}
 ): InsightMetadata {
   const baseMetadata = createCognitiveProcessMetadata(
@@ -460,7 +398,7 @@ export function createInsightMetadata(
  * Create planning metadata
  */
 export function createPlanningMetadata(
-  agentId: StructuredId,
+  agentId: string,
   options: Partial<PlanningMetadata> = {}
 ): PlanningMetadata {
   const baseMetadata = createCognitiveProcessMetadata(
@@ -576,98 +514,61 @@ export function createDocumentMetadata(
 // ================================
 
 /**
- * Create task metadata
+ * Create task metadata with string IDs
+ * @param title Task title
+ * @param status Task status
+ * @param priority Task priority
+ * @param createdBy User ID string who created the task
+ * @param options Additional options
+ * @returns Task metadata
  */
 export function createTaskMetadata(
   title: string,
   status: TaskStatus,
   priority: TaskPriority,
-  createdBy: StructuredId,
-  options: Partial<TaskMetadata> = {}
+  createdBy: string,
+  options: {
+    description?: string;
+    assignedTo?: string;
+    dueDate?: string;
+    startDate?: string;
+    completedDate?: string;
+    parentTaskId?: string;
+    subtaskIds?: string[];
+    dependsOn?: string[];
+    blockedBy?: string[];
+    importance?: ImportanceLevel;
+    metadata?: Partial<TaskMetadata>;
+  } = {}
 ): TaskMetadata {
-  const baseMetadata = createBaseMetadata(options);
-  
-  // Generate content summary for better retrieval
-  const contentSummary = options.contentSummary || new ContentSummaryGenerator().generateSummary(
-    options.description || title,
-    { maxLength: 150, contentType: 'task' }
-  );
-  
-  // Convert priority to importance if not explicitly provided
-  let importance = options.importance;
-  let importance_score = options.importance_score;
-  
-  if (!importance && !importance_score) {
-    // Map task priority to ImportanceLevel
-    switch (priority) {
-      case TaskPriority.URGENT:
-        importance = ImportanceLevel.CRITICAL;
-        importance_score = 0.95;
-        break;
-      case TaskPriority.HIGH:
-        importance = ImportanceLevel.HIGH;
-        importance_score = 0.75;
-        break;
-      case TaskPriority.MEDIUM:
-        importance = ImportanceLevel.MEDIUM;
-        importance_score = 0.5;
-        break;
-      case TaskPriority.LOW:
-        importance = ImportanceLevel.LOW;
-        importance_score = 0.25;
-        break;
-    }
-  }
-  
-  const taskMetadata: TaskMetadata = {
-    ...baseMetadata,
+  const baseMetadata: TaskMetadata = {
+    schemaVersion: '1.0.0',
     title,
+    description: options.description || '',
     status,
     priority,
     createdBy,
-    importance,
-    importance_score,
-    contentSummary,
+    assignedTo: options.assignedTo,
+    dueDate: options.dueDate,
+    startDate: options.startDate,
+    completedDate: options.completedDate,
+    parentTaskId: options.parentTaskId,
+    subtaskIds: options.subtaskIds || [],
+    dependsOn: options.dependsOn || [],
+    blockedBy: options.blockedBy || [],
+    timestamp: new Date().toISOString(),
+    
+    // Importance
+    importance: options.importance || ImportanceLevel.MEDIUM,
+    
+    // Memory metadata fields
+    tags: [],
+    
+    // Custom metadata
+    ...options.metadata
   };
-  
-  // Copy optional fields if they exist
-  if (options.description) {
-    taskMetadata.description = options.description;
-  }
-  
-  if (options.assignedTo) {
-    taskMetadata.assignedTo = options.assignedTo;
-  }
-  
-  if (options.dueDate) {
-    taskMetadata.dueDate = options.dueDate;
-  }
-  
-  if (options.startDate) {
-    taskMetadata.startDate = options.startDate;
-  }
-  
-  if (options.completedDate) {
-    taskMetadata.completedDate = options.completedDate;
-  }
-  
-  if (options.parentTaskId) {
-    taskMetadata.parentTaskId = options.parentTaskId;
-  }
-  
-  if (options.subtaskIds) {
-    taskMetadata.subtaskIds = options.subtaskIds;
-  }
-  
-  if (options.dependsOn) {
-    taskMetadata.dependsOn = options.dependsOn;
-  }
-  
-  if (options.blockedBy) {
-    taskMetadata.blockedBy = options.blockedBy;
-  }
-  
-  return taskMetadata;
+
+  return baseMetadata;
 }
 
 // ================================
@@ -717,54 +618,27 @@ export function createTenantContext(
 }
 
 /**
- * Creates a message ID with the structured ID format
- * @returns A structured message ID
+ * Create a message ID string
+ * @returns A message ID string in the format: memory:message:ulid
  */
-export function createMessageId(): StructuredId {
-  return createEnumStructuredId(
-    EntityNamespace.CHAT,
-    EntityType.MESSAGE,
-    `${Date.now()}-${generateRandomString(8)}`
-  );
+export function createMessageId(): string {
+  return generateMessageId();
 }
 
 /**
- * Creates a thought ID with the structured ID format
- * @returns A structured thought ID
+ * Create a thought ID string
+ * @returns A thought ID string in the format: memory:thought:ulid
  */
-export function createThoughtId(): StructuredId {
-  return createEnumStructuredId(
-    EntityNamespace.MEMORY,
-    EntityType.THOUGHT,
-    `${Date.now()}-${generateRandomString(8)}`
-  );
+export function createThoughtId(): string {
+  return generateThoughtId();
 }
 
 /**
- * Creates a chat ID with the structured ID format
- * @returns A structured chat ID
+ * Create a chat ID string
+ * @returns A chat ID string in the format: chat:chat:ulid
  */
-export function createChatId(): StructuredId {
-  return createEnumStructuredId(
-    EntityNamespace.CHAT,
-    EntityType.CHAT,
-    `${Date.now()}-${generateRandomString(8)}`
-  );
-}
-
-/**
- * Generates a random alphanumeric string
- * @param length The length of the string to generate
- * @returns A random alphanumeric string
- */
-function generateRandomString(length: number): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    const randomIndex = Math.floor(Math.random() * chars.length);
-    result += chars.charAt(randomIndex);
-  }
-  return result;
+export function createChatId(): string {
+  return generateChatId();
 }
 
 /**

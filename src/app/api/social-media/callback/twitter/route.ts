@@ -90,12 +90,12 @@ export async function GET(request: NextRequest) {
       accountDisplayName: userProfile.name,
       accountUsername: userProfile.username,
       accountType: (stateData.accountType || 'personal') as 'personal' | 'business',
-      encryptedCredentials: {
+      encryptedCredentials: JSON.stringify({
         access_token: tokenResponse.access_token,
         refresh_token: tokenResponse.refresh_token,
         expires_in: tokenResponse.expires_in,
         token_type: tokenResponse.token_type
-      },
+      }),
       scopes: ['tweet.read', 'tweet.write', 'users.read'], // Twitter OAuth 2.0 default scopes
       connectionStatus: SocialMediaConnectionStatus.ACTIVE,
       metadata: {
@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
     await database.logAction({
       timestamp: new Date(),
       connectionId: connection.id,
-      agentId: undefined,
+      agentId: 'system',
       action: 'authenticate',
       platform: SocialMediaProvider.TWITTER,
       result: 'success',

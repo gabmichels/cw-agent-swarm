@@ -723,9 +723,8 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
           performanceMetrics: formData.metadata.performanceMetrics,
           version: '1.0',
           isPublic: formData.metadata.isPublic,
-          department: formData.metadata.department,
-          subDepartment: formData.metadata.subDepartment,
-          team: formData.metadata.team,
+          knowledgePaths: formData.metadata.knowledgePaths,
+          persona: formData.metadata.persona,
         }
       };
       

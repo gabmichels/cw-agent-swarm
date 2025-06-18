@@ -8,8 +8,8 @@
 import { Task } from '../models/Task.model';
 import { TaskExecutionResult } from '../models/TaskExecutionResult.model';
 import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
-import { PlanAndExecuteOptions } from '../../../agents/chloe/planAndExecute';
-import { PlanningState } from '../../../agents/chloe/graph/nodes/types';
+import { PlanAndExecuteOptions } from '../../../lib/shared/types/agentTypes';
+import { PlanningState } from '../../../app/debug/graph/types';
 
 /**
  * Analysis result from examining a task for execution requirements

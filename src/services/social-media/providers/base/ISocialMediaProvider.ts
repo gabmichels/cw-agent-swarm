@@ -153,6 +153,12 @@ export interface ContentAnalysis {
   readabilityScore: number;
   engagementPrediction: number;
   suggestedImprovements: string[];
+  suggestedHashtags?: string[];
+  estimatedReach?: number;
+  platformOptimization?: {
+    score: number;
+    suggestions: string[];
+  };
 }
 
 export interface OptimizedContent {
@@ -161,6 +167,13 @@ export interface OptimizedContent {
   platform: SocialMediaProvider;
   improvements: string[];
   estimatedEngagement: number;
+  suggestedHashtags?: string[];
+  suggestedMentions?: string[];
+  estimatedPerformance?: {
+    likesEstimate: number;
+    sharesEstimate: number;
+    engagementRate: number;
+  };
 }
 
 // Comment and engagement types
@@ -389,8 +402,8 @@ export class SocialMediaError extends Error {
   }
 }
 
-// NEW: Enhanced provider interface for multi-tenant
-export interface ISocialMediaProvider {
+// Multi-tenant provider interface for enterprise/agency use cases
+export interface IMultiTenantSocialMediaProvider {
   // Multi-tenant connection management
   initiateOAuth(tenantId: string, userId: string, accountType?: string): Promise<{
     authUrl: string;
@@ -419,5 +432,5 @@ export interface ISocialMediaProvider {
   getConnectedAccounts(tenantId: string): Promise<TenantSocialToken[]>;
   validateConnection(tenantId: string, accountId: string): Promise<boolean>;
   
-  // ... existing methods updated with tenant context
+  // Additional multi-tenant methods can be added here as needed
 } 

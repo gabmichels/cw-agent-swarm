@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../../../../server/memory/services';
 import { MessageRole } from '../../../../../../agents/shared/types/MessageTypes';
-import { createUserId, createAgentId, createChatId } from '../../../../../../types/structured-id';
+import { generateSystemUserId, generateAgentId, generateChatId } from '../../../../../../lib/core/id-generation';
 import { addMessageMemory } from '../../../../../../server/memory/services/memory/memory-service-wrappers';
 import { getOrCreateThreadInfo } from '../../../../chat/thread/helper';
 
@@ -45,10 +45,10 @@ export async function POST(
     // Get memory services
     const { memoryService } = await getMemoryServices();
 
-    // Create structured IDs
-    const systemUserId = createUserId('system'); // System user for agent messages  
-    const agentStructuredId = createAgentId(agentId);
-    const chatStructuredId = createChatId(chatId);
+    // Create ULID strings following arch-refactor-guidelines
+    const systemUserId = generateSystemUserId(); // System user for agent messages  
+    const agentStructuredId = agentId; // Use agentId directly as string
+    const chatStructuredId = chatId; // Use chatId directly as string
 
     // Create thread info for agent message
     const threadInfo = getOrCreateThreadInfo(chatId, 'assistant');

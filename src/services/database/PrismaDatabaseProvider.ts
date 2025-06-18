@@ -19,7 +19,11 @@ import {
   ConnectionStatus,
   AccessLevel,
   NotificationStatus,
-  NotificationPriority
+  NotificationPriority,
+  WorkspaceCapabilityType,
+  WorkspaceEventType,
+  WorkspaceAction,
+  ActionResult
 } from './types';
 
 export class PrismaDatabaseProvider implements IDatabaseProvider {
@@ -40,6 +44,38 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
 
   getClient(): PrismaClient {
     return this.client;
+  }
+
+  // Helper methods to convert Prisma results to proper types
+  private convertAgentWorkspacePermission(prismaResult: any): AgentWorkspacePermission {
+    return {
+      ...prismaResult,
+      capability: prismaResult.capability as WorkspaceCapabilityType,
+      accessLevel: prismaResult.accessLevel as AccessLevel,
+      revokedAt: prismaResult.revokedAt || undefined
+    };
+  }
+
+  private convertWorkspaceAuditLog(prismaResult: any): WorkspaceAuditLog {
+    return {
+      ...prismaResult,
+      action: prismaResult.action as WorkspaceAction,
+      capability: prismaResult.capability as WorkspaceCapabilityType,
+      result: prismaResult.result as ActionResult,
+      agentId: prismaResult.agentId || undefined
+    };
+  }
+
+  private convertAgentNotification(prismaResult: any): AgentNotification {
+    return {
+      ...prismaResult,
+      eventType: prismaResult.eventType as WorkspaceEventType,
+      priority: prismaResult.priority as NotificationPriority,
+      status: prismaResult.status as NotificationStatus,
+      processedAt: prismaResult.processedAt || undefined,
+      failedAt: prismaResult.failedAt || undefined,
+      errorMessage: prismaResult.errorMessage || undefined
+    };
   }
 
   // Workspace Connection Operations
@@ -162,29 +198,33 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
 
   // Agent Workspace Permission Operations
   async createAgentWorkspacePermission(input: AgentWorkspacePermissionCreateInput): Promise<AgentWorkspacePermission> {
-    return this.client.agentWorkspacePermission.create({
+    const result = await this.client.agentWorkspacePermission.create({
       data: {
         ...input,
         grantedAt: new Date(),
         lastUsedAt: new Date()
       }
     });
+    
+    return this.convertAgentWorkspacePermission(result);
   }
 
   async getAgentWorkspacePermission(id: string): Promise<AgentWorkspacePermission | null> {
-    return this.client.agentWorkspacePermission.findUnique({
+    const result = await this.client.agentWorkspacePermission.findUnique({
       where: { id }
     });
+    return result ? this.convertAgentWorkspacePermission(result) : null;
   }
 
   async updateAgentWorkspacePermission(id: string, input: AgentWorkspacePermissionUpdateInput): Promise<AgentWorkspacePermission> {
-    return this.client.agentWorkspacePermission.update({
+    const result = await this.client.agentWorkspacePermission.update({
       where: { id },
       data: {
         ...input,
         lastUsedAt: input.lastUsedAt || new Date()
       }
     });
+    return this.convertAgentWorkspacePermission(result);
   }
 
   async deleteAgentWorkspacePermission(id: string): Promise<void> {
@@ -194,30 +234,33 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
   }
 
   async findAgentWorkspacePermissions(query: AgentWorkspacePermissionQuery): Promise<AgentWorkspacePermission[]> {
-    return this.client.agentWorkspacePermission.findMany({
+    const results = await this.client.agentWorkspacePermission.findMany({
       where: query
     });
+    return results.map(result => this.convertAgentWorkspacePermission(result));
   }
 
   // Workspace Audit Log Operations
   async createWorkspaceAuditLog(input: WorkspaceAuditLogCreateInput): Promise<WorkspaceAuditLog> {
-    return this.client.workspaceAuditLog.create({
+    const result = await this.client.workspaceAuditLog.create({
       data: {
         ...input,
         timestamp: new Date()
       }
     });
+    return this.convertWorkspaceAuditLog(result);
   }
 
   async getWorkspaceAuditLog(id: string): Promise<WorkspaceAuditLog | null> {
-    return this.client.workspaceAuditLog.findUnique({
+    const result = await this.client.workspaceAuditLog.findUnique({
       where: { id }
     });
+    return result ? this.convertWorkspaceAuditLog(result) : null;
   }
 
   async findWorkspaceAuditLogs(query: WorkspaceAuditLogQuery): Promise<WorkspaceAuditLog[]> {
     const { fromTimestamp, toTimestamp, ...restQuery } = query;
-    return this.client.workspaceAuditLog.findMany({
+    const results = await this.client.workspaceAuditLog.findMany({
       where: {
         ...restQuery,
         timestamp: {
@@ -229,6 +272,7 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
         timestamp: 'desc'
       }
     });
+    return results.map(result => this.convertWorkspaceAuditLog(result));
   }
 
   async deleteWorkspaceAuditLog(id: string): Promise<void> {
@@ -239,7 +283,7 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
 
   // Agent Notification Operations
   async createAgentNotification(input: AgentNotificationCreateInput): Promise<AgentNotification> {
-    return this.client.agentNotification.create({
+    const result = await this.client.agentNotification.create({
       data: {
         ...input,
         priority: input.priority || NotificationPriority.NORMAL,
@@ -248,12 +292,14 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
         retryCount: 0
       }
     });
+    return this.convertAgentNotification(result);
   }
 
   async getAgentNotification(id: string): Promise<AgentNotification | null> {
-    return this.client.agentNotification.findUnique({
+    const result = await this.client.agentNotification.findUnique({
       where: { id }
     });
+    return result ? this.convertAgentNotification(result) : null;
   }
 
   async updateAgentNotificationStatus(
@@ -268,19 +314,21 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
       ...(status === NotificationStatus.PENDING && { retryCount: { increment: 1 } })
     };
 
-    return this.client.agentNotification.update({
+    const result = await this.client.agentNotification.update({
       where: { id },
       data: updateData
     });
+    return this.convertAgentNotification(result);
   }
 
   async findAgentNotifications(query: AgentNotificationQuery): Promise<AgentNotification[]> {
-    return this.client.agentNotification.findMany({
+    const results = await this.client.agentNotification.findMany({
       where: query,
       orderBy: {
         createdAt: 'desc'
       }
     });
+    return results.map(result => this.convertAgentNotification(result));
   }
 
   async deleteAgentNotification(id: string): Promise<void> {

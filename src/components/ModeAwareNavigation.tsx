@@ -155,7 +155,7 @@ export const ModeAwareNavigation: React.FC<ModeAwareNavigationProps> = ({
     if (href === '/') {
       return pathname === '/';
     }
-    return pathname.startsWith(href);
+    return pathname?.startsWith(href) || false;
   };
 
   const containerClasses = orientation === 'vertical' 
