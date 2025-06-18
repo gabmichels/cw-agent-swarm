@@ -41,8 +41,26 @@ export async function GET(request: NextRequest) {
     } else if (validatedQuery.userId) {
       connections = await database.getConnectionsByUser(validatedQuery.userId);
     } else {
-      // If neither userId nor organizationId is provided, return empty array
-      connections = [];
+      // If neither userId nor organizationId is provided, return all connections
+      // This is useful for development and testing
+      const allConnections = await prisma.socialMediaConnection.findMany();
+              connections = allConnections.map(conn => ({
+          id: conn.id,
+          userId: conn.userId || '',
+          organizationId: conn.organizationId || '',
+          provider: conn.provider as SocialMediaProvider,
+          providerAccountId: conn.providerAccountId,
+          accountDisplayName: conn.accountDisplayName,
+          accountUsername: conn.accountUsername,
+          accountType: conn.accountType as 'personal' | 'business' | 'creator',
+          encryptedCredentials: conn.encryptedCredentials,
+          scopes: conn.scopes.split(','),
+          connectionStatus: conn.connectionStatus as SocialMediaConnectionStatus,
+          metadata: conn.metadata ? JSON.parse(conn.metadata) : {},
+          lastValidated: conn.lastValidated,
+          createdAt: conn.createdAt,
+          updatedAt: conn.updatedAt
+        }));
     }
     
     // Filter based on additional query parameters

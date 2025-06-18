@@ -4,6 +4,7 @@ import { DatabaseService } from '../../database/DatabaseService';
 import { IDatabaseProvider } from '../../database/IDatabaseProvider';
 import { WorkspaceConnection, WorkspaceCapabilityType } from '../../database/types';
 import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
+import { handlePermissionError, withWorkspaceErrorHandling } from '../utils/WorkspaceErrorHandler';
 
 // Email data types
 export interface EmailMessage {
@@ -129,28 +130,33 @@ export class EmailCapabilities {
       connectionId
     );
     
-    if (!validation.isValid) {
-      throw new Error(validation.error || 'Permission denied');
-    }
+    handlePermissionError(validation);
 
     const connection = await this.db.getWorkspaceConnection(connectionId);
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
 
-    const gmail = await this.getGmailClient(connection);
-    
-    try {
-      const response = await gmail.users.messages.get({
-        userId: 'me',
-        id: emailId,
-        format: 'full'
-      });
+    return await withWorkspaceErrorHandling(
+      async () => {
+        const gmail = await this.getGmailClient(connection);
+        
+        const response = await gmail.users.messages.get({
+          userId: 'me',
+          id: emailId,
+          format: 'full'
+        });
 
-      return this.convertToEmailMessage(response.data);
-    } catch (error) {
-      throw new Error(`Failed to read email: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+        return this.convertToEmailMessage(response.data);
+      },
+      {
+        capability: WorkspaceCapabilityType.EMAIL_READ,
+        agentId,
+        connectionId,
+        connectionName: `${connection.displayName} (${connection.email})`,
+        provider: connection.provider
+      }
+    );
   }
 
   /**
@@ -253,37 +259,42 @@ export class EmailCapabilities {
       connectionId
     );
     
-    if (!validation.isValid) {
-      throw new Error(validation.error || 'Permission denied');
-    }
+    handlePermissionError(validation);
 
     const connection = await this.db.getWorkspaceConnection(connectionId);
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
 
-    const gmail = await this.getGmailClient(connection);
-    
-    try {
-      const emailContent = this.buildEmailContent(params, connection.email);
-      const response = await gmail.users.messages.send({
-        userId: 'me',
-        requestBody: {
-          raw: Buffer.from(emailContent).toString('base64url')
-        }
-      });
+    return await withWorkspaceErrorHandling(
+      async () => {
+        const gmail = await this.getGmailClient(connection);
+        
+        const emailContent = this.buildEmailContent(params, connection.email);
+        const response = await gmail.users.messages.send({
+          userId: 'me',
+          requestBody: {
+            raw: Buffer.from(emailContent).toString('base64url')
+          }
+        });
 
-      // Get the sent message details
-      const sentMessage = await gmail.users.messages.get({
-        userId: 'me',
-        id: response.data.id!,
-        format: 'full'
-      });
+        // Get the sent message details
+        const sentMessage = await gmail.users.messages.get({
+          userId: 'me',
+          id: response.data.id!,
+          format: 'full'
+        });
 
-      return this.convertToEmailMessage(sentMessage.data);
-    } catch (error) {
-      throw new Error(`Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+        return this.convertToEmailMessage(sentMessage.data);
+      },
+      {
+        capability: WorkspaceCapabilityType.EMAIL_SEND,
+        agentId,
+        connectionId,
+        connectionName: `${connection.displayName} (${connection.email})`,
+        provider: connection.provider
+      }
+    );
   }
 
   /**

@@ -52,7 +52,7 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
   const loadConnections = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/social-media/connections');
+              const response = await fetch('/api/social-media/connections');
       const data = await response.json();
 
       if (data.success) {

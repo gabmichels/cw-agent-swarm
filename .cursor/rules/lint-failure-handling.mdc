@@ -1,6 +1,13 @@
 ---
-description:
-globs:
-alwaysApply: false
+description: 
+globs: 
+alwaysApply: true
 ---
+---
+# File: .cursor/rules/lint-failure-handling.mdc
+---
+description: Linting retries and failure protocol
+alwaysApply: true
+---
+
 If `npx tsc` or `npm run lint` fails, retry up to 3 times only. If issues persist, state the unresolved problems and request permission to bypass. Avoid looping indefinitely.

@@ -6,6 +6,7 @@ import { IDriveCapabilities } from '../capabilities/interfaces/IDriveCapabilitie
 import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
 import { DatabaseService } from '../../database/DatabaseService';
 import { IDatabaseProvider } from '../../database/IDatabaseProvider';
+import { WorkspaceConnectionsInfoTool } from './WorkspaceConnectionsInfoTool';
 
 // Agent tool interface for LLM function calling
 export interface AgentTool<TParams = any, TResult = any> {
@@ -166,10 +167,12 @@ export interface GetEmailTrendsParams {
 export class WorkspaceAgentTools {
   private permissionService: AgentWorkspacePermissionService;
   private db: IDatabaseProvider;
+  private connectionsInfoTool: WorkspaceConnectionsInfoTool;
 
   constructor() {
     this.permissionService = new AgentWorkspacePermissionService();
     this.db = DatabaseService.getInstance();
+    this.connectionsInfoTool = new WorkspaceConnectionsInfoTool();
   }
 
   /**
@@ -222,6 +225,10 @@ export class WorkspaceAgentTools {
   async getAvailableTools(agentId: string): Promise<AgentTool[]> {
     const capabilities = await this.permissionService.getAgentWorkspaceCapabilities(agentId);
     const tools: AgentTool[] = [];
+
+    // Always add connection info tools - these are needed for the LLM to understand available options
+    tools.push(this.connectionsInfoTool.getAvailableConnectionsTool);
+    tools.push(this.connectionsInfoTool.getAllConnectionsTool);
 
     // Add email tools based on permissions
     const emailCapabilities = capabilities.filter(c => c.capability.includes('EMAIL'));
@@ -317,7 +324,12 @@ export class WorkspaceAgentTools {
       );
       
       if (!validation.isValid) {
-        throw new Error(`Permission denied: ${validation.error}`);
+        const error = validation.workspaceError;
+        if (error) {
+          const { formatWorkspaceErrorForAgent } = await import('../errors/WorkspacePermissionErrors');
+          throw new Error(formatWorkspaceErrorForAgent(error));
+        }
+        throw new Error(validation.error || 'Permission denied');
       }
 
       const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
@@ -430,7 +442,7 @@ export class WorkspaceAgentTools {
 
   public sendEmailTool: AgentTool<SendEmailParams, any> = {
     name: "send_email",
-    description: "Send a new email to specified recipients",
+    description: "Send a new email to specified recipients. IMPORTANT: You must first use 'get_available_workspace_connections' with capability 'EMAIL_SEND' to check what email accounts are available, and either use the autoSelect connectionId or ask the user to choose if multiple options exist.",
     parameters: {
       type: "object",
       properties: {
@@ -454,7 +466,7 @@ export class WorkspaceAgentTools {
         },
         connectionId: { 
           type: "string", 
-          description: "Workspace connection ID to use" 
+          description: "Workspace connection ID to use - get this from get_available_workspace_connections first" 
         }
       },
       required: ["to", "subject", "body", "connectionId"]

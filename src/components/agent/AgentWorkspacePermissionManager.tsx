@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { WorkspaceConnection, WorkspaceCapabilityType, AccessLevel } from '../../services/database/types';
+import { WorkspaceConnection, WorkspaceCapabilityType } from '../../services/database/types';
 import { CheckCircle, AlertCircle, Settings, Mail, Calendar, FileText, BarChart3, Users, Clock } from 'lucide-react';
 
 export interface AgentWorkspacePermissionConfig {
@@ -9,7 +9,6 @@ export interface AgentWorkspacePermissionConfig {
   permissions: {
     [key in WorkspaceCapabilityType]?: {
       enabled: boolean;
-      accessLevel: AccessLevel;
       restrictions?: Record<string, any>;
     };
   };
@@ -112,12 +111,7 @@ const CAPABILITY_DESCRIPTIONS: Partial<Record<WorkspaceCapabilityType, string>> 
   [WorkspaceCapabilityType.CONTACTS_MANAGE]: 'Manage contacts and contact lists'
 };
 
-const ACCESS_LEVEL_DESCRIPTIONS: Record<AccessLevel, string> = {
-  [AccessLevel.NONE]: 'No access',
-  [AccessLevel.READ]: 'Read-only access',
-  [AccessLevel.WRITE]: 'Read and write access',
-  [AccessLevel.ADMIN]: 'Full administrative access'
-};
+
 
 export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionManagerProps> = ({
   agentId,
@@ -192,8 +186,7 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
   const updatePermission = (
     connectionId: string,
     capability: WorkspaceCapabilityType,
-    enabled: boolean,
-    accessLevel: AccessLevel = AccessLevel.READ
+    enabled: boolean
   ) => {
     setPermissions(prev => {
       const updated = [...prev];
@@ -215,41 +208,22 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
       if (enabled) {
         connectionConfig.permissions[capability] = {
           enabled: true,
-          accessLevel,
           restrictions: {}
         };
       } else {
         delete connectionConfig.permissions[capability];
-      }
-
-      // Remove connection config if no permissions are enabled
-      const hasEnabledPermissions = Object.values(connectionConfig.permissions).some(p => p.enabled);
-      if (!hasEnabledPermissions) {
-        const index = updated.findIndex(p => p.connectionId === connectionId);
-        if (index > -1) {
-          updated.splice(index, 1);
+        
+        // Remove connection config if no permissions are enabled
+        if (Object.keys(connectionConfig.permissions).length === 0) {
+          const index = updated.findIndex(p => p.connectionId === connectionId);
+          if (index > -1) {
+            updated.splice(index, 1);
+          }
         }
       }
 
-      onChange(updated);
-      return updated;
-    });
-  };
-
-  const updateAccessLevel = (
-    connectionId: string,
-    capability: WorkspaceCapabilityType,
-    accessLevel: AccessLevel
-  ) => {
-    setPermissions(prev => {
-      const updated = [...prev];
-      const connectionConfig = updated.find(p => p.connectionId === connectionId);
-      
-      if (connectionConfig && connectionConfig.permissions[capability]) {
-        connectionConfig.permissions[capability]!.accessLevel = accessLevel;
-        onChange(updated);
-      }
-      
+      // Use setTimeout to defer the onChange call to avoid setState during render
+      setTimeout(() => onChange(updated), 0);
       return updated;
     });
   };
@@ -259,9 +233,66 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
     return connectionConfig?.permissions[capability]?.enabled || false;
   };
 
-  const getAccessLevel = (connectionId: string, capability: WorkspaceCapabilityType): AccessLevel => {
+  const toggleAllCapabilities = (connectionId: string, selectAll: boolean) => {
+    setPermissions(prev => {
+      const updated = [...prev];
+      let connectionConfig = updated.find(p => p.connectionId === connectionId);
+      
+      const allCapabilities = Object.values(WorkspaceCapabilityType);
+      
+      if (!connectionConfig && selectAll) {
+        const connection = connectionsState.connections.find(c => c.id === connectionId);
+        if (!connection) return prev;
+        
+        connectionConfig = {
+          connectionId,
+          connectionName: `${connection.displayName} (${connection.email})`,
+          provider: connection.provider,
+          permissions: {}
+        };
+        updated.push(connectionConfig);
+      }
+
+      if (selectAll && connectionConfig) {
+        // Enable all capabilities
+        allCapabilities.forEach(capability => {
+          connectionConfig!.permissions[capability] = {
+            enabled: true,
+            restrictions: {}
+          };
+        });
+      } else if (connectionConfig) {
+        // Disable all capabilities
+        connectionConfig.permissions = {};
+        // Remove connection config if no permissions are enabled
+        const index = updated.findIndex(p => p.connectionId === connectionId);
+        if (index > -1) {
+          updated.splice(index, 1);
+        }
+      }
+
+      // Use setTimeout to defer the onChange call to avoid setState during render
+      setTimeout(() => onChange(updated), 0);
+      return updated;
+    });
+  };
+
+  const isAllCapabilitiesSelected = (connectionId: string): boolean => {
     const connectionConfig = permissions.find(p => p.connectionId === connectionId);
-    return connectionConfig?.permissions[capability]?.accessLevel || AccessLevel.READ;
+    if (!connectionConfig) return false;
+    
+    const allCapabilities = Object.values(WorkspaceCapabilityType);
+    return allCapabilities.every(cap => connectionConfig.permissions[cap]?.enabled || false);
+  };
+
+  const isSomeCapabilitiesSelected = (connectionId: string): boolean => {
+    const connectionConfig = permissions.find(p => p.connectionId === connectionId);
+    if (!connectionConfig) return false;
+    
+    const enabledCount = Object.values(connectionConfig.permissions).filter(p => p.enabled).length;
+    const totalCount = Object.values(WorkspaceCapabilityType).length;
+    
+    return enabledCount > 0 && enabledCount < totalCount;
   };
 
   const getColorClasses = (color: string) => {
@@ -377,6 +408,23 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
 
               {isExpanded && (
                 <div className="border-t border-gray-700 p-4">
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
+                    <h3 className="text-lg font-medium text-white">Workspace Capabilities</h3>
+                    <label className="flex items-center cursor-pointer text-sm text-gray-300 hover:text-white">
+                      <input
+                        type="checkbox"
+                        checked={isAllCapabilitiesSelected(connection.id)}
+                        ref={(input) => {
+                          if (input) {
+                            input.indeterminate = isSomeCapabilitiesSelected(connection.id);
+                          }
+                        }}
+                        onChange={(e) => toggleAllCapabilities(connection.id, e.target.checked)}
+                        className="mr-2 h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                      />
+                      Select All
+                    </label>
+                  </div>
                   <div className="space-y-6">
                     {Object.entries(CAPABILITY_GROUPS).map(([groupKey, group]) => {
                       const IconComponent = group.icon;
@@ -392,49 +440,27 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
                           <div className="grid grid-cols-1 gap-3 ml-4">
                             {group.capabilities.map(capability => {
                               const isEnabled = isCapabilityEnabled(connection.id, capability);
-                              const accessLevel = getAccessLevel(connection.id, capability);
 
                               return (
-                                <div key={capability} className="flex items-center justify-between p-3 bg-gray-750 rounded-lg">
-                                  <div className="flex items-center">
-                                    <input
-                                      type="checkbox"
-                                      checked={isEnabled}
-                                      onChange={(e) => updatePermission(
-                                        connection.id,
-                                        capability,
-                                        e.target.checked,
-                                        AccessLevel.READ
-                                      )}
-                                      className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
-                                    />
-                                    <div className="ml-3">
-                                      <label className="text-sm font-medium text-white">
-                                        {capability.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                                      </label>
-                                      <p className="text-xs text-gray-400">
-                                        {CAPABILITY_DESCRIPTIONS[capability] || 'Workspace capability'}
-                                      </p>
-                                    </div>
+                                <div key={capability} className="flex items-center p-3 bg-gray-750 rounded-lg">
+                                  <input
+                                    type="checkbox"
+                                    checked={isEnabled}
+                                    onChange={(e) => updatePermission(
+                                      connection.id,
+                                      capability,
+                                      e.target.checked
+                                    )}
+                                    className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                                  />
+                                  <div className="ml-3">
+                                    <label className="text-sm font-medium text-white">
+                                      {capability.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                                    </label>
+                                    <p className="text-xs text-gray-400">
+                                      {CAPABILITY_DESCRIPTIONS[capability] || 'Workspace capability'}
+                                    </p>
                                   </div>
-
-                                  {isEnabled && (
-                                    <select
-                                      value={accessLevel}
-                                      onChange={(e) => updateAccessLevel(
-                                        connection.id,
-                                        capability,
-                                        e.target.value as AccessLevel
-                                      )}
-                                      className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg px-3 py-1 focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                      {Object.entries(ACCESS_LEVEL_DESCRIPTIONS).map(([level, description]) => (
-                                        <option key={level} value={level}>
-                                          {description}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  )}
                                 </div>
                               );
                             })}

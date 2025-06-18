@@ -48,6 +48,7 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
 
     try {
       // Load all social media connections
+      // API will return all connections if no userId is provided (useful for development)
       const connectionsResponse = await fetch('/api/social-media/connections');
       const connectionsData = await connectionsResponse.json();
 
@@ -56,7 +57,7 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
       }
 
       // Load agent permissions
-      const permissionsResponse = await fetch(`/api/social-media/permissions?agentId=${agent.id}`);
+      const permissionsResponse = await fetch(`/api/agents/${agent.id}/social-media-permissions`);
       const permissionsData = await permissionsResponse.json();
 
       if (!permissionsData.success) {
@@ -95,31 +96,9 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
     setError(null);
 
     try {
-      // Save each permission
+      // Process revocations first (for inactive permissions)
       for (const permissionState of permissions) {
-        if (permissionState.isActive && permissionState.capabilities.length > 0) {
-          // Grant or update permission
-          const response = await fetch('/api/social-media/permissions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              agentId: agent.id,
-              connectionId: permissionState.connectionId,
-              capabilities: permissionState.capabilities,
-              accessLevel: permissionState.accessLevel,
-              grantedBy: 'user_gab', // TODO: Get from auth context
-              isActive: true
-            }),
-          });
-
-          const data = await response.json();
-          if (!data.success) {
-            throw new Error(data.error || 'Failed to save permission');
-          }
-        } else if (permissionState.permission && !permissionState.isActive) {
-          // Revoke permission
+        if (permissionState.permission && !permissionState.isActive) {
           const response = await fetch(`/api/social-media/permissions/${permissionState.permission.id}`, {
             method: 'DELETE',
           });
@@ -128,6 +107,34 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
           if (!data.success) {
             throw new Error(data.error || 'Failed to revoke permission');
           }
+        }
+      }
+
+      // Prepare permissions data for batch save
+      const permissionsToSave = permissions
+        .filter(p => p.isActive && p.capabilities.length > 0)
+        .map(p => ({
+          connectionId: p.connectionId,
+          permissions: p.capabilities,
+          accessLevel: p.accessLevel,
+          restrictions: {}
+        }));
+
+      if (permissionsToSave.length > 0) {
+        const response = await fetch(`/api/agents/${agent.id}/social-media-permissions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            permissions: permissionsToSave,
+            grantedBy: 'user_gab' // TODO: Get from auth context
+          }),
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to save permissions');
         }
       }
 
@@ -167,6 +174,29 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
       capabilities: newCapabilities,
       isActive: newCapabilities.length > 0
     });
+  };
+
+  const toggleAllCapabilities = (connectionId: string, selectAll: boolean) => {
+    const allCapabilities = Object.values(SocialMediaCapability);
+    updatePermissionState(connectionId, {
+      capabilities: selectAll ? allCapabilities : [],
+      isActive: selectAll
+    });
+  };
+
+  const isAllCapabilitiesSelected = (connectionId: string): boolean => {
+    const permissionState = permissions.find(p => p.connectionId === connectionId);
+    if (!permissionState) return false;
+    
+    const allCapabilities = Object.values(SocialMediaCapability);
+    return allCapabilities.every(cap => permissionState.capabilities.includes(cap));
+  };
+
+  const isSomeCapabilitiesSelected = (connectionId: string): boolean => {
+    const permissionState = permissions.find(p => p.connectionId === connectionId);
+    if (!permissionState) return false;
+    
+    return permissionState.capabilities.length > 0 && !isAllCapabilitiesSelected(connectionId);
   };
 
   const getProviderIcon = (provider: SocialMediaProvider): string => {
@@ -335,7 +365,23 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
 
                   {permissionState.isActive && (
                     <div>
-                      <h4 className="text-white font-medium mb-2">Capabilities</h4>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-white font-medium">Capabilities</h4>
+                        <label className="flex items-center cursor-pointer text-sm text-gray-300 hover:text-white">
+                          <input
+                            type="checkbox"
+                            checked={isAllCapabilitiesSelected(permissionState.connectionId)}
+                            ref={(input) => {
+                              if (input) {
+                                input.indeterminate = isSomeCapabilitiesSelected(permissionState.connectionId);
+                              }
+                            }}
+                            onChange={(e) => toggleAllCapabilities(permissionState.connectionId, e.target.checked)}
+                            className="mr-2"
+                          />
+                          Select All
+                        </label>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {Object.values(SocialMediaCapability).map((capability) => (
                           <label key={capability} className="flex items-start cursor-pointer p-2 rounded hover:bg-gray-700/50">

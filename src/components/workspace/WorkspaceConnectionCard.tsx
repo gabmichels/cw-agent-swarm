@@ -32,6 +32,7 @@ export const WorkspaceConnectionCard: React.FC<WorkspaceConnectionCardProps> = (
   onRefresh
 }) => {
   const [validating, setValidating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [validationResult, setValidationResult] = useState<{
     isValid: boolean;
     status: ConnectionStatus;
@@ -62,6 +63,49 @@ export const WorkspaceConnectionCard: React.FC<WorkspaceConnectionCardProps> = (
       });
     } finally {
       setValidating(false);
+    }
+  };
+
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const response = await fetch('/api/workspace/refresh', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          connectionId: connection.id,
+          force: true
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setValidationResult({
+          isValid: true,
+          status: 'ACTIVE' as ConnectionStatus,
+          error: undefined
+        });
+        // Trigger a refresh of the parent component
+        onRefresh();
+      } else {
+        setValidationResult({
+          isValid: false,
+          status: 'EXPIRED' as ConnectionStatus,
+          error: data.error || 'Refresh failed'
+        });
+      }
+    } catch (error) {
+      console.error('Error refreshing connection:', error);
+      setValidationResult({
+        isValid: false,
+        status: 'ERROR' as ConnectionStatus,
+        error: 'Failed to refresh connection'
+      });
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -198,6 +242,20 @@ export const WorkspaceConnectionCard: React.FC<WorkspaceConnectionCardProps> = (
         </div>
       )}
 
+      {/* Expired connection help message */}
+      {connection.status === 'EXPIRED' && !validationResult && (
+        <div className="mb-4 p-3 rounded border bg-yellow-900/20 border-yellow-500 text-yellow-400">
+          <div className="flex items-center">
+            <Clock className="h-4 w-4 mr-2" />
+            <span className="text-sm">Connection Expired</span>
+          </div>
+          <p className="text-sm mt-1 opacity-80">
+            If this connection was created recently, the refresh token may still be valid. 
+            Try the "Refresh Tokens" button below to attempt automatic renewal.
+          </p>
+        </div>
+      )}
+
       {/* Validation result */}
       {validationResult && (
         <div className={`mb-4 p-3 rounded border ${
@@ -233,13 +291,25 @@ export const WorkspaceConnectionCard: React.FC<WorkspaceConnectionCardProps> = (
             {validating ? 'Validating...' : 'Validate'}
           </button>
           
-          <button
-            onClick={onRefresh}
-            className="flex items-center px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white text-sm rounded"
-          >
-            <RefreshCw className="h-3 w-3 mr-1" />
-            Refresh
-          </button>
+          {/* Show token refresh button for expired connections */}
+          {connection.status === 'EXPIRED' ? (
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="flex items-center px-3 py-1 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded"
+            >
+              <RefreshCw className={`h-3 w-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Refreshing Tokens...' : 'Refresh Tokens'}
+            </button>
+          ) : (
+            <button
+              onClick={onRefresh}
+              className="flex items-center px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white text-sm rounded"
+            >
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Reload Data
+            </button>
+          )}
         </div>
 
         <button

@@ -66,7 +66,6 @@ export const AgentWorkspacePermissionEditor: React.FC<AgentWorkspacePermissionEd
           capabilities.forEach(cap => {
             permissions[cap.capability] = {
               enabled: true,
-              accessLevel: cap.accessLevel,
               restrictions: cap.restrictions || {}
             };
           });
