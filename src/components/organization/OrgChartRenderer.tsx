@@ -41,6 +41,7 @@ export interface OrgChartRendererProps {
   onDepartmentCreate?: (parentId: string | null, position: { x: number; y: number }) => void;
   onAgentReassign?: (agentId: string, newDepartmentId: string) => void;
   onPreviewChanges?: (changes: OrgChartChange[]) => void;
+  onEditDraftAgent?: (draftAgent: any) => void;
 }
 
 /**
@@ -282,13 +283,19 @@ const DepartmentNode: React.FC<{ data: any }> = ({ data }) => {
  */
 const AgentNode: React.FC<{ data: any }> = ({ data }) => {
   const agent = data.agent;
+  const draftAgent = data.draftAgent;
+  const isDraft = !!draftAgent;
+  
+  // For draft agents, use different styling
   const status = agent?.status as AgentStatus || AgentStatus.OFFLINE;
-  const statusConfig = AGENT_STATUS_CONFIG[status];
+  const statusConfig = isDraft 
+    ? { color: '#ff9800', icon: '●', label: 'Draft' }
+    : AGENT_STATUS_CONFIG[status];
   
   // Use department theme color if available, otherwise use status color
   const departmentTheme = data.departmentTheme || DEPARTMENT_THEMES.default;
-  const borderColor = departmentTheme.color;
-  const bgColor = departmentTheme.bgColor;
+  const borderColor = isDraft ? '#ff9800' : departmentTheme.color;
+  const bgColor = isDraft ? '#fff3e0' : departmentTheme.bgColor;
   
   return (
     <div 
@@ -334,7 +341,8 @@ const AgentNode: React.FC<{ data: any }> = ({ data }) => {
           whiteSpace: 'nowrap',
           flex: 1
         }}>
-          {agent?.name || 'Unknown Agent'}
+          {isDraft ? draftAgent?.name : agent?.name || 'Unknown Agent'}
+          {isDraft && <span style={{ fontSize: '10px', color: '#ff9800', marginLeft: '4px' }}>(DRAFT)</span>}
         </h4>
         <span 
           style={{ 
@@ -351,11 +359,14 @@ const AgentNode: React.FC<{ data: any }> = ({ data }) => {
       
       <div className="agent-details" style={{ flex: 1 }}>
         <div style={{ fontSize: '10px', color: '#666', marginBottom: '1px' }}>
-          📋 {agent?.position || 'Agent'}
+          📋 {isDraft ? draftAgent?.position : agent?.position || 'Agent'}
         </div>
-        {agent?.specialization?.length > 0 && (
+        {(isDraft ? draftAgent?.specialization?.length > 0 : agent?.specialization?.length > 0) && (
           <div style={{ fontSize: '9px', color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            🎯 {agent.specialization.slice(0, 1).join(', ')}
+            🎯 {isDraft 
+              ? draftAgent.specialization.slice(0, 1).join(', ')
+              : agent.specialization.slice(0, 1).join(', ')
+            }
           </div>
         )}
       </div>
@@ -381,9 +392,15 @@ const AgentNode: React.FC<{ data: any }> = ({ data }) => {
               fontSize: '8px',
               cursor: 'pointer'
             }}
-            onClick={() => data.onReassign?.(agent?.agentId)}
+            onClick={() => {
+              if (isDraft) {
+                data.onEditDraftAgent?.(draftAgent);
+              } else {
+                data.onReassign?.(agent?.agentId);
+              }
+            }}
           >
-            ↔
+            {isDraft ? '✏️' : '↔'}
           </button>
         </div>
       )}
@@ -503,7 +520,8 @@ export const OrgChartRenderer: React.FC<OrgChartRendererProps> = ({
   onNodeMove,
   onDepartmentCreate,
   onAgentReassign,
-  onPreviewChanges
+  onPreviewChanges,
+  onEditDraftAgent
 }) => {
   const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
 
@@ -550,7 +568,8 @@ export const OrgChartRenderer: React.FC<OrgChartRendererProps> = ({
           onReassign: (agentId: string) => {
             console.log('Reassign agent:', agentId);
             onAgentReassign?.(agentId, item.departmentId || '');
-          }
+          },
+          onEditDraftAgent: onEditDraftAgent
         },
         draggable: planningMode,
       };

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { OrgChartRenderer, OrgChartChange } from '../../components/organization/OrgChartRenderer';
 import { PlanningModeControls } from '../../components/organization/PlanningModeControls';
 import { ExportImportControls, OrganizationImportData } from '../../components/organization/ExportImportControls';
+import { DraftAgentEditor, DraftAgent } from '../../components/organization/DraftAgentEditor';
 import { Department, OrgHierarchyNode } from '../../types/organization';
 import { AgentMetadata, AgentStatus } from '../../types/metadata';
 import { OrganizationService } from '../../services/organization/OrganizationService';
@@ -14,6 +15,9 @@ import { useOrganizationAPI } from '../../hooks/useOrganizationAPI';
 interface NodeData {
   department?: Department;
   agents?: AgentMetadata[];
+  draftAgents?: DraftAgent[];
+  agent?: AgentMetadata;
+  draftAgent?: DraftAgent;
   [key: string]: unknown;
 }
 
@@ -42,12 +46,61 @@ export default function OrgChartPage() {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isApplying, setIsApplying] = useState(false);
   
+  // Draft agent state with localStorage persistence
+  const [draftAgents, setDraftAgents] = useState<DraftAgent[]>([]);
+  const [showDraftEditor, setShowDraftEditor] = useState(false);
+  const [editingDraftAgent, setEditingDraftAgent] = useState<DraftAgent | null>(null);
+  
   // Services
   const [orgService, setOrgService] = useState<OrganizationService | null>(null);
   const [platformConfig, setPlatformConfig] = useState<PlatformConfigService | null>(null);
   
   // Use the organization API hook
   const organizationAPI = useOrganizationAPI();
+
+  /**
+   * Load draft agents from localStorage
+   */
+  const loadDraftAgentsFromCache = useCallback((): DraftAgent[] => {
+    try {
+      const cached = localStorage.getItem('org-chart-draft-agents');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Convert date strings back to Date objects
+        return parsed.map((draft: any) => ({
+          ...draft,
+          createdAt: new Date(draft.createdAt)
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to load draft agents from cache:', error);
+    }
+    return [];
+  }, []);
+
+  /**
+   * Save draft agents to localStorage
+   */
+  const saveDraftAgentsToCache = useCallback((drafts: DraftAgent[]) => {
+    try {
+      localStorage.setItem('org-chart-draft-agents', JSON.stringify(drafts));
+      console.log(`Saved ${drafts.length} draft agents to cache`);
+    } catch (error) {
+      console.error('Failed to save draft agents to cache:', error);
+    }
+  }, []);
+
+  /**
+   * Clear draft agents from localStorage
+   */
+  const clearDraftAgentsCache = useCallback(() => {
+    try {
+      localStorage.removeItem('org-chart-draft-agents');
+      console.log('Cleared draft agents cache');
+    } catch (error) {
+      console.error('Failed to clear draft agents cache:', error);
+    }
+  }, []);
 
   /**
    * Load real departments from Prisma database
@@ -109,17 +162,18 @@ export default function OrgChartPage() {
   };
 
   /**
-   * Build hierarchy from departments and agents with proper Dagre layout structure
+   * Build hierarchy from departments, agents, and draft agents with proper Dagre layout structure
    * Top level: Departments
    * Second level: Subdepartments and agents without subdepartment
    * Third level: Teams and agents with subdepartment but without teams
    */
-  const buildHierarchy = (departments: Department[], agents: AgentMetadata[]): TypedOrgHierarchyNode[] => {
+  const buildHierarchy = (departments: Department[], agents: AgentMetadata[], draftAgents: DraftAgent[] = []): TypedOrgHierarchyNode[] => {
     const hierarchy: TypedOrgHierarchyNode[] = [];
     
     console.log('Building hierarchy with:', { 
       departments: departments.length, 
       agents: agents.length,
+      draftAgents: draftAgents.length,
       agentDepts: agents.map(a => ({ name: a.name, deptId: a.department?.id, deptName: a.department?.name }))
     });
     
@@ -147,8 +201,13 @@ export default function OrgChartPage() {
         return agent.department && agent.department.id === dept.id;
       });
       
-      console.log(`Department ${dept.name} has ${departmentAgents.length} agents:`, 
-        departmentAgents.map(a => a.name));
+      // Find draft agents assigned to this department
+      const departmentDraftAgents = draftAgents.filter(draftAgent => {
+        return draftAgent.departmentId === dept.id;
+      });
+      
+      console.log(`Department ${dept.name} has ${departmentAgents.length} agents and ${departmentDraftAgents.length} draft agents:`, 
+        [...departmentAgents.map(a => a.name), ...departmentDraftAgents.map(d => `${d.name} (DRAFT)`)]);
       
       const hierarchyNode: TypedOrgHierarchyNode = {
         id: dept.id,
@@ -161,7 +220,8 @@ export default function OrgChartPage() {
         departmentId: dept.id,
         nodeData: {
           department: dept,
-          agents: departmentAgents
+          agents: departmentAgents,
+          draftAgents: departmentDraftAgents
         }
       };
       
@@ -185,6 +245,25 @@ export default function OrgChartPage() {
         
         hierarchy.push(agentNode);
       });
+
+      // Add individual draft agent nodes as children of their department
+      departmentDraftAgents.forEach(draftAgent => {
+        const draftAgentNode: TypedOrgHierarchyNode = {
+          id: draftAgent.id,
+          nodeType: 'agent', // Use same node type but with draft data
+          entityId: draftAgent.id,
+          name: `${draftAgent.name} (DRAFT)`,
+          level: (dept.parentDepartmentId ? 2 : 1), // One level below department
+          parentNodeId: dept.id,
+          children: [],
+          departmentId: dept.id,
+          nodeData: {
+            draftAgent: draftAgent
+          }
+        };
+        
+        hierarchy.push(draftAgentNode);
+      });
     });
     
     // Handle truly uncategorized agents (those without any department assignment)
@@ -193,11 +272,19 @@ export default function OrgChartPage() {
       const departmentNotFound = agent.department && !departments.some(dept => dept.id === agent.department?.id);
       return hasNoDepartment || departmentNotFound;
     });
+
+    // Handle uncategorized draft agents
+    const uncategorizedDraftAgents = draftAgents.filter(draftAgent => {
+      const hasNoDepartment = !draftAgent.departmentId;
+      const departmentNotFound = draftAgent.departmentId && !departments.some(dept => dept.id === draftAgent.departmentId);
+      return hasNoDepartment || departmentNotFound;
+    });
     
     console.log('Uncategorized agents:', uncategorizedAgents.map(a => a.name));
+    console.log('Uncategorized draft agents:', uncategorizedDraftAgents.map(d => d.name));
     
-    // Only create uncategorized node if there are actually uncategorized agents
-    if (uncategorizedAgents.length > 0) {
+    // Only create uncategorized node if there are actually uncategorized agents or draft agents
+    if (uncategorizedAgents.length > 0 || uncategorizedDraftAgents.length > 0) {
       const uncategorizedDept: Department = {
         id: 'uncategorized',
         name: 'Uncategorized',
@@ -227,7 +314,8 @@ export default function OrgChartPage() {
         departmentId: 'uncategorized',
         nodeData: {
           department: uncategorizedDept,
-          agents: uncategorizedAgents
+          agents: uncategorizedAgents,
+          draftAgents: uncategorizedDraftAgents
         }
       });
       
@@ -248,6 +336,25 @@ export default function OrgChartPage() {
         };
         
         hierarchy.push(agentNode);
+      });
+
+      // Add individual uncategorized draft agent nodes
+      uncategorizedDraftAgents.forEach(draftAgent => {
+        const draftAgentNode: TypedOrgHierarchyNode = {
+          id: draftAgent.id,
+          nodeType: 'agent',
+          entityId: draftAgent.id,
+          name: `${draftAgent.name} (DRAFT)`,
+          level: 1,
+          parentNodeId: 'uncategorized',
+          children: [],
+          departmentId: 'uncategorized',
+          nodeData: {
+            draftAgent: draftAgent
+          }
+        };
+        
+        hierarchy.push(draftAgentNode);
       });
     }
     
@@ -282,8 +389,8 @@ export default function OrgChartPage() {
       setDepartments(loadedDepartments);
       setAgents(loadedAgents);
       
-      // Build hierarchy with the fresh data
-      const builtHierarchy = buildHierarchy(loadedDepartments, loadedAgents);
+      // Build hierarchy with the fresh data including draft agents
+      const builtHierarchy = buildHierarchy(loadedDepartments, loadedAgents, draftAgents);
       setHierarchy(builtHierarchy);
       
       return { departments: loadedDepartments, agents: loadedAgents, hierarchy: builtHierarchy };
@@ -296,6 +403,17 @@ export default function OrgChartPage() {
       setLoading(false);
     }
   };
+
+  /**
+   * Load draft agents from cache on mount
+   */
+  useEffect(() => {
+    const cachedDrafts = loadDraftAgentsFromCache();
+    if (cachedDrafts.length > 0) {
+      setDraftAgents(cachedDrafts);
+      console.log(`Loaded ${cachedDrafts.length} draft agents from cache`);
+    }
+  }, [loadDraftAgentsFromCache]);
 
   /**
    * Initialize services and load data
@@ -371,6 +489,10 @@ export default function OrgChartPage() {
           setError(`${result.summary.failedChanges} of ${result.summary.totalChanges} changes failed`);
         } else {
           console.log('All changes applied successfully');
+          
+          // Clear draft agents since they're now "real"
+          setDraftAgents([]);
+          clearDraftAgentsCache();
         }
         
         // Reload data to reflect changes
@@ -390,7 +512,7 @@ export default function OrgChartPage() {
     } finally {
       setIsApplying(false);
     }
-  }, [organizationAPI, pendingChanges]);
+  }, [organizationAPI, pendingChanges, clearDraftAgentsCache]);
 
   /**
    * Discard all pending changes
@@ -434,6 +556,84 @@ export default function OrgChartPage() {
       setError('Failed to refresh data');
     }
   }, []);
+
+  /**
+   * Handle creating a new draft agent
+   */
+  const handleCreateAgent = useCallback(() => {
+    setEditingDraftAgent(null);
+    setShowDraftEditor(true);
+  }, []);
+
+  /**
+   * Handle editing an existing draft agent
+   */
+  const handleEditDraftAgent = useCallback((draftAgent: DraftAgent) => {
+    setEditingDraftAgent(draftAgent);
+    setShowDraftEditor(true);
+  }, []);
+
+  /**
+   * Handle saving a draft agent
+   */
+  const handleSaveDraftAgent = useCallback((draftAgent: DraftAgent) => {
+    setDraftAgents(prev => {
+      const existing = prev.find(d => d.id === draftAgent.id);
+      let newDrafts: DraftAgent[];
+      if (existing) {
+        // Update existing
+        newDrafts = prev.map(d => d.id === draftAgent.id ? draftAgent : d);
+      } else {
+        // Add new
+        newDrafts = [...prev, draftAgent];
+      }
+      
+      // Save to cache
+      saveDraftAgentsToCache(newDrafts);
+      return newDrafts;
+    });
+    setShowDraftEditor(false);
+    setEditingDraftAgent(null);
+    
+    // Add to pending changes
+    const change: OrgChartChange = {
+      type: 'agent_reassign',
+      agentId: draftAgent.id,
+      newDepartmentId: draftAgent.departmentId || 'uncategorized'
+    };
+    handleOrgChartChange(change);
+  }, [handleOrgChartChange, saveDraftAgentsToCache]);
+
+  /**
+   * Handle deleting a draft agent
+   */
+  const handleDeleteDraftAgent = useCallback((draftAgentId: string) => {
+    setDraftAgents(prev => {
+      const newDrafts = prev.filter(d => d.id !== draftAgentId);
+      // Save to cache
+      saveDraftAgentsToCache(newDrafts);
+      return newDrafts;
+    });
+    setShowDraftEditor(false);
+    setEditingDraftAgent(null);
+  }, [saveDraftAgentsToCache]);
+
+  /**
+   * Handle canceling draft agent editing
+   */
+  const handleCancelDraftEditor = useCallback(() => {
+    setShowDraftEditor(false);
+    setEditingDraftAgent(null);
+  }, []);
+
+  /**
+   * Handle clearing all draft agents
+   */
+  const handleClearAllDrafts = useCallback(() => {
+    setDraftAgents([]);
+    clearDraftAgentsCache();
+    console.log('Cleared all draft agents');
+  }, [clearDraftAgentsCache]);
 
   /**
    * Handle organization data import
@@ -720,6 +920,7 @@ export default function OrgChartPage() {
           <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#60a5fa' }}>Debug Info</div>
           <div>📁 Departments: {departments.length}</div>
           <div>🤖 Agents: {agents.length}</div>
+          <div>📝 Draft Agents: {draftAgents.length} {draftAgents.length > 0 ? '(cached)' : ''}</div>
           <div>🏗️ Hierarchy: {hierarchy.length}</div>
           
           <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #374151' }}>
@@ -791,6 +992,7 @@ export default function OrgChartPage() {
               });
             }}
             onPreviewChanges={handlePreviewChanges}
+            onEditDraftAgent={handleEditDraftAgent}
           />
         )}
       </div>
@@ -807,6 +1009,19 @@ export default function OrgChartPage() {
         canUndo={historyIndex > 0}
         canRedo={historyIndex < changeHistory.length - 1}
         isApplying={isApplying}
+        onCreateAgent={handleCreateAgent}
+        draftAgentCount={draftAgents.length}
+        onClearDrafts={handleClearAllDrafts}
+      />
+
+      {/* Draft Agent Editor */}
+      <DraftAgentEditor
+        isOpen={showDraftEditor}
+        draftAgent={editingDraftAgent}
+        departments={departments}
+        onSave={handleSaveDraftAgent}
+        onCancel={handleCancelDraftEditor}
+        onDelete={handleDeleteDraftAgent}
       />
       
     </div>

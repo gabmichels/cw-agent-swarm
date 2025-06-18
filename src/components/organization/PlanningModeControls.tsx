@@ -14,6 +14,9 @@ export interface PlanningModeControlsProps {
   canUndo: boolean;
   canRedo: boolean;
   isApplying: boolean;
+  onCreateAgent?: () => void;
+  draftAgentCount?: number;
+  onClearDrafts?: () => void;
 }
 
 export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
@@ -26,7 +29,10 @@ export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
   onRedoChange,
   canUndo,
   canRedo,
-  isApplying
+  isApplying,
+  onCreateAgent,
+  draftAgentCount = 0,
+  onClearDrafts
 }) => {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'apply' | 'discard' | null>(null);
@@ -363,6 +369,39 @@ export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
           border-radius: 4px;
           border-left: 3px solid #007bff;
         }
+
+        .create-section {
+          margin-bottom: 16px;
+          padding-bottom: 16px;
+          border-bottom: 1px solid #4b5563;
+        }
+
+        .create-button {
+          width: 100%;
+          padding: 12px 16px;
+          border: 2px dashed #10b981;
+          border-radius: 8px;
+          background: rgba(16, 185, 129, 0.1);
+          color: #10b981;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+
+        .create-button:hover {
+          background: rgba(16, 185, 129, 0.2);
+          border-color: #059669;
+        }
+
+        .create-button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
       `}</style>
 
       <div className="controls-header">
@@ -383,6 +422,52 @@ export const PlanningModeControls: React.FC<PlanningModeControlsProps> = ({
 
       {isActive && (
         <>
+          <div className="create-section">
+            <button
+              className="create-button"
+              onClick={onCreateAgent}
+              disabled={isApplying || !onCreateAgent}
+              title="Create a new draft agent"
+            >
+              ➕ Create New Agent
+            </button>
+            
+            {draftAgentCount > 0 && (
+              <div style={{ 
+                marginTop: '8px', 
+                fontSize: '12px', 
+                color: '#d1d5db',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}>
+                <span>📝 {draftAgentCount} draft agent{draftAgentCount !== 1 ? 's' : ''}</span>
+                {onClearDrafts && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Clear all ${draftAgentCount} draft agents? This cannot be undone.`)) {
+                        onClearDrafts();
+                      }
+                    }}
+                    disabled={isApplying}
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid #6b7280',
+                      color: '#9ca3af',
+                      padding: '2px 6px',
+                      borderRadius: '3px',
+                      fontSize: '10px',
+                      cursor: 'pointer'
+                    }}
+                    title="Clear all draft agents"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="undo-redo-buttons">
             <button
               className="undo-redo-button"
