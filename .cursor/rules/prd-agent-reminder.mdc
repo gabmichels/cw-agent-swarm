@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+When creating PRDs or planning implementations, reference the file @IMPLEMENTATION_GUIDELINES.md for all decisions and coding practices. No placeholder code. Prioritize test coverage and performance.
+

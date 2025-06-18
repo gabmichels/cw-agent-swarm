@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Ensure `npx tsc` runs without errors before finalizing output. Clean up temporary or unused code. Avoid any `any` types; prefer interfaces and strict type safety.
+

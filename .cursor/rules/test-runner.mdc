@@ -1,0 +1,15 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Proper test command usage
+globs:
+  - "**/*.test.ts"
+alwaysApply: false
+---
+
+Always run tests using `npm test <file> --verbose` instead of `--testPatternName`. Avoid running the entire suite unless explicitly required.
+
+Use `vitest` for all testing. Always run tests using `npm test <file> --verbose`. Do not use Jest. Maintain the `*.test.ts` naming convention and follow test structure and clarity best practices.

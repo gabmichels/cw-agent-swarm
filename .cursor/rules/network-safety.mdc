@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Always wrap fetch/network calls in try/catch. Use timeouts and retry logic where appropriate. Never assume successful response. Prefer typed response DTOs.
+

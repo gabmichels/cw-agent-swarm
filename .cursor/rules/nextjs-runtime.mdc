@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Do not rebuild or restart the Next.js server with `npm run build` or `npm run dev`. Assume server is already running at `http://localhost:3000`.
+

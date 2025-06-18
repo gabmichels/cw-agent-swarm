@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+No method or class should exceed 100 LOC. Split responsibilities into dedicated files/modules. Apply SRP and DI consistently.
+

@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Always validate Prisma schema before query execution. Use `prisma generate` only after schema changes. Prefer constructor injection for Prisma clients.
+

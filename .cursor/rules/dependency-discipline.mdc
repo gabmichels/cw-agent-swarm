@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Avoid adding new dependencies without justification. Use standard library or existing packages where possible. Always prefer ESM-compatible, actively maintained packages.
+

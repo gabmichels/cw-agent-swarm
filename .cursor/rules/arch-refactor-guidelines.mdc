@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Follow the principles in @IMPLEMENTATION_GUIDELINES.md. Replace legacy patterns completely. Apply ULID, strict typing, DI, pure functions, immutability, and test-first development.
+

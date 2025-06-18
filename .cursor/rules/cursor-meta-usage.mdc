@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Use Plan/Act, few-shot prompting, and inline examples where helpful. Keep context focused and reference only relevant files. Avoid vague, open-ended prompts.
+

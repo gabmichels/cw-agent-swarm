@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Minimize database round-trips and optimize vector queries. Avoid full scans. Always validate before write and log errors with structured context.
+

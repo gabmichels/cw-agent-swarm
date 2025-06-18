@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Never use Unix-specific shell commands (e.g., `rm`, `ls`, `chmod`). Always assume the environment is Windows and prefer Node.js-compatible, cross-platform utilities.
+
+
