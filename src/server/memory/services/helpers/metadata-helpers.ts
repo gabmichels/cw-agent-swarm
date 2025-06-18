@@ -186,7 +186,7 @@ export function createMessageMetadata(
   const baseMetadata: MessageMetadata = {
     schemaVersion: '1.0.0',
     // Required MessageMetadata fields
-    role: MessageRole.SYSTEM,
+    role: role, // Use the provided role parameter instead of defaulting to SYSTEM
     userId,
     agentId,
     chatId,

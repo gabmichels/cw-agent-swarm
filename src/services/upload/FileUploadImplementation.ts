@@ -23,7 +23,30 @@ export class FileUploadImplementation implements FileUploadService {
   private options: UploadOptions = {
     compress: true,
     maxSize: 50 * 1024 * 1024, // 50MB
-    allowedTypes: ['image/*', 'application/pdf', 'text/*', 'audio/*', 'video/*'],
+    allowedTypes: [
+      'image/*', 
+      'application/pdf', 
+      'text/*',
+      'audio/*', 
+      'video/*',
+      // Document formats for knowledge uploads
+      'application/msword', // .doc
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'application/vnd.ms-excel', // .xls
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-powerpoint', // .ppt
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+      'application/json', // .json
+      'text/csv', // .csv
+      'text/markdown', // .md
+      'text/x-markdown', // .md (alternative MIME type)
+      'text/plain', // .txt
+      'application/rtf', // .rtf
+      'application/x-yaml', // .yaml
+      'text/yaml', // .yml
+      'application/xml', // .xml
+      'text/xml' // .xml
+    ],
     retryAttempts: 3,
     retryDelay: 1000,
     showProgress: true
@@ -362,6 +385,11 @@ export class FileUploadImplementation implements FileUploadService {
    * Validate a file before upload
    */
   async validateFile(file: File): Promise<void> {
+    console.log('=== FileUploadImplementation.validateFile ===');
+    console.log('File name:', file.name);
+    console.log('File type (MIME):', file.type);
+    console.log('File size:', file.size);
+
     if (!file) {
       throw new UploadError(
         'No file provided',
@@ -383,12 +411,47 @@ export class FileUploadImplementation implements FileUploadService {
       );
     }
 
-    if (!this.isFileTypeAllowed(file.type)) {
-      throw new UploadError(
-        'File type not allowed',
-        UploadErrorCode.VALIDATION_FAILED
-      );
+    // Check MIME type first
+    console.log('Checking MIME type against allowed types:', this.options.allowedTypes);
+    const mimeTypeAllowed = file.type && this.isFileTypeAllowed(file.type);
+    console.log('MIME type allowed:', mimeTypeAllowed);
+    
+    if (mimeTypeAllowed) {
+      console.log('✅ File validated by MIME type');
+      return; // Valid MIME type found
     }
+
+    // If MIME type check fails or is empty, check by file extension
+    // This is useful for files like .md that might have inconsistent or empty MIME types
+    const fileName = file.name.toLowerCase();
+    console.log('MIME validation failed or empty, checking extension for file:', fileName);
+    
+    const allowedExtensions = [
+      '.md', '.txt', '.pdf', '.doc', '.docx', '.csv', '.json', '.rtf', 
+      '.yaml', '.yml', '.xml', '.xls', '.xlsx', '.ppt', '.pptx',
+      '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg',
+      '.mp3', '.wav', '.mp4', '.avi', '.mov'
+    ];
+    
+    console.log('Allowed extensions:', allowedExtensions);
+    const hasValidExtension = allowedExtensions.some(ext => {
+      const matches = fileName.endsWith(ext);
+      if (matches) console.log('✅ Extension match found:', ext);
+      return matches;
+    });
+    
+    console.log('Extension validation result:', hasValidExtension);
+    
+    if (hasValidExtension) {
+      console.log(`✅ File ${file.name} allowed by extension despite MIME type: "${file.type}"`);
+      return; // Valid extension found
+    }
+
+    console.log('❌ Both MIME type and extension validation failed');
+    throw new UploadError(
+      `File type not allowed. MIME type: "${file.type}", Extension: "${fileName.split('.').pop()}"`,
+      UploadErrorCode.VALIDATION_FAILED
+    );
   }
 
   /**

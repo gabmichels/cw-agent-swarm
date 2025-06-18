@@ -44,10 +44,10 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
     loadConnections();
   }, []);
 
-  // Update parent when permissions change
+  // Update parent when permissions change - use setTimeout to avoid infinite loops
   useEffect(() => {
-    onChange(permissions);
-  }, [permissions, onChange]);
+    setTimeout(() => onChange(permissions), 0);
+  }, [permissions]);
 
   const loadConnections = async () => {
     try {

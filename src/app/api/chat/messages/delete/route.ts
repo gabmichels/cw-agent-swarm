@@ -108,13 +108,15 @@ export async function DELETE(request: NextRequest) {
     if (!targetMessage) {
       console.error(`Message with ID ${messageId} or timestamp ${timestamp} not found`);
       
-      // Instead of a 404, return a synthetic success for better UX
-      return NextResponse.json({
-        success: true,
-        message: 'Message deleted successfully (synthetic)',
-        deletedId: messageId || `synthetic-${timestamp}`,
-        synthetic: true
-      });
+      // Return actual error instead of fake success
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Message not found',
+          messageId: messageId || `timestamp-${timestamp}`
+        },
+        { status: 404 }
+      );
     }
     
     console.log(`Found target message with ID: ${targetMessage.id}`);

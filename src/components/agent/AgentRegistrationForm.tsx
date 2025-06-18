@@ -344,24 +344,26 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     tags?: string[];
     descriptions?: Record<string, string>;
   }) => {
-    // Prevent infinite updates by checking if values actually changed
-    const isEqual = (
-      JSON.stringify(capabilities.skills) === JSON.stringify(agentCapabilities.skills) &&
-      JSON.stringify(capabilities.domains) === JSON.stringify(agentCapabilities.domains) &&
-      JSON.stringify(capabilities.roles) === JSON.stringify(agentCapabilities.roles) &&
-      JSON.stringify(capabilities.tags) === JSON.stringify(agentCapabilities.tags) &&
-      JSON.stringify(capabilities.descriptions) === JSON.stringify(agentCapabilities.descriptions)
-    );
-    
-    // Only update state if capabilities have actually changed
-    if (!isEqual) {
+    setAgentCapabilities(prevCapabilities => {
+      // Prevent infinite updates by checking if values actually changed
+      const isEqual = (
+        JSON.stringify(capabilities.skills) === JSON.stringify(prevCapabilities.skills) &&
+        JSON.stringify(capabilities.domains) === JSON.stringify(prevCapabilities.domains) &&
+        JSON.stringify(capabilities.roles) === JSON.stringify(prevCapabilities.roles) &&
+        JSON.stringify(capabilities.tags) === JSON.stringify(prevCapabilities.tags) &&
+        JSON.stringify(capabilities.descriptions) === JSON.stringify(prevCapabilities.descriptions)
+      );
+      
+      // Only update state if capabilities have actually changed
+      if (isEqual) {
+        return prevCapabilities; // No change, return previous state
+      }
+
       const safeCapabilities = {
         ...capabilities,
         tags: capabilities.tags || [],
         descriptions: capabilities.descriptions || {}
       };
-      
-      setAgentCapabilities(safeCapabilities);
       
       // Convert capabilities to the format expected by the API with complete information
       const mappedCapabilities: AgentCapability[] = [];
@@ -435,7 +437,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         });
       });
       
-      // Use functional state update to avoid dependency on current formData
+      // Update formData
       setFormData(prevFormData => ({
         ...prevFormData,
         capabilities: mappedCapabilities,
@@ -448,8 +450,10 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
           tags: safeCapabilities.tags
         }
       }));
-    }
-  }, [agentCapabilities]);
+
+      return safeCapabilities;
+    });
+  }, []); // Empty dependency array - function doesn't depend on any external state
 
   // Handle selecting a template
   const handleTemplateSelect = (template: AgentTemplate) => {
@@ -597,7 +601,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     }));
   };
 
-  const handleWorkspacePermissionsChange = (permissions: AgentWorkspacePermissionConfig[]) => {
+  const handleWorkspacePermissionsChange = useCallback((permissions: AgentWorkspacePermissionConfig[]) => {
     setWorkspacePermissions(permissions);
     setFormData(prevFormData => ({
       ...prevFormData,
@@ -606,9 +610,9 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         workspacePermissions: permissions
       }
     }));
-  };
+  }, []); // Empty dependency array since this function doesn't depend on external state
 
-  const handleSocialMediaPermissionsChange = (permissions: AgentSocialMediaPermissionConfig[]) => {
+  const handleSocialMediaPermissionsChange = useCallback((permissions: AgentSocialMediaPermissionConfig[]) => {
     setSocialMediaPermissions(permissions);
     setFormData(prevFormData => ({
       ...prevFormData,
@@ -617,7 +621,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
         socialMediaPermissions: permissions
       }
     }));
-  };
+  }, []); // Empty dependency array since this function doesn't depend on external state
 
   // Helper to update step status
   const updateStepStatus = (

@@ -4,9 +4,11 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AgentService } from '@/services/AgentService';
-import { Plus, Info, Settings, RefreshCw, Network } from 'lucide-react';
+import { Plus, Info, Settings, RefreshCw, Network, FileText, Clock } from 'lucide-react';
 import AgentRelationshipVisualizer from '@/components/agent/AgentRelationshipVisualizer';
 import { AgentType } from '@/constants/agent';
+
+const AGENT_DRAFT_STORAGE_KEY = 'agent_registration_form_data';
 
 interface Agent {
   id: string;
@@ -21,6 +23,15 @@ interface Agent {
   createdAt: Date;
 }
 
+interface AgentDraft {
+  formData: {
+    name: string;
+    description: string;
+  };
+  currentStep: number;
+  lastSaved: string;
+}
+
 export default function AgentsPage() {
   const router = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -29,6 +40,26 @@ export default function AgentsPage() {
   const [showCapabilities, setShowCapabilities] = useState<string | null>(null);
   const [showRelationships, setShowRelationships] = useState<boolean>(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [draftData, setDraftData] = useState<AgentDraft | null>(null);
+
+  // Check for draft data in localStorage
+  const checkForDraft = () => {
+    try {
+      const savedData = localStorage.getItem(AGENT_DRAFT_STORAGE_KEY);
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
+        if (parsedData.formData && parsedData.formData.name) {
+          setDraftData({
+            formData: parsedData.formData,
+            currentStep: parsedData.currentStep || 0,
+            lastSaved: new Date().toISOString() // We'll use current time as approximation
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error checking for draft data:', error);
+    }
+  };
 
   const loadAgents = async () => {
     setLoading(true);
@@ -47,10 +78,47 @@ export default function AgentsPage() {
   
   useEffect(() => {
     loadAgents();
+    checkForDraft();
+
+    // Check for draft when user focuses the window/tab
+    const handleWindowFocus = () => {
+      checkForDraft();
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+    };
   }, []);
   
   const handleCreateAgent = () => {
     router.push('/agents/create');
+  };
+
+  const handleContinueDraft = () => {
+    router.push('/agents/create');
+  };
+
+  const handleDiscardDraft = () => {
+    if (confirm('Are you sure you want to discard your draft? This action cannot be undone.')) {
+      localStorage.removeItem(AGENT_DRAFT_STORAGE_KEY);
+      setDraftData(null);
+    }
+  };
+
+  const getStepName = (stepNumber: number) => {
+    const stepNames = [
+      'Template Selection',
+      'Basic Information',
+      'Persona Setup',
+      'Knowledge Upload',
+      'Capabilities',
+      'Workspace Permissions',
+      'Social Media Permissions',
+      'Manager Configuration'
+    ];
+    return stepNames[stepNumber] || 'Unknown Step';
   };
   
   const getStatusColor = (status: string) => {
@@ -147,6 +215,43 @@ export default function AgentsPage() {
           {error}
         </div>
       )}
+
+      {/* Draft continuation banner */}
+      {draftData && (
+        <div className="mb-6 p-4 bg-amber-500 bg-opacity-20 border border-amber-500 rounded-lg">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0 mt-0.5">
+                <FileText className="h-5 w-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-amber-400 font-medium">Draft Agent Found</h3>
+                <p className="text-amber-200 text-sm mt-1">
+                  You have an unsaved agent draft: <strong>"{draftData.formData.name || 'Unnamed Agent'}"</strong>
+                </p>
+                <p className="text-amber-300 text-xs mt-1 flex items-center">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Last worked on: {getStepName(draftData.currentStep)}
+                </p>
+              </div>
+            </div>
+            <div className="flex space-x-2">
+              <button
+                onClick={handleContinueDraft}
+                className="px-3 py-1.5 bg-amber-600 text-white text-sm rounded hover:bg-amber-700 transition-colors"
+              >
+                Continue Draft
+              </button>
+              <button
+                onClick={handleDiscardDraft}
+                className="px-3 py-1.5 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Relationship Visualizer */}
       {showRelationships && agents.length > 1 && (
@@ -169,13 +274,30 @@ export default function AgentsPage() {
           <h2 className="text-xl font-semibold mb-2">No agents found</h2>
           <p className="text-gray-400 mb-6">
             You don't have any agents yet. Create your first agent to get started.
+            {draftData && (
+              <span className="block mt-2 text-amber-400 text-sm">
+                📝 Looks like you have an unfinished agent draft above!
+              </span>
+            )}
           </p>
-          <button
-            onClick={handleCreateAgent}
-            className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700"
-          >
-            Create Agent
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            {draftData && (
+              <button
+                onClick={handleContinueDraft}
+                className="px-4 py-2 bg-amber-600 rounded hover:bg-amber-700 flex items-center gap-2"
+              >
+                <FileText size={16} />
+                Continue Draft
+              </button>
+            )}
+            <button
+              onClick={handleCreateAgent}
+              className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 flex items-center gap-2"
+            >
+              <Plus size={16} />
+              Create New Agent
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

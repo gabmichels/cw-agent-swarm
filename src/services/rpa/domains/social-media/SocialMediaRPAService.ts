@@ -4,6 +4,7 @@ import { TwitterCreatePostWorkflow } from './workflows/TwitterCreatePostWorkflow
 import { LinkedInCreatePostWorkflow } from './workflows/LinkedInCreatePostWorkflow';
 import { FacebookCreatePostWorkflow } from './workflows/FacebookCreatePostWorkflow';
 import { InstagramCreatePostWorkflow } from './workflows/InstagramCreatePostWorkflow';
+import { InstagramDirectMessageWorkflow } from './workflows/InstagramDirectMessageWorkflow';
 import { TikTokCreateVideoWorkflow } from './workflows/TikTokCreateVideoWorkflow';
 import { RedditCreatePostWorkflow } from './workflows/RedditCreatePostWorkflow';
 
@@ -27,6 +28,9 @@ export class SocialMediaRPAService extends RPADomainService {
     this.registerWorkflow(new InstagramCreatePostWorkflow() as unknown as IRPAWorkflow);
     this.registerWorkflow(new TikTokCreateVideoWorkflow() as unknown as IRPAWorkflow);
     this.registerWorkflow(new RedditCreatePostWorkflow() as unknown as IRPAWorkflow);
+
+    // Direct messaging workflows
+    this.registerWorkflow(new InstagramDirectMessageWorkflow() as unknown as IRPAWorkflow);
 
     this.logger.info('Social media RPA workflows registered', {
       domain: this.domain,

@@ -203,7 +203,7 @@ export async function GET(
         content: payload.text,
         sender: {
           id: metadata.role === 'user' ? metadata.userId || 'unknown' : metadata.agentId || 'unknown',
-          name: metadata.role === 'user' ? 'You' : metadata.agentId || 'Assistant',
+          name: metadata.role === 'user' ? 'You' : 'Assistant',
           role: metadata.role || 'assistant'
         },
         // Convert numeric string timestamps to numbers for the client
@@ -287,6 +287,13 @@ export async function POST(
     // Handle both StructuredId objects and plain strings for backward compatibility
     const actualUserId = typeof userId === 'object' && userId?.id ? userId.id : userId;
     const actualAgentId = typeof agentId === 'object' && agentId?.id ? agentId.id : agentId;
+
+    console.log(`🔍 DEBUG Agent ID Processing:`, {
+      originalAgentId: agentId,
+      actualAgentId: actualAgentId,
+      agentIdType: typeof agentId,
+      hasAgentPrefix: typeof actualAgentId === 'string' && actualAgentId.startsWith('agent:'),
+    });
 
     console.log(`Processing message for user: ${actualUserId}, agent: ${actualAgentId}, chat: ${chatId}`);
 

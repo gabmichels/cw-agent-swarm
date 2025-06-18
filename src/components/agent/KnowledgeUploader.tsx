@@ -102,25 +102,57 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
       return `file_${safeFileName}_${index}_${idCounter++}`;
     };
     
+    // Supported file extensions for knowledge uploads
+    const supportedExtensions = ['.md', '.txt', '.pdf', '.doc', '.docx', '.csv', '.json', '.rtf', '.yaml', '.yml', '.xml'];
+    
     fileList.forEach((file, index) => {
-      if (!file.name.endsWith('.md') && !file.name.endsWith('.txt')) {
-        console.warn(`Skipping file ${file.name}: Only .md and .txt files are supported`);
+      const fileName = file.name.toLowerCase();
+      const isSupported = supportedExtensions.some(ext => fileName.endsWith(ext));
+      
+      if (!isSupported) {
+        console.warn(`Skipping file ${file.name}: Only supported document formats are allowed (${supportedExtensions.join(', ')})`);
         return;
       }
       
-      const reader = new FileReader();
+      // Handle different file types appropriately
+      const isTextFile = fileName.endsWith('.md') || fileName.endsWith('.txt') || 
+                        fileName.endsWith('.csv') || fileName.endsWith('.json') || 
+                        fileName.endsWith('.yaml') || fileName.endsWith('.yml') || 
+                        fileName.endsWith('.xml') || fileName.endsWith('.rtf');
       
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        const preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
+      if (isTextFile) {
+        const reader = new FileReader();
         
+        reader.onload = (e) => {
+          const content = e.target?.result as string;
+          const preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
+          
+          newFiles.push({
+            id: generateStableId(file.name, index),
+            name: file.name,
+            content,
+            size: file.size,
+            type: file.type,
+            preview
+          });
+          
+          processed++;
+          
+          if (processed === fileList.length) {
+            setFiles(prev => [...prev, ...newFiles]);
+          }
+        };
+        
+        reader.readAsText(file);
+      } else {
+        // For binary files (PDF, DOC, etc.), store file reference without content
         newFiles.push({
           id: generateStableId(file.name, index),
           name: file.name,
-          content,
+          content: `[Binary file: ${file.name}]`, // Placeholder content
           size: file.size,
           type: file.type,
-          preview
+          preview: `Binary ${file.type} file - ${(file.size / 1024).toFixed(1)} KB`
         });
         
         processed++;
@@ -128,9 +160,7 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
         if (processed === fileList.length) {
           setFiles(prev => [...prev, ...newFiles]);
         }
-      };
-      
-      reader.readAsText(file);
+      }
     });
   };
 
@@ -153,12 +183,14 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
   };
   
   const handleDrop = (e: React.DragEvent) => {
+    console.log('KnowledgeUploader: handleDrop called');
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
     
     if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
     
+    console.log('KnowledgeUploader: Processing files:', Array.from(e.dataTransfer.files).map(f => `${f.name} (${f.type})`));
     processFiles(Array.from(e.dataTransfer.files));
   };
 
@@ -206,9 +238,10 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
       <div className="mb-6">
         <h3 className="text-md font-medium mb-2">Upload Knowledge Files</h3>
         <div 
-          className={`border-2 border-dashed rounded-lg p-6 text-center ${
+          className={`border-2 border-dashed rounded-lg p-6 text-center knowledge-uploader ${
             isDragging ? 'border-blue-500 bg-blue-900 bg-opacity-10' : 'border-gray-600'
           }`}
+          data-custom-drop-zone="true"
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}
           onDragOver={handleDragOver}
@@ -217,7 +250,7 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
           <input
             type="file"
             ref={fileInputRef}
-            accept=".md,.txt"
+            accept=".md,.txt,.pdf,.doc,.docx,.csv,.json,.rtf,.yaml,.yml,.xml"
             multiple
             onChange={handleFileUpload}
             className="hidden"
@@ -230,10 +263,10 @@ const KnowledgeUploader: React.FC<KnowledgeUploaderProps> = ({
             Select Files
           </button>
           <p className="mt-2 text-sm text-gray-400">
-            Or drag and drop markdown files (.md) here
+            Or drag and drop knowledge documents here
           </p>
           <p className="mt-1 text-xs text-gray-500">
-            Upload markdown files containing knowledge for the agent
+            Supported formats: .md, .txt, .pdf, .doc, .docx, .csv, .json, .rtf, .yaml, .yml, .xml
           </p>
         </div>
       </div>
