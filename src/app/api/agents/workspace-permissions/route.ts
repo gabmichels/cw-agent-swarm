@@ -55,11 +55,14 @@ export async function POST(request: NextRequest) {
       for (const [capability, config] of Object.entries(capabilityPermissions)) {
         if (config && typeof config === 'object' && 'enabled' in config && config.enabled) {
           try {
+            // Default to READ_WRITE access level if not specified
+            const accessLevel = (config as any).accessLevel as AccessLevel || AccessLevel.WRITE;
+            
             const permission = await permissionService.grantPermission({
               agentId,
               workspaceConnectionId: connectionId,
               capability: capability as WorkspaceCapabilityType,
-              accessLevel: (config as any).accessLevel as AccessLevel,
+              accessLevel,
               restrictions: (config as any).restrictions,
               grantedBy,
               justification: `Agent workspace permission granted during agent creation`
@@ -67,6 +70,10 @@ export async function POST(request: NextRequest) {
             grantedPermissions.push(permission);
           } catch (error) {
             console.error(`Failed to grant permission ${capability} for connection ${connectionId}:`, error);
+            // Log more details for debugging
+            console.error('Config:', config);
+            console.error('Capability:', capability);
+            console.error('ConnectionId:', connectionId);
           }
         }
       }

@@ -289,6 +289,8 @@ export async function addDocumentMemory(
       author: options.author,
       publishDate: options.publishDate,
       importance: options.importance,
+      // Mark all documents as critical to prevent decay - documents should be permanent
+      critical: true,
       ...options.metadata
     }
   );

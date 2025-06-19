@@ -111,8 +111,6 @@ const CAPABILITY_DESCRIPTIONS: Partial<Record<WorkspaceCapabilityType, string>> 
   [WorkspaceCapabilityType.CONTACTS_MANAGE]: 'Manage contacts and contact lists'
 };
 
-
-
 export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionManagerProps> = ({
   agentId,
   initialPermissions = [],
@@ -132,6 +130,11 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
   useEffect(() => {
     loadConnections();
   }, []);
+
+  // Sync permissions with initialPermissions prop changes
+  useEffect(() => {
+    setPermissions(initialPermissions);
+  }, [initialPermissions]);
 
   // Add a refresh function that can be called externally
   useEffect(() => {

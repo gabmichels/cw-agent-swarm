@@ -234,7 +234,7 @@ export class DefaultAgentMemory implements AgentMemory {
       typeDecayFactors: {
         // Core Types
         [MemoryType.MESSAGE]: 0.8,
-        [MemoryType.DOCUMENT]: 0.6,
+        [MemoryType.DOCUMENT]: 0, // Documents never decay - they are permanent
         [MemoryType.THOUGHT]: 0.7,
         [MemoryType.REFLECTION]: 0.9,
         [MemoryType.INSIGHT]: 0.95,
@@ -1307,12 +1307,16 @@ export class DefaultAgentMemory implements AgentMemory {
 
     // Check if memory is critical
     const isCritical = memory.metadata?.critical === true;
-    if (isCritical) {
+    
+    // Always protect document type memories from decay - they should be permanent
+    const isDocument = memory.type === MemoryType.DOCUMENT;
+    
+    if (isCritical || isDocument) {
       return {
         id: memoryId,
         newImportance: memory.importance,
         decayRate: 0,
-        isCritical: true,
+        isCritical: isCritical || isDocument, // Mark documents as critical for stats
         daysSinceLastAccess: 0,
         accessCount: (memory.metadata?.accessCount as number) || 0,
         decayedMemories: [],
@@ -2307,6 +2311,12 @@ export class DefaultAgentMemory implements AgentMemory {
       for (const memory of memories) {
         // Skip critical memories
         if (memory.importance === ImportanceLevel.CRITICAL) {
+          protectedCount++;
+          continue;
+        }
+        
+        // Always protect document type memories from decay - they should be permanent
+        if (memory.type === MemoryType.DOCUMENT) {
           protectedCount++;
           continue;
         }

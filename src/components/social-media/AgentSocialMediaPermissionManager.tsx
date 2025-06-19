@@ -44,6 +44,11 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
     loadConnections();
   }, []);
 
+  // Sync permissions with initialPermissions prop changes
+  useEffect(() => {
+    setPermissions(initialPermissions);
+  }, [initialPermissions]);
+
   // Update parent when permissions change - use setTimeout to avoid infinite loops
   useEffect(() => {
     setTimeout(() => onChange(permissions), 0);

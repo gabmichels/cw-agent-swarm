@@ -116,6 +116,15 @@ export async function retrieveContextNode(state: ThinkingState): Promise<Thinkin
           // Log the formatted memory context that will be passed to the LLM
           console.log('🧠🧠🧠 FORMATTED MEMORY CONTEXT PASSED TO LLM 🧠🧠🧠');
           console.log(updatedState.formattedMemoryContext);
+          
+          // ENHANCED LOGGING FOR PERSONAL INFORMATION DETECTION
+          const hasPersonalInfo = checkForPersonalInformation(updatedState.formattedMemoryContext);
+          console.log('🔍🔍🔍 PERSONAL INFORMATION ANALYSIS 🔍🔍🔍');
+          console.log(`Personal information detected in context: ${hasPersonalInfo ? 'YES' : 'NO'}`);
+          if (hasPersonalInfo) {
+            console.log('⚠️  WARNING: Personal information is being passed to LLM!');
+          }
+          console.log('🔍🔍🔍 END PERSONAL INFORMATION ANALYSIS 🔍🔍🔍');
         }
       } catch (memoryError) {
         console.error('Error retrieving memory context:', memoryError);
@@ -180,4 +189,23 @@ function extractSummary(content: string): string {
   }
   
   return content.substring(0, 100).trim() + '...';
+}
+
+/**
+ * Check if text contains personal information
+ */
+function checkForPersonalInformation(text: string): boolean {
+  if (!text) return false;
+  
+  const patterns = [
+    /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/, // Email
+    /(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}/, // Phone
+    /\d+\s+[A-Za-z0-9\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)/i, // Address
+    /birthday/i,
+    /born\s+on/i,
+    /date\s+of\s+birth/i,
+    /SSN|social\s+security/i
+  ];
+  
+  return patterns.some(pattern => pattern.test(text));
 } 
