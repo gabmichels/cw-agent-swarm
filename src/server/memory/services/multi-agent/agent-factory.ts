@@ -1,7 +1,8 @@
 /**
  * Agent Factory
  * 
- * This module provides a factory for creating agent instances with standardized configuration.
+ * This module provides a factory for creating agent instances with standardized configuration
+ * and enhanced memory communication capabilities.
  */
 
 import { AgentCapability, AgentMemoryEntity, AgentParameters, AgentStatus, agentSchema } from "../../schema/agent";
@@ -10,6 +11,14 @@ import { AgentMemoryService } from "../agent-memory-service";
 import { IMemoryRepository } from "../base/types";
 import { Result, failureResult } from "../../../../lib/errors/base";
 import { AppError } from "../../../../lib/errors/base";
+import { 
+  EnhancedMemoryService, 
+  AgentCommunicationType, 
+  AgentMemoryAccessLevel,
+  AgentCommunicationParams 
+} from './enhanced-memory-service';
+import { BaseMemorySchema } from '../../models';
+import { MemoryType } from '../../config';
 
 /**
  * Agent template interface for creating new agents
@@ -29,15 +38,21 @@ export interface AgentTemplate {
 
 /**
  * Agent factory service for creating standardized agents
+ * Enhanced with agent-to-agent communication capabilities
  */
 export class AgentFactory {
   private agentService: AgentMemoryService;
   
   /**
-   * Create a new agent factory
+   * Create a new agent factory with optional Enhanced Memory Service
+   * Following IMPLEMENTATION_GUIDELINES.md: Dependency Injection pattern
    * @param agentRepository Repository for agent storage
+   * @param enhancedMemoryService Optional Enhanced Memory Service for agent communication
    */
-  constructor(agentRepository: IMemoryRepository<AgentMemoryEntity>) {
+  constructor(
+    agentRepository: IMemoryRepository<AgentMemoryEntity>,
+    private readonly enhancedMemoryService?: EnhancedMemoryService
+  ) {
     this.agentService = new AgentMemoryService(agentRepository);
   }
   
@@ -298,5 +313,292 @@ export class AgentFactory {
     
     // Create the cloned agent
     return await this.createAgent(template, createdBy);
+  }
+
+  // ============================================================================
+  // AGENT COMMUNICATION METHODS
+  // Following IMPLEMENTATION_GUIDELINES.md: ULID, strict typing, DI, pure functions
+  // ============================================================================
+
+  /**
+   * Enable agent-to-agent communication for a newly created agent
+   * Pure function with immutable parameters and strict typing
+   */
+  async enableAgentCommunication(
+    agentId: string,
+    communicationSettings: {
+      readonly accessLevel: AgentMemoryAccessLevel;
+      readonly allowedCommunicationTypes: readonly AgentCommunicationType[];
+      readonly teamId?: string;
+      readonly projectId?: string;
+    }
+  ): Promise<Result<boolean>> {
+    try {
+      if (!this.enhancedMemoryService) {
+        return {
+          success: false,
+          error: new AppError(
+            'Enhanced Memory Service not available for agent communication',
+            'SERVICE_NOT_AVAILABLE',
+            { agentId }
+          )
+        };
+      }
+
+      // Store agent communication settings in memory
+      const result = await this.enhancedMemoryService.sendAgentMessage<BaseMemorySchema>({
+        type: MemoryType.AGENT,
+        content: `Agent communication enabled for ${agentId}`,
+        senderAgentId: 'system',
+        receiverAgentId: agentId,
+        communicationType: AgentCommunicationType.STATUS_UPDATE,
+        accessLevel: communicationSettings.accessLevel,
+        metadata: {
+          agentId,
+          communicationSettings: {
+            accessLevel: communicationSettings.accessLevel,
+            allowedCommunicationTypes: communicationSettings.allowedCommunicationTypes,
+            teamId: communicationSettings.teamId,
+            projectId: communicationSettings.projectId
+          },
+          eventType: 'communication_enabled',
+          timestamp: Date.now()
+        }
+      });
+
+      return {
+        success: result.success,
+        data: result.success,
+        error: result.error ? new AppError(
+          result.error.message,
+          result.error.code as string,
+          { agentId }
+        ) : undefined
+      };
+    } catch (error) {
+      return failureResult(new AppError(
+        `Failed to enable agent communication: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'COMMUNICATION_SETUP_FAILED',
+        { agentId, error }
+      ));
+    }
+  }
+
+  /**
+   * Send a message from one agent to another
+   * Pure function with immutable parameters and strict typing
+   */
+  async sendAgentMessage(
+    senderAgentId: string,
+    receiverAgentId: string,
+    content: string,
+    options: {
+      readonly communicationType?: AgentCommunicationType;
+      readonly priority?: 'low' | 'medium' | 'high' | 'urgent';
+      readonly accessLevel?: AgentMemoryAccessLevel;
+      readonly metadata?: Record<string, unknown>;
+    } = {}
+  ): Promise<Result<string>> {
+    try {
+      if (!this.enhancedMemoryService) {
+        return failureResult(new AppError(
+          'Enhanced Memory Service not available for agent communication',
+          'SERVICE_NOT_AVAILABLE',
+          { senderAgentId, receiverAgentId }
+        ));
+      }
+
+      // Validate both agents exist
+      const senderResult = await this.agentService.getById(senderAgentId);
+      const receiverResult = await this.agentService.getById(receiverAgentId);
+
+      if (senderResult.error || !senderResult.data) {
+        return failureResult(new AppError(
+          `Sender agent not found: ${senderAgentId}`,
+          'SENDER_NOT_FOUND',
+          { senderAgentId }
+        ));
+      }
+
+      if (receiverResult.error || !receiverResult.data) {
+        return failureResult(new AppError(
+          `Receiver agent not found: ${receiverAgentId}`,
+          'RECEIVER_NOT_FOUND',
+          { receiverAgentId }
+        ));
+      }
+
+      // Send the message using Enhanced Memory Service
+      const result = await this.enhancedMemoryService.sendAgentMessage<BaseMemorySchema>({
+        type: MemoryType.MESSAGE,
+        content,
+        senderAgentId,
+        receiverAgentId,
+        communicationType: options.communicationType || AgentCommunicationType.DIRECT_MESSAGE,
+        priority: options.priority || 'medium',
+        accessLevel: options.accessLevel || AgentMemoryAccessLevel.PRIVATE,
+        metadata: {
+          ...options.metadata,
+          senderName: senderResult.data.name,
+          receiverName: receiverResult.data.name,
+          timestamp: Date.now()
+        }
+      });
+
+      return {
+        success: result.success,
+        data: result.id || 'unknown',
+        error: result.error ? new AppError(
+          result.error.message,
+          result.error.code as string,
+          { senderAgentId, receiverAgentId }
+        ) : undefined
+      };
+    } catch (error) {
+      return failureResult(new AppError(
+        `Failed to send agent message: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'MESSAGE_SEND_FAILED',
+        { senderAgentId, receiverAgentId, error }
+      ));
+    }
+  }
+
+  /**
+   * Broadcast a message from one agent to multiple agents
+   * Pure function with immutable parameters and strict typing
+   */
+  async broadcastAgentMessage(
+    senderAgentId: string,
+    content: string,
+    options: {
+      readonly receiverAgentIds?: readonly string[];
+      readonly teamId?: string;
+      readonly accessLevel: AgentMemoryAccessLevel;
+      readonly communicationType?: AgentCommunicationType;
+      readonly priority?: 'low' | 'medium' | 'high' | 'urgent';
+      readonly metadata?: Record<string, unknown>;
+    }
+  ): Promise<Result<string[]>> {
+    try {
+      if (!this.enhancedMemoryService) {
+        return failureResult(new AppError(
+          'Enhanced Memory Service not available for agent communication',
+          'SERVICE_NOT_AVAILABLE',
+          { senderAgentId }
+        ));
+      }
+
+      // Validate sender agent exists
+      const senderResult = await this.agentService.getById(senderAgentId);
+      if (senderResult.error || !senderResult.data) {
+        return failureResult(new AppError(
+          `Sender agent not found: ${senderAgentId}`,
+          'SENDER_NOT_FOUND',
+          { senderAgentId }
+        ));
+      }
+
+      // Send broadcast message using Enhanced Memory Service
+      const results = await this.enhancedMemoryService.broadcastAgentMessage<BaseMemorySchema>({
+        type: MemoryType.MESSAGE,
+        content,
+        senderAgentId,
+        communicationType: options.communicationType || AgentCommunicationType.BROADCAST,
+        priority: options.priority || 'medium',
+        accessLevel: options.accessLevel,
+        receiverAgentIds: options.receiverAgentIds,
+        teamId: options.teamId,
+        metadata: {
+          ...options.metadata,
+          senderName: senderResult.data.name,
+          timestamp: Date.now(),
+          broadcastType: options.receiverAgentIds ? 'targeted' : 'team'
+        }
+      });
+
+      // Extract message IDs from results
+      const messageIds = results
+        .filter(r => r.success)
+        .map(r => r.id || 'unknown');
+
+      const failures = results.filter(r => !r.success);
+      if (failures.length > 0) {
+        console.warn(`Broadcast partially failed: ${failures.length} messages failed to send`);
+      }
+
+      return {
+        success: messageIds.length > 0,
+        data: messageIds,
+        error: messageIds.length === 0 ? new AppError(
+          'All broadcast messages failed to send',
+          'BROADCAST_FAILED',
+          { senderAgentId, failures }
+        ) : undefined
+      };
+    } catch (error) {
+      return failureResult(new AppError(
+        `Failed to broadcast agent message: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'BROADCAST_FAILED',
+        { senderAgentId, error }
+      ));
+    }
+  }
+
+  /**
+   * Get conversation history between agents
+   * Pure function with immutable parameters and strict typing
+   */
+  async getAgentConversationHistory(
+    agentId: string,
+    otherAgentId?: string,
+    options: {
+      readonly limit?: number;
+      readonly offset?: number;
+      readonly since?: Date;
+      readonly communicationType?: AgentCommunicationType;
+    } = {}
+  ): Promise<Result<any[]>> {
+    try {
+      if (!this.enhancedMemoryService) {
+        return failureResult(new AppError(
+          'Enhanced Memory Service not available for agent communication',
+          'SERVICE_NOT_AVAILABLE',
+          { agentId }
+        ));
+      }
+
+      // Validate requesting agent exists
+      const agentResult = await this.agentService.getById(agentId);
+      if (agentResult.error || !agentResult.data) {
+        return failureResult(new AppError(
+          `Agent not found: ${agentId}`,
+          'AGENT_NOT_FOUND',
+          { agentId }
+        ));
+      }
+
+      // Get conversation history using Enhanced Memory Service
+      const history = await this.enhancedMemoryService.getAgentConversationHistory<BaseMemorySchema>(
+        agentId,
+        otherAgentId,
+        {
+          limit: options.limit || 50,
+          offset: options.offset || 0,
+          since: options.since,
+          communicationType: options.communicationType
+        }
+      );
+
+      return {
+        success: true,
+        data: history
+      };
+    } catch (error) {
+      return failureResult(new AppError(
+        `Failed to get agent conversation history: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'HISTORY_RETRIEVAL_FAILED',
+        { agentId, otherAgentId, error }
+      ));
+    }
   }
 } 

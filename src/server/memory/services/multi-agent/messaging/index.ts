@@ -69,10 +69,17 @@ export async function getConversationManager(): Promise<ConversationManager> {
     const router = await getMessageRouter();
     const transformer = await getMessageTransformer();
     
+    // Create Enhanced Memory Service instance if memoryService is compatible
+    let enhancedMemoryService: any | undefined; // Use any to avoid circular import
+    if (services.memoryService && 'sendAgentMessage' in services.memoryService) {
+      enhancedMemoryService = services.memoryService;
+    }
+    
     conversationManager = new ConversationManager(
       services.memoryService,
       router,
-      transformer
+      transformer,
+      enhancedMemoryService
     );
   }
   
@@ -184,12 +191,14 @@ export function createMessageTransformer(
 export function createConversationManager(
   memoryService: AnyMemoryService,
   router: MessageRouter,
-  transformer: MessageTransformer
+  transformer: MessageTransformer,
+  enhancedMemoryService?: any // Use any to avoid circular import
 ): ConversationManager {
   return new ConversationManager(
     memoryService,
     router,
-    transformer
+    transformer,
+    enhancedMemoryService
   );
 }
 

@@ -14,6 +14,13 @@ import { MessageRouter, RoutingStrategy, MessagePriority, RoutingParams, Deliver
 import { MessageTransformer, MessageFormat, EnrichmentType, TransformableMessage } from './message-transformer';
 import { getConversationAnalyticsService } from './index';
 import { MessageAnalyticsUpdate } from './conversation-analytics';
+import { 
+  EnhancedMemoryService, 
+  AgentCommunicationType, 
+  AgentMemoryAccessLevel,
+  AgentCommunicationParams 
+} from '../enhanced-memory-service';
+import { BaseMemorySchema } from '../../../models';
 
 // Ensure type compatibility with MemoryType enum
 const MEMORY_TYPE = {
@@ -197,12 +204,14 @@ export interface IConversationManager {
  */
 export class ConversationManager implements IConversationManager {
   /**
-   * Create a new conversation manager
+   * Create a new conversation manager with Enhanced Memory Service support
+   * Following IMPLEMENTATION_GUIDELINES.md: Dependency Injection pattern
    */
   constructor(
     private readonly memoryService: AnyMemoryService,
     private readonly messageRouter: MessageRouter,
-    private readonly messageTransformer: MessageTransformer
+    private readonly messageTransformer: MessageTransformer,
+    private readonly enhancedMemoryService?: EnhancedMemoryService
   ) {}
   
   /**
@@ -402,6 +411,7 @@ export class ConversationManager implements IConversationManager {
   
   /**
    * Submit a message to the conversation
+   * Enhanced with agent-to-agent communication support
    */
   async submitMessage(
     conversationId: string,
@@ -439,16 +449,21 @@ export class ConversationManager implements IConversationManager {
         visibleToParticipantIds: !params.isVisibleToAll ? params.visibleToParticipantIds : undefined
       };
       
-      // Store the message in memory
-      await this.memoryService.addMemory({
-        type: MEMORY_TYPE.MESSAGE,
-        content: params.content,
-        metadata: {
-          ...message,
-          messageType: 'conversation',
-          participantType: sender.type
-        }
-      });
+      // Use Enhanced Memory Service for agent-to-agent communication if available
+      if (this.enhancedMemoryService && sender.type === ParticipantType.AGENT) {
+        await this.storeMessageWithAgentCommunication(conversation, message, sender);
+      } else {
+        // Fallback to standard memory service
+        await this.memoryService.addMemory({
+          type: MEMORY_TYPE.MESSAGE,
+          content: params.content,
+          metadata: {
+            ...message,
+            messageType: 'conversation',
+            participantType: sender.type
+          }
+        });
+      }
       
       // Update conversation metadata
       await this.memoryService.updateMemory({
@@ -474,6 +489,128 @@ export class ConversationManager implements IConversationManager {
       console.error(`Error submitting message to conversation ${conversationId}:`, error);
       throw error;
     }
+  }
+  
+  /**
+   * Store message using Enhanced Memory Service with agent communication features
+   * Following IMPLEMENTATION_GUIDELINES.md: Pure function with immutable parameters
+   */
+  private async storeMessageWithAgentCommunication(
+    conversation: Conversation,
+    message: ConversationMessage,
+    sender: Participant
+  ): Promise<void> {
+    if (!this.enhancedMemoryService) {
+      throw new Error('Enhanced Memory Service not available');
+    }
+
+    // Determine communication type based on conversation context
+    const communicationType = this.determineCommunicationType(conversation, message);
+    
+    // Determine access level based on message visibility
+    const accessLevel = message.isVisibleToAll 
+      ? AgentMemoryAccessLevel.PUBLIC 
+      : AgentMemoryAccessLevel.RESTRICTED;
+
+    // Get receiver agent IDs (only agents, not users)
+    const receiverAgentIds = conversation.participants
+      .filter(p => p.type === ParticipantType.AGENT && p.id !== sender.id)
+      .map(p => p.id);
+
+    // Prepare agent communication parameters
+    const agentCommParams: AgentCommunicationParams<BaseMemorySchema> = {
+      type: MEMORY_TYPE.MESSAGE,
+      content: message.content,
+      senderAgentId: sender.id,
+      communicationType,
+      accessLevel,
+      priority: this.determineMessagePriority(message),
+      metadata: {
+        ...message.metadata,
+        conversationId: conversation.id,
+        conversationName: conversation.name,
+        messageId: message.id,
+        timestamp: message.timestamp,
+        format: message.format,
+        isVisibleToAll: message.isVisibleToAll,
+        visibleToParticipantIds: message.visibleToParticipantIds,
+        referencedMessageIds: message.referencedMessageIds,
+        participantType: sender.type,
+        participantRole: sender.role
+      }
+    };
+
+    // Send to each receiver agent individually for proper access control
+    if (receiverAgentIds.length > 0) {
+      const results = await this.enhancedMemoryService.broadcastAgentMessage({
+        ...agentCommParams,
+        receiverAgentIds,
+        accessLevel
+      });
+
+      // Check for any failures
+      const failures = results.filter(r => !r.success);
+      if (failures.length > 0) {
+        console.warn(`Failed to send message to ${failures.length} agents:`, failures);
+      }
+    } else {
+      // No agent receivers, store as regular message
+      await this.enhancedMemoryService.sendAgentMessage(agentCommParams);
+    }
+  }
+
+  /**
+   * Determine communication type based on conversation context
+   * Pure function following IMPLEMENTATION_GUIDELINES.md
+   */
+  private determineCommunicationType(
+    conversation: Conversation,
+    message: ConversationMessage
+  ): AgentCommunicationType {
+    // Check message metadata for explicit communication type
+    if (message.metadata?.communicationType) {
+      return message.metadata.communicationType as AgentCommunicationType;
+    }
+
+    // Determine based on conversation flow control
+    switch (conversation.flowControl) {
+      case FlowControlType.ROUND_ROBIN:
+        return AgentCommunicationType.DIRECT_MESSAGE;
+      case FlowControlType.MODERATOR_CONTROLLED:
+        return AgentCommunicationType.TASK_DELEGATION;
+      case FlowControlType.THRESHOLD_BASED:
+        return AgentCommunicationType.COLLABORATION_REQUEST;
+      case FlowControlType.FREE_FORM:
+      default:
+        // Check if it's a broadcast or direct message
+        return message.isVisibleToAll 
+          ? AgentCommunicationType.BROADCAST 
+          : AgentCommunicationType.DIRECT_MESSAGE;
+    }
+  }
+
+  /**
+   * Determine message priority based on message characteristics
+   * Pure function following IMPLEMENTATION_GUIDELINES.md
+   */
+  private determineMessagePriority(
+    message: ConversationMessage
+  ): 'low' | 'medium' | 'high' | 'urgent' {
+    // Check explicit priority in metadata
+    if (message.metadata?.priority) {
+      return message.metadata.priority as 'low' | 'medium' | 'high' | 'urgent';
+    }
+
+    // Determine based on message characteristics
+    if (message.referencedMessageIds && message.referencedMessageIds.length > 0) {
+      return 'high'; // Referenced messages are important
+    }
+
+    if (!message.isVisibleToAll && message.visibleToParticipantIds) {
+      return 'high'; // Private messages are typically important
+    }
+
+    return 'medium'; // Default priority
   }
   
   /**

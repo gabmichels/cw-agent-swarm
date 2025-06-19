@@ -18,6 +18,65 @@ import { EmbeddingService } from '../client/embedding-service';
 import { IMemoryClient } from '../client/types';
 
 /**
+ * Agent communication types following IMPLEMENTATION_GUIDELINES.md
+ */
+export enum AgentCommunicationType {
+  DIRECT_MESSAGE = 'direct_message',
+  BROADCAST = 'broadcast',
+  TASK_DELEGATION = 'task_delegation',
+  COLLABORATION_REQUEST = 'collaboration_request',
+  STATUS_UPDATE = 'status_update',
+  KNOWLEDGE_SHARING = 'knowledge_sharing'
+}
+
+export enum AgentMemoryAccessLevel {
+  PRIVATE = 'private',           // Only the agent itself
+  TEAM = 'team',                // Agents in the same team
+  PROJECT = 'project',          // Agents working on the same project
+  PUBLIC = 'public',            // All agents
+  RESTRICTED = 'restricted'     // Specific agents only
+}
+
+/**
+ * Agent memory permission interface
+ */
+export interface AgentMemoryPermission {
+  readonly agentId: string;
+  readonly accessLevel: AgentMemoryAccessLevel;
+  readonly canRead: boolean;
+  readonly canWrite: boolean;
+  readonly canShare: boolean;
+  readonly expiresAt?: Date;
+}
+
+/**
+ * Agent-to-agent communication parameters
+ */
+export interface AgentCommunicationParams<T extends BaseMemorySchema> extends AddMemoryParams<T> {
+  readonly senderAgentId: string;
+  readonly receiverAgentId?: string;  // Optional for broadcasts
+  readonly communicationType: AgentCommunicationType;
+  readonly priority?: 'low' | 'medium' | 'high' | 'urgent';
+  readonly accessLevel?: AgentMemoryAccessLevel;
+  readonly permissions?: readonly AgentMemoryPermission[];
+  readonly teamId?: string;
+  readonly projectId?: string;
+}
+
+/**
+ * Agent memory search parameters
+ */
+export interface AgentMemorySearchParams extends SearchMemoryParams {
+  readonly requestingAgentId: string;
+  readonly senderAgentId?: string;
+  readonly receiverAgentId?: string;
+  readonly communicationType?: AgentCommunicationType;
+  readonly accessLevel?: AgentMemoryAccessLevel;
+  readonly teamId?: string;
+  readonly projectId?: string;
+}
+
+/**
  * Enhanced memory point with top-level indexable fields
  * This implements the dual-field approach for improved query performance
  */
@@ -385,5 +444,316 @@ export class EnhancedMemoryService extends MemoryService {
     }
     
     return String(value);
+  }
+
+  // ============================================================================
+  // AGENT-TO-AGENT COMMUNICATION METHODS
+  // Following IMPLEMENTATION_GUIDELINES.md: ULID, strict typing, DI, pure functions
+  // ============================================================================
+
+  /**
+   * Send a message from one agent to another
+   * Pure function with immutable parameters and strict typing
+   */
+  async sendAgentMessage<T extends BaseMemorySchema>(
+    params: AgentCommunicationParams<T>
+  ): Promise<MemoryResult> {
+    try {
+      // Validate agent communication parameters
+      const validation = this.validateAgentCommunicationParams(params);
+      if (!validation.valid) {
+        return {
+          success: false,
+          error: {
+            code: MemoryErrorCode.VALIDATION_ERROR,
+            message: validation.errors?.[0]?.message || 'Invalid agent communication parameters'
+          }
+        };
+      }
+
+      // Generate ULID for better performance and sorting
+      const messageId = ulid();
+      
+      // Create enhanced metadata with agent communication fields
+      const enhancedMetadata = {
+        ...params.metadata,
+        senderAgentId: { id: params.senderAgentId, type: 'agent' },
+        receiverAgentId: params.receiverAgentId ? { id: params.receiverAgentId, type: 'agent' } : undefined,
+        communicationType: params.communicationType,
+        priority: params.priority || 'medium',
+        accessLevel: params.accessLevel || AgentMemoryAccessLevel.PRIVATE,
+        teamId: params.teamId ? { id: params.teamId, type: 'team' } : undefined,
+        projectId: params.projectId ? { id: params.projectId, type: 'project' } : undefined,
+        messageId,
+        timestamp: this.getTimestampFn()
+      };
+
+      // Add memory using enhanced parameters
+      const addParams: AddMemoryParams<T> = {
+        ...params,
+        id: messageId,
+        metadata: enhancedMetadata
+      };
+
+      return await this.addMemory(addParams);
+    } catch (error) {
+      console.error('Error sending agent message:', error);
+      const memoryError = handleMemoryError(error, 'sendAgentMessage');
+      return {
+        success: false,
+        error: {
+          code: memoryError.code,
+          message: memoryError.message
+        }
+      };
+    }
+  }
+
+  /**
+   * Search agent memories with access control
+   * Pure function following IMPLEMENTATION_GUIDELINES.md principles
+   */
+  async searchAgentMemories<T extends BaseMemorySchema>(
+    params: AgentMemorySearchParams
+  ): Promise<EnhancedMemoryPoint<T>[]> {
+    try {
+      // Validate requesting agent has access
+      const accessValidation = this.validateAgentAccess(params);
+      if (!accessValidation.valid) {
+        throw new Error(`Access denied: ${accessValidation.error}`);
+      }
+
+      // Build enhanced filter with agent-specific constraints
+      const agentFilter = this.buildAgentAccessFilter(params);
+      
+      // Combine with user-provided filters
+      const combinedFilter = {
+        ...params.filter,
+        ...agentFilter
+      };
+
+      // Search with enhanced filter
+      const searchParams: SearchMemoryParams = {
+        ...params,
+        filter: combinedFilter
+      };
+
+      return await this.searchMemories<T>(searchParams);
+    } catch (error) {
+      console.error('Error searching agent memories:', error);
+      throw handleMemoryError(error, 'searchAgentMemories');
+    }
+  }
+
+  /**
+   * Get agent conversation history
+   * Pure function with immutable parameters
+   */
+  async getAgentConversationHistory<T extends BaseMemorySchema>(
+    agentId: string,
+    otherAgentId?: string,
+    options: {
+      readonly limit?: number;
+      readonly offset?: number;
+      readonly communicationType?: AgentCommunicationType;
+      readonly since?: Date;
+    } = {}
+  ): Promise<EnhancedMemoryPoint<T>[]> {
+    try {
+      // Build conversation filter
+      const conversationFilter: Record<string, any> = {};
+      
+      if (otherAgentId) {
+        // Conversation between two specific agents
+        conversationFilter.$or = [
+          { 
+            senderAgentId: agentId,
+            receiverAgentId: otherAgentId
+          },
+          {
+            senderAgentId: otherAgentId,
+            receiverAgentId: agentId
+          }
+        ];
+      } else {
+        // All conversations involving this agent
+        conversationFilter.$or = [
+          { senderAgentId: agentId },
+          { receiverAgentId: agentId }
+        ];
+      }
+
+      if (options.communicationType) {
+        conversationFilter.communicationType = options.communicationType;
+      }
+
+      if (options.since) {
+        conversationFilter.timestamp = { $gte: options.since.getTime() };
+      }
+
+      // Search with conversation filter
+      const searchParams: AgentMemorySearchParams = {
+        type: MemoryType.MESSAGE,
+        requestingAgentId: agentId,
+        filter: conversationFilter,
+        limit: options.limit || 50,
+        offset: options.offset || 0
+      };
+
+      return await this.searchAgentMemories<T>(searchParams);
+    } catch (error) {
+      console.error('Error getting agent conversation history:', error);
+      throw handleMemoryError(error, 'getAgentConversationHistory');
+    }
+  }
+
+  /**
+   * Broadcast message to multiple agents
+   * Pure function with immutable parameters
+   */
+  async broadcastAgentMessage<T extends BaseMemorySchema>(
+    params: Omit<AgentCommunicationParams<T>, 'receiverAgentId'> & {
+      readonly receiverAgentIds?: readonly string[];
+      readonly teamId?: string;
+      readonly accessLevel: AgentMemoryAccessLevel;
+    }
+  ): Promise<MemoryResult[]> {
+    try {
+      const results: MemoryResult[] = [];
+      
+      if (params.receiverAgentIds && params.receiverAgentIds.length > 0) {
+        // Send to specific agents
+        for (const receiverAgentId of params.receiverAgentIds) {
+          const messageParams: AgentCommunicationParams<T> = {
+            ...params,
+            receiverAgentId,
+            communicationType: AgentCommunicationType.BROADCAST
+          };
+          
+          const result = await this.sendAgentMessage(messageParams);
+          results.push(result);
+        }
+      } else {
+        // Team or public broadcast
+        const broadcastParams: AgentCommunicationParams<T> = {
+          ...params,
+          communicationType: AgentCommunicationType.BROADCAST
+        };
+        
+        const result = await this.sendAgentMessage(broadcastParams);
+        results.push(result);
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error broadcasting agent message:', error);
+      throw handleMemoryError(error, 'broadcastAgentMessage');
+    }
+  }
+
+  // ============================================================================
+  // PRIVATE HELPER METHODS
+  // Pure functions following IMPLEMENTATION_GUIDELINES.md principles
+  // ============================================================================
+
+  /**
+   * Validate agent communication parameters
+   * Pure function with immutable input
+   */
+  private validateAgentCommunicationParams<T extends BaseMemorySchema>(
+    params: AgentCommunicationParams<T>
+  ): { valid: boolean; errors?: Array<{ field: string; message: string }> } {
+    const errors: Array<{ field: string; message: string }> = [];
+
+    // Validate required fields
+    if (!params.senderAgentId || params.senderAgentId.trim() === '') {
+      errors.push({ field: 'senderAgentId', message: 'Sender agent ID is required' });
+    }
+
+    if (!params.communicationType) {
+      errors.push({ field: 'communicationType', message: 'Communication type is required' });
+    }
+
+    if (!Object.values(AgentCommunicationType).includes(params.communicationType)) {
+      errors.push({ field: 'communicationType', message: 'Invalid communication type' });
+    }
+
+    // Validate access level if provided
+    if (params.accessLevel && !Object.values(AgentMemoryAccessLevel).includes(params.accessLevel)) {
+      errors.push({ field: 'accessLevel', message: 'Invalid access level' });
+    }
+
+    // Validate receiver for non-broadcast messages
+    if (params.communicationType !== AgentCommunicationType.BROADCAST && !params.receiverAgentId) {
+      errors.push({ field: 'receiverAgentId', message: 'Receiver agent ID is required for non-broadcast messages' });
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors: errors.length > 0 ? errors : undefined
+    };
+  }
+
+  /**
+   * Validate agent access permissions
+   * Pure function with immutable input
+   */
+  private validateAgentAccess(
+    params: AgentMemorySearchParams
+  ): { valid: boolean; error?: string } {
+    // Basic validation - can be extended with more sophisticated access control
+    if (!params.requestingAgentId || params.requestingAgentId.trim() === '') {
+      return { valid: false, error: 'Requesting agent ID is required' };
+    }
+
+    // For now, allow all authenticated agents - can be enhanced with role-based access
+    return { valid: true };
+  }
+
+  /**
+   * Build agent access filter
+   * Pure function that returns immutable filter object
+   */
+  private buildAgentAccessFilter(
+    params: AgentMemorySearchParams
+  ): Record<string, any> {
+    const filter: Record<string, any> = {};
+    
+    // Add agent-specific filters
+    if (params.senderAgentId) {
+      filter.senderAgentId = params.senderAgentId;
+    }
+    
+    if (params.receiverAgentId) {
+      filter.receiverAgentId = params.receiverAgentId;
+    }
+    
+    if (params.communicationType) {
+      filter.communicationType = params.communicationType;
+    }
+    
+    if (params.teamId) {
+      filter.teamId = params.teamId;
+    }
+    
+    if (params.projectId) {
+      filter.projectId = params.projectId;
+    }
+
+    // Access level filtering
+    if (params.accessLevel) {
+      filter.accessLevel = params.accessLevel;
+    } else {
+      // Default: only show memories the agent has access to
+      filter.$or = [
+        { senderAgentId: params.requestingAgentId },
+        { receiverAgentId: params.requestingAgentId },
+        { accessLevel: AgentMemoryAccessLevel.PUBLIC },
+        { teamId: params.teamId },
+        { projectId: params.projectId }
+      ];
+    }
+
+    return filter;
   }
 } 
