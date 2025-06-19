@@ -172,12 +172,21 @@ export class MemoryRetriever {
           `📌 Extracted tags from query: ${queryTags.join(', ')}`);
       }
       
-      // Create filter for memory search
+      // Create filter for memory search - handle both legacy and new userId formats
       const filter: Record<string, any> = {
-        must: [
-          { key: "metadata.userId.id", match: { value: options.userId } }
+        should: [
+          // New structured format: metadata.userId.id
+          { key: "metadata.userId.id", match: { value: options.userId } },
+          // Legacy format: metadata.userId (plain string)
+          { key: "metadata.userId", match: { value: options.userId } },
+          // Alternative legacy format: userId at root level
+          { key: "userId", match: { value: options.userId } }
         ]
       };
+      
+      // 🚨 DEBUG: Log the filter being applied
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `🔍 UserId filter being applied for userId: ${options.userId}`, filter);
       
       // Add exclusion filter for working memory IDs to avoid duplicates
       const excludeIds = [...(workingMemoryResult.memoryIds || [])];
@@ -215,8 +224,20 @@ export class MemoryRetriever {
       this.log(MemoryRetrievalLogLevel.VERBOSE, `🔎 Performing search with options:`, searchOptions);
       const searchResults = await searchService.search(options.query, searchOptions);
       
+      // 🚨 DEBUG: Log detailed search results
       this.log(MemoryRetrievalLogLevel.BASIC, 
         `📊 Retrieved ${searchResults.length} memory candidates for processing`);
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `🔍 Search query was: "${options.query}"`);
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `🔍 Search included types: ${searchOptions.types?.join(', ')}`);
+      
+      if (searchResults.length === 0) {
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `⚠️ NO RESULTS: The search returned 0 results. This suggests a filter mismatch.`);
+        this.log(MemoryRetrievalLogLevel.BASIC, 
+          `🔍 Filter details:`, JSON.stringify(filter, null, 2));
+      }
       
       // Convert search results to working memory items
       let memories: WorkingMemoryItem[] = [];

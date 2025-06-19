@@ -123,7 +123,7 @@ class SpecializedAgent implements AgentBase {
         version: '1.0.0',
         isPublic: false
       },
-      content: '',
+      content: '', // Legacy field
       type: 'agent',
       createdAt: new Date(),
       updatedAt: new Date(),

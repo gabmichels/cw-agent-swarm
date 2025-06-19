@@ -63,6 +63,41 @@ export class MemoryFormatter {
       return "No relevant memories available.";
     }
     
+    // 🚨 ENHANCED: Check for factual information in memories being formatted
+    const factualInfoMemories = memories.filter(memory => {
+      const content = memory.content.toLowerCase();
+      return content.includes('birthday') || 
+             content.includes('birthdate') || 
+             content.includes('born') ||
+             content.includes('address') ||
+             content.includes('phone') ||
+             content.includes('email') ||
+             content.includes('personal') ||
+             content.includes('gabriel') ||
+             content.includes('crowd wisdom') ||
+             content.includes('price') ||
+             content.includes('cost') ||
+             content.includes('date') ||
+             content.includes('time') ||
+             content.includes('number') ||
+             content.includes('statistic') ||
+             content.includes('data') ||
+             content.match(/\d{4}/) || // Years
+             content.match(/\$\d+/) || // Dollar amounts
+             content.match(/\d+%/) || // Percentages
+             content.match(/\d+,\d+/) || // Large numbers with commas
+             content.includes('fact') ||
+             content.includes('info');
+    });
+    
+    if (factualInfoMemories.length > 0) {
+      console.log('🔍 FACTUAL INFO MEMORIES FOUND IN FORMATTING:');
+      console.log(`Found ${factualInfoMemories.length} memories with factual information`);
+      factualInfoMemories.forEach((memory, idx) => {
+        console.log(`Memory ${idx + 1}:`, memory.content.substring(0, 100));
+      });
+    }
+    
     // Apply provided options with defaults
     const formatOptions = { ...DEFAULT_OPTIONS, ...options };
     

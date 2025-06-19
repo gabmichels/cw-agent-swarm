@@ -35,13 +35,14 @@ export interface AgentCapability {
  * Agent parameters interface
  */
 export interface AgentParameters {
-  model: string;
-  temperature: number;
-  maxTokens: number;
-  tools: AgentTool[];
-  customInstructions?: string;
-  contextWindow?: number;
-  systemMessages?: string[];
+  id?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  systemPrompt?: string;
+  autonomous?: boolean;
+  tools?: string[];
+  [key: string]: unknown;
 }
 
 /**
@@ -58,6 +59,13 @@ export interface AgentTool {
 /**
  * Agent metadata interface
  */
+export interface PersonaInfo {
+  background?: string;
+  personality?: string;
+  communicationStyle?: string;
+  preferences?: string;
+}
+
 export interface AgentMetadata extends Record<string, unknown> {
   tags: string[];
   domain: string[];
@@ -69,6 +77,7 @@ export interface AgentMetadata extends Record<string, unknown> {
   };
   version: string;
   isPublic: boolean;
+  persona?: PersonaInfo;
 }
 
 /**
@@ -104,7 +113,7 @@ export interface AgentMemoryEntity extends BaseMemoryEntity {
 export const agentSchemaJSON: JSONSchema7 = {
   $schema: "http://json-schema.org/draft-07/schema#",
   type: "object",
-  required: ["id", "name", "capabilities", "parameters", "status", "metadata", "content", "type"],
+  required: ["id", "name", "capabilities", "parameters", "status", "metadata", "type"],
   properties: {
     id: {
       type: "object",
@@ -125,7 +134,10 @@ export const agentSchemaJSON: JSONSchema7 = {
       type: "string",
       maxLength: 500
     },
-    content: { type: "string" },
+    content: { 
+      type: "string",
+      description: "DEPRECATED: Legacy field for concatenated persona data. Use metadata.persona instead."
+    },
     type: { 
       type: "string",
       const: "agent"
@@ -153,7 +165,7 @@ export const agentSchemaJSON: JSONSchema7 = {
     },
     parameters: {
       type: "object",
-      required: ["model", "temperature", "maxTokens", "tools"],
+      required: ["model", "temperature", "maxTokens"],
       properties: {
         model: { type: "string" },
         temperature: { 
@@ -167,30 +179,10 @@ export const agentSchemaJSON: JSONSchema7 = {
         },
         tools: {
           type: "array",
-          items: {
-            type: "object",
-            required: ["id", "name", "description", "parameters", "requiredPermissions"],
-            properties: {
-              id: { type: "string" },
-              name: { type: "string" },
-              description: { type: "string" },
-              parameters: { 
-                type: "object",
-                additionalProperties: true
-              },
-              requiredPermissions: {
-                type: "array",
-                items: { type: "string" }
-              }
-            }
-          }
-        },
-        customInstructions: { type: "string" },
-        contextWindow: { type: "number" },
-        systemMessages: {
-          type: "array",
           items: { type: "string" }
-        }
+        },
+        systemPrompt: { type: "string" },
+        autonomous: { type: "boolean" }
       }
     },
     status: {
@@ -247,7 +239,17 @@ export const agentSchemaJSON: JSONSchema7 = {
           }
         },
         version: { type: "string" },
-        isPublic: { type: "boolean" }
+        isPublic: { type: "boolean" },
+        persona: {
+          type: "object",
+          properties: {
+            background: { type: "string" },
+            personality: { type: "string" },
+            communicationStyle: { type: "string" },
+            preferences: { type: "string" }
+          },
+          additionalProperties: false
+        }
       },
       additionalProperties: true
     }
@@ -290,4 +292,21 @@ export const agentSchema = new SchemaImpl<AgentMemoryEntity>(
   SchemaType.ENTITY,
   agentSchemaJSON,
   agentDefaults
-); 
+);
+
+export const AgentParametersSchema = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    model: { type: "string" },
+    temperature: { type: "number" },
+    maxTokens: { type: "number" },
+    systemPrompt: { type: "string" },
+    autonomous: { type: "boolean" },
+    tools: {
+      type: "array",
+      items: { type: "string" }
+    }
+  },
+  additionalProperties: true
+}; 

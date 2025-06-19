@@ -122,8 +122,9 @@ export class FileProcessingManager extends AbstractBaseManager {
    * 
    * @param filePath Path to the file
    * @param originalName Original name of the file
+   * @param userId Optional user ID for memory storage
    */
-  async processFile(filePath: string, originalName: string): Promise<FileProcessingResult> {
+  async processFile(filePath: string, originalName: string, userId?: string): Promise<FileProcessingResult> {
     if (!this._initialized) {
       throw new FileProcessingError('File processing manager not initialized', 'NOT_INITIALIZED');
     }
@@ -169,9 +170,12 @@ export class FileProcessingManager extends AbstractBaseManager {
               type: 'file_content',
               fileId: result.fileId,
               fileName: originalName,
-              fileType
+              fileType,
+              userId: userId || 'test-user' // CRITICAL FIX: Add userId to memory metadata
             }
           );
+          
+          console.log(`[FileProcessingManager] 🆔 Stored file memory with userId: ${userId || 'test-user'}`);
           result.memoryIds = [memory.id];
         }
       }

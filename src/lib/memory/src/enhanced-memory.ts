@@ -168,6 +168,18 @@ export class EnhancedMemory {
       metadata.usageCount = 0;
       metadata.lastAccessed = new Date().toISOString();
       
+      // CRITICAL FIX: Add userId if not present for document memories
+      if (type === MemoryType.DOCUMENT && !metadata.userId) {
+        // Try to extract userId from namespace or set default
+        if (this.namespace && this.namespace.includes('user:')) {
+          metadata.userId = this.namespace.replace('user:', '').split(':')[0];
+        } else {
+          // Set a default userId for now - this should come from context
+          metadata.userId = 'test-user'; // TODO: Get from agent context
+        }
+        console.log(`[EnhancedMemory] 🆔 Adding userId to document memory: ${metadata.userId}`);
+      }
+      
       // Use the standardized memory service directly with the standard type
       const result = await this.memoryService.addMemory({
         type,

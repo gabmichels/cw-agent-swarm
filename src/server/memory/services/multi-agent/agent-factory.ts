@@ -60,9 +60,8 @@ export class AgentFactory {
       temperature: template.parameters.temperature ?? 0.7,
       maxTokens: template.parameters.maxTokens || 1000,
       tools: template.parameters.tools || [],
-      customInstructions: template.parameters.customInstructions || "",
-      contextWindow: template.parameters.contextWindow || 4000,
-      systemMessages: template.parameters.systemMessages || []
+      systemPrompt: template.parameters.systemPrompt || "",
+      autonomous: template.parameters.autonomous || false
     };
     
     // Prepare agent data with required fields
@@ -76,7 +75,7 @@ export class AgentFactory {
       lastActive: new Date(),
       chatIds: [],
       teamIds: [],
-      content: template.description || template.name,
+      content: "", // Legacy field
       type: "agent",
       metadata: {
         tags: template.metadata?.tags || [],

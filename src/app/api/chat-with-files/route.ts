@@ -320,7 +320,8 @@ export async function POST(request: NextRequest) {
         // Process file, get metadata AND full text
         const { metadata: processedMetadata, fullText } = await fileProcessor.processFile(
             fileBuffer, 
-            fileMetadataInput
+            fileMetadataInput,
+            { userId } // CRITICAL FIX: Pass userId to file processor
         );
 
         // Save the file to filesystem for later retrieval

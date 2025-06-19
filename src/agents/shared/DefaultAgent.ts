@@ -2037,7 +2037,9 @@ Please provide a helpful, contextual response based on this analysis and memory 
       
       // Extract system prompt from agent configuration
       const baseSystemPrompt = this.agentConfig.systemPrompt || 
-                               'You are a helpful assistant. Provide concise, accurate, and helpful responses.';
+                               `You are a helpful assistant. Provide concise, accurate, and helpful responses.
+
+🚨 CRITICAL: NEVER invent, fabricate, or guess factual information. If you don't have specific information, explicitly state "I don't have that information". Only provide factual claims that are explicitly present in your context or well-established general knowledge.`;
       
       // Extract persona from agent configuration
       const persona = this.agentConfig.persona;
@@ -2076,7 +2078,9 @@ Please provide a helpful, contextual response based on this analysis and memory 
       
       // Fallback to base system prompt or default
       return this.agentConfig.systemPrompt || 
-             'You are a helpful assistant. Provide concise, accurate, and helpful responses.';
+             `You are a helpful assistant. Provide concise, accurate, and helpful responses.
+
+🚨 CRITICAL: NEVER invent, fabricate, or guess factual information. If you don't have specific information, explicitly state "I don't have that information".`;
     }
   }
 

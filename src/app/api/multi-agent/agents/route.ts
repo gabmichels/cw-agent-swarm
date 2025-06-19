@@ -98,6 +98,7 @@ function mapAgentStatus(status?: string): MetadataAgentStatus {
 
 /**
  * Generates content summary for agent retrieval optimization
+ * Dynamically builds content from structured metadata instead of using legacy content field
  */
 function generateAgentContentSummary(agent: AgentProfile): string {
   let summary = `${agent.name} - ${agent.description}`;
@@ -107,12 +108,13 @@ function generateAgentContentSummary(agent: AgentProfile): string {
     summary += ` | Capabilities: ${agent.capabilities.map(c => c.name).join(', ')}`;
   }
   
-  // Add persona information if available
+  // Add persona information if available - dynamically built from metadata.persona
   if (agent.metadata?.persona) {
     const persona = agent.metadata.persona;
     if (persona.background) summary += ` | Background: ${persona.background}`;
     if (persona.personality) summary += ` | Personality: ${persona.personality}`;
     if (persona.communicationStyle) summary += ` | Style: ${persona.communicationStyle}`;
+    if (persona.preferences) summary += ` | Preferences: ${persona.preferences}`;
   }
   
   // Add system prompt if available
@@ -167,8 +169,7 @@ function createAgentParameters(agent: AgentProfile): AgentMemoryEntity['paramete
     temperature: agent.parameters?.temperature || 0.7,
     maxTokens: agent.parameters?.maxTokens || 1024,
     tools: [],
-    customInstructions: agent.parameters?.systemPrompt,
-    systemMessages: agent.parameters?.systemPrompt ? [agent.parameters.systemPrompt] : undefined
+          systemPrompt: agent.parameters?.systemPrompt
   };
 }
 
@@ -417,7 +418,7 @@ export async function POST(request: Request) {
         version: agentMetadata.version,
         isPublic: agentMetadata.isPublic
       },
-      content: agentMetadata.contentSummary || generateAgentContentSummary(agent),
+      content: "", // Legacy field - content is now dynamically generated from metadata.persona
       type: 'agent',
       createdAt: agent.createdAt,
       updatedAt: agent.updatedAt,
@@ -429,7 +430,9 @@ export async function POST(request: Request) {
     const embeddingService = services.embeddingService;
     
     try {
-        const embeddingResult = await embeddingService.getEmbedding(agentData.content);
+        // Use dynamic content generation for embedding instead of storing in content field
+        const dynamicContent = generateAgentContentSummary(agent);
+        const embeddingResult = await embeddingService.getEmbedding(dynamicContent);
         
       // Validate embedding
       if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length === 0) {

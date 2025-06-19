@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
     const data = await request.formData();
     const file = data.get('file') as File;
     const agentId = data.get('agentId') as string || 'default';
+    const userId = data.get('userId') as string || 'test-user'; // CRITICAL FIX: Get userId from form data
     
     if (!file) {
       return NextResponse.json(
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
     try {
       const fileProcessor = new FileProcessingManager(agent);
       await fileProcessor.initialize();
-      processingResult = await fileProcessor.processFile(filePath, file.name);
+      processingResult = await fileProcessor.processFile(filePath, file.name, userId); // CRITICAL FIX: Pass userId
     } catch (error) {
       console.error('Error processing file:', error);
     }

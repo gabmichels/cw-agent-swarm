@@ -555,8 +555,7 @@ describe('Agent Registration Integration Tests', () => {
         temperature: agentRequest.parameters.temperature,
         maxTokens: agentRequest.parameters.maxTokens,
         tools: [],
-        customInstructions: agentRequest._extended?.systemPrompt,
-        systemMessages: agentRequest._extended?.systemPrompt ? [agentRequest._extended.systemPrompt] : undefined
+              systemPrompt: agentRequest._extended?.systemPrompt
       },
       metadata: {
         tags: agentRequest.metadata.tags,

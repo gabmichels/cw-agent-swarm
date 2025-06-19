@@ -50,6 +50,34 @@ export async function generateResponseNode(state: ThinkingState): Promise<Thinki
     const memoryContext = state.formattedMemoryContext || '';
     const memoryContextText = memoryContext ? `\nRelevant Memory Context:\n${memoryContext}` : '';
     
+    // 🚨 ENHANCED: Add specific logging for factual information requests
+    const isFactualInfoRequest = intent.toLowerCase().includes('personal') || 
+                                 intent.toLowerCase().includes('birthdate') || 
+                                 intent.toLowerCase().includes('birthday') ||
+                                 intent.toLowerCase().includes('address') ||
+                                 intent.toLowerCase().includes('verification') ||
+                                 intent.toLowerCase().includes('price') ||
+                                 intent.toLowerCase().includes('date') ||
+                                 intent.toLowerCase().includes('number') ||
+                                 intent.toLowerCase().includes('statistic') ||
+                                 intent.toLowerCase().includes('fact') ||
+                                 intent.toLowerCase().includes('data') ||
+                                 intent.toLowerCase().includes('when') ||
+                                 intent.toLowerCase().includes('how much') ||
+                                 intent.toLowerCase().includes('what is') ||
+                                 intent.toLowerCase().includes('tell me');
+    
+    if (isFactualInfoRequest) {
+      console.log('🔍 FACTUAL INFO REQUEST DETECTED');
+      console.log('Memory context available:', !!memoryContext);
+      console.log('Memory context length:', memoryContext.length);
+      console.log('Memory context preview:', memoryContext.substring(0, 200));
+      
+      if (!memoryContext || memoryContext.length < 50) {
+        console.log('⚠️  WARNING: Very little memory context for factual info request!');
+      }
+    }
+    
     // Create an LLM instance with lower temperature for more consistent output
     const model = new ChatOpenAI({
       modelName: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
@@ -72,6 +100,15 @@ This response should:
 IMPORTANT: Use the provided memory context to remember previous interactions and information shared by the user.
 This ensures your response is consistent with what you've already been told and prevents asking for information
 that the user has already provided.
+
+🚨 CRITICAL DATA ACCURACY REQUIREMENTS:
+- NEVER invent, fabricate, or guess ANY factual information (dates, numbers, names, addresses, prices, statistics, etc.)
+- If you don't have specific information in your memory context, explicitly state "I don't have that information"
+- ONLY provide factual claims that are explicitly present in your memory context or well-established general knowledge
+- Do NOT use partially redacted formats like "19****83" or "***City, State" - this is fabrication
+- If memory retrieval fails or context is incomplete, say "I couldn't access the relevant information" rather than guessing
+- When asked for specific facts, data, or verification, reference ONLY what appears in the memory context section
+- Be precise about what you know vs. what you don't know - uncertainty is better than fabrication
 
 Do not explain your thinking process or reasoning in the response unless explicitly asked.
 Focus on delivering value in your answer.

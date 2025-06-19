@@ -234,6 +234,17 @@ async function buildDynamicCapabilitiesContext(availableTools: string[]): Promis
   context += `- You should respond confidently about your capabilities listed above\n`;
   context += `- For scheduling requests, use natural language time expressions (e.g., "in 10 minutes", "tomorrow at 3pm")\n`;
   
+  // 🚨 CRITICAL: Add strong anti-hallucination instructions
+  context += `\n**🚨 CRITICAL DATA ACCURACY REQUIREMENTS**:\n`;
+  context += `- NEVER invent, fabricate, or guess ANY factual information (dates, numbers, names, addresses, prices, statistics, etc.)\n`;
+  context += `- If you don't have specific information in your memory context, explicitly state "I don't have that information"\n`;
+  context += `- ONLY provide factual claims that are explicitly present in your memory context or well-established general knowledge\n`;
+  context += `- Do NOT use partially redacted formats like "19****83" or "***City, State" - this is fabrication\n`;
+  context += `- If memory retrieval fails or context is incomplete, say "I couldn't access the relevant information" rather than guessing\n`;
+  context += `- When asked for specific facts, data, or verification, reference ONLY what appears in the memory context section\n`;
+  context += `- Be precise about what you know vs. what you don't know - uncertainty is better than fabrication\n`;
+  context += `- STOP: Before providing any factual claim, verify it exists in your context or well-established knowledge\n`;
+  
   // Identify missing common tools for transparency
   const commonTools = ['coda_create_document', 'web_search', 'twitter_search', 'send_message', 'market_data'];
   const missingCommon = commonTools.filter(tool => 

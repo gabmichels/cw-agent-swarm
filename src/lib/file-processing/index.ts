@@ -85,6 +85,7 @@ export interface FileMetadata {
   extractedMetadata?: Record<string, unknown>; // Store extracted PDF metadata etc.
   documentType?: string; // Added field for document classification
   language?: string; // Language of the document content
+  userId?: string; // CRITICAL FIX: Add userId for memory retrieval
 }
 
 export interface ProcessedFile {
@@ -110,6 +111,7 @@ export interface FileProcessingOptions {
   customExtractors?: Record<string, (content: string) => string>;
   includeMetadata?: boolean;
   summarize?: boolean;
+  userId?: string; // CRITICAL FIX: Add userId parameter
 }
 
 // Path to store file metadata
@@ -234,8 +236,11 @@ export class FileProcessor {
       uploadDate: new Date(),
       processingStatus: 'processing',
       processingModel: options.modelOverride || this.determineModelForFile(fileMetadataInput.mimeType),
-      tags: fileMetadataInput.tags || []
+      tags: fileMetadataInput.tags || [],
+      userId: options.userId || 'test-user' // CRITICAL FIX: Add userId to metadata
     };
+    
+    console.log(`[FileProcessor] 🆔 Processing file with userId: ${metadata.userId}`);
 
     this.fileMetadata[fileId] = metadata;
     await this.saveFileMetadata();
@@ -1095,6 +1100,9 @@ Summary:`;
       return;
     }
     const { metadata, chunks } = file;
+    
+    console.log(`[FileProcessor] 💾 Storing ${chunks.length} chunks for file ${metadata.filename} with userId: ${metadata.userId}`);
+    
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       await this.enhancedMemory.addMemory(
@@ -1111,7 +1119,8 @@ Summary:`;
           contentType: chunk.metadata.contentType || 'text',
           mimeType: metadata.mimeType,
           tags: metadata.tags || [],
-          page: chunk.metadata.page // Add page number if available
+          page: chunk.metadata.page, // Add page number if available
+          userId: metadata.userId // CRITICAL FIX: Add userId to memory metadata
         },
         StandardMemoryType.DOCUMENT
       );
@@ -1128,10 +1137,13 @@ Summary:`;
         mimeType: metadata.mimeType,
         size: metadata.size,
         tags: metadata.tags || [],
-        extractedMetadata: metadata.extractedMetadata // Include extracted metadata here too
+        extractedMetadata: metadata.extractedMetadata, // Include extracted metadata here too
+        userId: metadata.userId // CRITICAL FIX: Add userId to memory metadata
       },
       StandardMemoryType.DOCUMENT
     );
+    
+    console.log(`[FileProcessor] ✅ Successfully stored file in memory with userId: ${metadata.userId}`);
   }
 
   /**

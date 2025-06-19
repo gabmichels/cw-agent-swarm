@@ -145,14 +145,8 @@ export class AgentFactory {
       parameters: {}  // Default empty parameters
     }));
     
-    // Convert string tool IDs to proper AgentTool objects
-    const tools: AgentTool[] = (profile.parameters.tools || []).map(toolId => ({
-      id: toolId,
-      name: toolId,
-      description: `Tool ${toolId}`,
-      parameters: {},
-      requiredPermissions: []
-    }));
+    // Keep tools as string array since that's what the new interface expects
+    const tools: string[] = profile.parameters.tools || [];
     
     // Generate new agent ID or use existing one
     const agentId = profile.id || IdGenerator.generate('agent');
@@ -175,7 +169,6 @@ export class AgentFactory {
       lastActive: profile.createdAt,
       chatIds: [],
       teamIds: [],
-      content: profile.description,
       type: 'agent',
       metadata: {
         ...profile.metadata,

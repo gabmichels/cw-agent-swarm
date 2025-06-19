@@ -119,7 +119,6 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     
     // System prompt and persona
     systemPrompt: (dbAgent.parameters as any)?.systemPrompt || 
-                 (dbAgent.parameters as any)?.customInstructions || 
                  "You are a helpful assistant. Provide concise, accurate, and helpful responses.",
                  
     persona: (dbAgent.metadata as any)?.persona || {},

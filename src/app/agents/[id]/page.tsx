@@ -9,7 +9,8 @@ import MemoryUploader from '@/components/agent/MemoryUploader';
 import AgentCapabilityEditor from '@/components/agent/AgentCapabilityEditor';
 import { AgentWorkspacePermissionEditor } from '@/components/agent/AgentWorkspacePermissionEditor';
 import { AgentSocialMediaPermissionEditor } from '@/components/agent/AgentSocialMediaPermissionEditor';
-import { Edit, Save, Upload, X, Trash2 } from 'lucide-react';
+import AgentPromptEditor from '@/components/agent/AgentPromptEditor';
+import { Edit, Save, Upload, X, Trash2, MessageSquare, Settings, User, Briefcase, Globe, Share2 } from 'lucide-react';
 
 export default function AgentPage({ params }: { params: { id?: string } }) {
   // Use nextjs navigation hook for route params
@@ -46,9 +47,15 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
   // Add state for social media permissions editing
   const [isEditingSocialMediaPermissions, setIsEditingSocialMediaPermissions] = useState(false);
 
+  // Add state for prompt editing
+  const [isEditingPrompts, setIsEditingPrompts] = useState(false);
+
   // Add state for delete modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Add state for active tab
+  const [activeTab, setActiveTab] = useState('prompts');
 
   useEffect(() => {
     const fetchAgentDetails = async () => {
@@ -317,200 +324,276 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
           <p className="mt-4 text-gray-300">{agent.description}</p>
         </div>
         
-        <div className="p-6 space-y-6">
-          {/* Workspace Permissions Section - Full Width */}
-          <div>
-            <AgentWorkspacePermissionEditor
-              agent={agent}
-              isEditing={isEditingWorkspacePermissions}
-              onEditingChange={setIsEditingWorkspacePermissions}
-            />
-          </div>
+        {/* Tab Navigation */}
+        <div className="border-b border-gray-700">
+          <nav className="flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('prompts')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'prompts'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-300'
+              }`}
+            >
+              <MessageSquare className="h-4 w-4 inline mr-2" />
+              Prompts & Persona
+            </button>
+            <button
+              onClick={() => setActiveTab('capabilities')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'capabilities'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-300'
+              }`}
+            >
+              <Briefcase className="h-4 w-4 inline mr-2" />
+              Capabilities
+            </button>
+            <button
+              onClick={() => setActiveTab('parameters')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'parameters'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-300'
+              }`}
+            >
+              <Settings className="h-4 w-4 inline mr-2" />
+              Parameters
+            </button>
+            <button
+              onClick={() => setActiveTab('workspace')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'workspace'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-300'
+              }`}
+            >
+              <Globe className="h-4 w-4 inline mr-2" />
+              Workspace
+            </button>
+            <button
+              onClick={() => setActiveTab('social')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'social'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-300'
+              }`}
+            >
+              <Share2 className="h-4 w-4 inline mr-2" />
+              Social Media
+            </button>
+          </nav>
+        </div>
 
-          {/* Social Media Permissions Section - Full Width */}
-          <div>
-            <AgentSocialMediaPermissionEditor
+        {/* Tab Content */}
+        <div className="p-6">
+          {activeTab === 'prompts' && (
+            <AgentPromptEditor
               agent={agent}
-              isEditing={isEditingSocialMediaPermissions}
-              onEditingChange={setIsEditingSocialMediaPermissions}
+              onAgentUpdate={setAgent}
+              isEditing={isEditingPrompts}
+              onEditingChange={setIsEditingPrompts}
             />
-          </div>
-          
-          {/* Capabilities and Parameters - Two Column Layout */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          )}
+
+          {activeTab === 'capabilities' && (
             <div>
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Capabilities</h2>
-                <AgentCapabilityEditor 
-                  agent={agent}
-                  onCapabilitiesUpdate={handleCapabilitiesUpdate}
-                  isEditing={isEditingCapabilities}
-                  onEditingChange={setIsEditingCapabilities}
-                />
-              </div>
+              <h2 className="text-xl font-semibold mb-4">Agent Capabilities</h2>
+              <AgentCapabilityEditor 
+                agent={agent}
+                onCapabilitiesUpdate={handleCapabilitiesUpdate}
+                isEditing={isEditingCapabilities}
+                onEditingChange={setIsEditingCapabilities}
+              />
             </div>
-          
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">Model Parameters</h2>
-                {!isEditingParams ? (
-                  <button
-                    onClick={handleStartEditing}
-                    className="flex items-center text-blue-500 hover:text-blue-400"
-                  >
-                    <Edit className="h-4 w-4 mr-1" />
-                    Edit
-                  </button>
-                ) : (
-                  <div className="flex space-x-2">
+          )}
+
+          {activeTab === 'parameters' && (
+            <div className="space-y-6">
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold">Model Parameters</h2>
+                  {!isEditingParams ? (
                     <button
-                      onClick={handleCancelEditing}
-                      className="flex items-center text-gray-400 hover:text-gray-300"
-                      disabled={isSaving}
+                      onClick={handleStartEditing}
+                      className="flex items-center text-blue-500 hover:text-blue-400"
                     >
-                      <X className="h-4 w-4 mr-1" />
-                      Cancel
+                      <Edit className="h-4 w-4 mr-1" />
+                      Edit
                     </button>
-                    <button
-                      onClick={handleUpdateParameters}
-                      className="flex items-center text-green-500 hover:text-green-400"
-                      disabled={isSaving}
-                    >
-                      <Save className="h-4 w-4 mr-1" />
-                      Save
-                    </button>
+                  ) : (
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={handleCancelEditing}
+                        className="flex items-center text-gray-400 hover:text-gray-300"
+                        disabled={isSaving}
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleUpdateParameters}
+                        className="flex items-center text-green-500 hover:text-green-400"
+                        disabled={isSaving}
+                      >
+                        <Save className="h-4 w-4 mr-1" />
+                        Save
+                      </button>
+                    </div>
+                  )}
+                </div>
+                
+                {saveError && (
+                  <div className="bg-red-900 border border-red-700 text-white px-4 py-2 rounded mb-4">
+                    {saveError}
                   </div>
                 )}
-              </div>
-              
-              {saveError && (
-                <div className="bg-red-900 border border-red-700 text-white px-4 py-2 rounded mb-4">
-                  {saveError}
-                </div>
-              )}
-              
-              <div className="bg-gray-700 p-4 rounded">
-                {!isEditingParams ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <span className="text-gray-400 text-sm">Model</span>
-                      <p>{agent?.parameters.model}</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-400 text-sm">Temperature</span>
-                      <p>{agent?.parameters.temperature}</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-400 text-sm">Max Tokens</span>
-                      <p>{agent?.parameters.maxTokens}</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-400 text-sm">Autonomous Mode</span>
-                      <p>{agent?.parameters.autonomous ? 'Enabled' : 'Disabled'}</p>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-gray-400 text-sm">Tools</span>
-                      <p>{agent?.parameters.tools.length > 0 ? agent.parameters.tools.join(', ') : 'None'}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-gray-400 text-sm block mb-1">Model</label>
-                      <select
-                        className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
-                        value={editedParams.model}
-                        onChange={(e) => setEditedParams({...editedParams, model: e.target.value})}
-                      >
-                        <option value="gpt-4.1-2025-04-14">ChatGPT-4.1</option>
-                        <option value="gpt-4.1-nano-2025-04-14">ChatGPT-4.1-nano</option>
-                        <option value="claude-3-opus">Claude 3 Opus</option>
-                        <option value="claude-3-sonnet">Claude 3 Sonnet</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-gray-400 text-sm block mb-1">Temperature</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="1"
-                        className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
-                        value={editedParams.temperature}
-                        onChange={(e) => setEditedParams({...editedParams, temperature: parseFloat(e.target.value)})}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-gray-400 text-sm block mb-1">Max Tokens</label>
-                      <input
-                        type="number"
-                        step="100"
-                        min="100"
-                        max="100000"
-                        className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
-                        value={editedParams.maxTokens}
-                        onChange={(e) => setEditedParams({...editedParams, maxTokens: parseInt(e.target.value)})}
-                      />
-                    </div>
-                    <div className="flex items-center">
-                      <label className="inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={editedParams.autonomous}
-                          onChange={(e) => setEditedParams({...editedParams, autonomous: e.target.checked})}
-                        />
-                        <div className="relative w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                        <span className="ms-3 text-sm font-medium">Autonomous Mode</span>
-                      </label>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-gray-400 text-sm block mb-1">Tools (read-only)</label>
-                      <div className="w-full px-3 py-2 bg-gray-500/30 border border-gray-500 rounded text-sm">
-                        {agent?.parameters.tools.length > 0 ? agent.parameters.tools.join(', ') : 'None'}
+                
+                <div className="bg-gray-700 p-4 rounded">
+                  {!isEditingParams ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <span className="text-gray-400 text-sm">Model</span>
+                        <p>{agent?.parameters.model}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-sm">Temperature</span>
+                        <p>{agent?.parameters.temperature}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-sm">Max Tokens</span>
+                        <p>{agent?.parameters.maxTokens}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-sm">Autonomous Mode</span>
+                        <p>{agent?.parameters.autonomous ? 'Enabled' : 'Disabled'}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-gray-400 text-sm">Tools</span>
+                        <p>{agent?.parameters.tools.length > 0 ? agent.parameters.tools.join(', ') : 'None'}</p>
                       </div>
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-gray-400 text-sm block mb-1">Model</label>
+                        <select
+                          className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
+                          value={editedParams.model}
+                          onChange={(e) => setEditedParams({...editedParams, model: e.target.value})}
+                        >
+                          <option value="gpt-4.1-2025-04-14">ChatGPT-4.1</option>
+                          <option value="gpt-4.1-nano-2025-04-14">ChatGPT-4.1-nano</option>
+                          <option value="claude-3-opus">Claude 3 Opus</option>
+                          <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-gray-400 text-sm block mb-1">Temperature</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="1"
+                          className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
+                          value={editedParams.temperature}
+                          onChange={(e) => setEditedParams({...editedParams, temperature: parseFloat(e.target.value)})}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-gray-400 text-sm block mb-1">Max Tokens</label>
+                        <input
+                          type="number"
+                          step="100"
+                          min="100"
+                          max="100000"
+                          className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
+                          value={editedParams.maxTokens}
+                          onChange={(e) => setEditedParams({...editedParams, maxTokens: parseInt(e.target.value)})}
+                        />
+                      </div>
+                      <div className="flex items-center">
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={editedParams.autonomous}
+                            onChange={(e) => setEditedParams({...editedParams, autonomous: e.target.checked})}
+                          />
+                          <div className="relative w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                          <span className="ms-3 text-sm font-medium">Autonomous Mode</span>
+                        </label>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-gray-400 text-sm block mb-1">Tools (read-only)</label>
+                        <div className="w-full px-3 py-2 bg-gray-500/30 border border-gray-500 rounded text-sm">
+                          {agent?.parameters.tools.length > 0 ? agent.parameters.tools.join(', ') : 'None'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               
-              <h2 className="text-xl font-semibold mt-6 mb-4">Metadata</h2>
-              <div className="bg-gray-700 p-4 rounded">
-                <div className="mb-4">
-                  <span className="text-gray-400 text-sm">Tags</span>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {[...new Set(agent.metadata.tags)].map((tag, index) => (
-                      <span key={`tag-${index}-${tag}`} className="bg-gray-600 px-2 py-1 rounded text-sm">
-                        {tag}
-                      </span>
-                    ))}
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Metadata</h2>
+                <div className="bg-gray-700 p-4 rounded">
+                  <div className="mb-4">
+                    <span className="text-gray-400 text-sm">Tags</span>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {[...new Set(agent.metadata.tags)].map((tag, index) => (
+                        <span key={`tag-${index}-${tag}`} className="bg-gray-600 px-2 py-1 rounded text-sm">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                
-                <div className="mb-4">
-                  <span className="text-gray-400 text-sm">Domains</span>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {[...new Set(agent.metadata.domain)].map((domain, index) => (
-                      <span key={`domain-${index}-${domain}`} className="bg-blue-900 px-2 py-1 rounded text-sm">
-                        {domain}
-                      </span>
-                    ))}
+                  
+                  <div className="mb-4">
+                    <span className="text-gray-400 text-sm">Domains</span>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {[...new Set(agent.metadata.domain)].map((domain, index) => (
+                        <span key={`domain-${index}-${domain}`} className="bg-blue-900 px-2 py-1 rounded text-sm">
+                          {domain}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                
-                <div>
-                  <span className="text-gray-400 text-sm">Specializations</span>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {[...new Set(agent.metadata.specialization)].map((spec, index) => (
-                      <span key={`spec-${index}-${spec}`} className="bg-purple-900 px-2 py-1 rounded text-sm">
-                        {spec}
-                      </span>
-                    ))}
+                  
+                  <div>
+                    <span className="text-gray-400 text-sm">Specializations</span>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {[...new Set(agent.metadata.specialization)].map((spec, index) => (
+                        <span key={`spec-${index}-${spec}`} className="bg-purple-900 px-2 py-1 rounded text-sm">
+                          {spec}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {activeTab === 'workspace' && (
+            <div>
+              <AgentWorkspacePermissionEditor
+                agent={agent}
+                isEditing={isEditingWorkspacePermissions}
+                onEditingChange={setIsEditingWorkspacePermissions}
+              />
+            </div>
+          )}
+
+          {activeTab === 'social' && (
+            <div>
+              <AgentSocialMediaPermissionEditor
+                agent={agent}
+                isEditing={isEditingSocialMediaPermissions}
+                onEditingChange={setIsEditingSocialMediaPermissions}
+              />
+            </div>
+          )}
         </div>
       </div>
       

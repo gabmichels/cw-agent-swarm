@@ -37,9 +37,8 @@ class MockAgent extends AbstractAgentBase {
         temperature: 0.7,
         maxTokens: 2048,
         tools: [],
-        customInstructions: '',
-        contextWindow: 4096,
-        systemMessages: []
+        systemPrompt: '',
+        autonomous: false
       },
       status: AgentStatus.AVAILABLE,
       lastActive: new Date(),
