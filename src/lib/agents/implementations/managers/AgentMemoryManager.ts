@@ -16,7 +16,7 @@ import {
 import { AbstractBaseManager, ManagerConfig } from '../../../../agents/shared/base/managers/BaseManager';
 import type { AgentBase } from '../../../../agents/shared/base/AgentBase.interface';
 import { DefaultAgentMemory } from '../memory/DefaultAgentMemory';
-import { MemoryType, ImportanceLevel, MemorySource } from '../../../../lib/constants/memory';
+import { MemoryType, ImportanceLevel, MemorySource } from '@/server/memory/config/types';
 import { QdrantMemoryClient } from '../../../../server/memory/services/client/qdrant-client';
 import { EmbeddingService } from '../../../../server/memory/services/client/embedding-service';
 import { getMemoryServices } from '../../../../server/memory/services';

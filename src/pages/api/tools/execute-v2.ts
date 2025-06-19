@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getMemoryServices } from '../../../server/memory/services';
-import { MemoryType } from '../../../server/memory/config';
+import { MemoryType } from '@/server/memory/config/types';
 import defaultApifyManager from '../../../agents/shared/tools/integrations/apify';
 import { getAgentById } from '../../../server/agent/agent-service';
 import { getAgentToolManager, adaptToolExecutionResult } from '../../../agents/shared/tools/adapters/ToolAdapter';

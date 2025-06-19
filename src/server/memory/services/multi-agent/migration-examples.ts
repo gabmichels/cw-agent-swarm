@@ -9,7 +9,7 @@ import { MemoryService } from '../memory/memory-service';
 import { EnhancedMemoryService } from './enhanced-memory-service';
 import { EmbeddingService } from '../client/embedding-service';
 import { IMemoryClient } from '../client/types';
-import { MemoryType } from '../../config';
+import { MemoryType } from '@/server/memory/config/types';
 import {
   migrateToEnhancedMemoryService,
   createMigrationManager,
@@ -150,7 +150,7 @@ async function optimizedQueryExample(
     // Use the optimized query approach with top-level fields
     // This will be much faster as these fields are directly accessible
     return enhancedService.searchMemories({
-      type: MemoryType.CHAT,
+      type: MemoryType.MESSAGE, // Using MESSAGE instead of CHAT (from our audit)
       filter: {
         // These filter conditions will use the top-level indexed fields
         userId,
@@ -164,7 +164,7 @@ async function optimizedQueryExample(
   } else {
     // Fall back to standard filtering approach
     return memoryService.searchMemories({
-      type: MemoryType.CHAT,
+      type: MemoryType.MESSAGE, // Using MESSAGE instead of CHAT (from our audit)
       filter: {
         // Without EnhancedMemoryService, we need to use nested metadata
         // which is slower for these frequently accessed fields

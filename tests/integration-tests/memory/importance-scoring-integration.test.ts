@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { ImportanceLevel } from '../../../src/constants/memory';
+import { ImportanceLevel } from '@/server/memory/config/types';
 import { MemoryType } from '../../../src/server/memory/config/types';
 import { getMemoryServices } from '../../../src/server/memory/services';
 import { ImportanceCalculatorService, ImportanceCalculationMode } from '../../../src/services/importance/ImportanceCalculatorService';

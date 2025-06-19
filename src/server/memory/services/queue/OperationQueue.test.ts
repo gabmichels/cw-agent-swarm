@@ -16,7 +16,7 @@ import {
   SystemOperationPayload,
   OperationResult
 } from './types';
-import { MemoryType } from '../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 
 // Helper function to create test memory operation
 const createTestMemoryOp = (): MemoryOperationPayload => ({

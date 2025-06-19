@@ -6,7 +6,7 @@
  */
 
 import { AgentMemory } from '../../shared/memory/AgentMemory';
-import { MemoryType, ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType, ImportanceLevel, MemorySource } from '@/server/memory/config/types';
 import {
   MemoryEntry,
   MemorySearchOptions,
@@ -250,21 +250,32 @@ export class DefaultAgentMemory implements AgentMemory {
         [MemoryType.DECISION]: 0.8,
         [MemoryType.FEEDBACK]: 0.7,
         // Agent Interaction Types
+        [MemoryType.AGENT]: 0.4,
+        [MemoryType.AGENT_COLLABORATION]: 0.5,
+        [MemoryType.AGENT_KNOWLEDGE]: 0.4,
         [MemoryType.AGENT_MESSAGE]: 0.6,
+        [MemoryType.AGENT_RELATIONSHIP]: 0.3,
         [MemoryType.AGENT_REQUEST]: 0.7,
         [MemoryType.AGENT_RESPONSE]: 0.6,
         [MemoryType.AGENT_TASK]: 0.5,
-        [MemoryType.AGENT_KNOWLEDGE]: 0.4,
-        [MemoryType.AGENT_COLLABORATION]: 0.5,
+        // Analysis Types
+        [MemoryType.ANALYSIS]: 0.6,
+        [MemoryType.CAPABILITY_DEFINITION]: 0.2,
         // System Types
-        [MemoryType.SYSTEM_EVENT]: 0.3,
-        [MemoryType.SYSTEM_COMMAND]: 0.2,
-        [MemoryType.SYSTEM_STATUS]: 0.3,
-        [MemoryType.SYSTEM_ERROR]: 0.1,
-        // Version Control Types
+        [MemoryType.DAILY_CYCLE_LOG]: 0.4,
+        [MemoryType.EXECUTION_OUTCOME]: 0.6,
+        [MemoryType.GOAL]: 0.3,
         [MemoryType.MEMORY_EDIT]: 0.1,
-        // Other
-        [MemoryType.UNKNOWN]: 0.5
+        [MemoryType.OTHER]: 0.5,
+        [MemoryType.REFERENCE]: 0.4,
+        [MemoryType.SYSTEM_COMMAND]: 0.2,
+        [MemoryType.SYSTEM_ERROR]: 0.1,
+        [MemoryType.SYSTEM_EVENT]: 0.3,
+        [MemoryType.SYSTEM_STATUS]: 0,
+        [MemoryType.TOOL_EXECUTION_METRICS]: 0,
+        [MemoryType.UNKNOWN]: 0,
+        [MemoryType.USER_MESSAGE]: 0,
+        [MemoryType.WEEKLY_CYCLE_LOG]: 0
       },
       minDecayRate: 0.01,
       maxDecayRate: 0.5,
@@ -294,21 +305,32 @@ export class DefaultAgentMemory implements AgentMemory {
       [MemoryType.DECISION]: 0,
       [MemoryType.FEEDBACK]: 0,
       // Agent Interaction Types
+      [MemoryType.AGENT]: 0,
+      [MemoryType.AGENT_COLLABORATION]: 0,
+      [MemoryType.AGENT_KNOWLEDGE]: 0,
       [MemoryType.AGENT_MESSAGE]: 0,
+      [MemoryType.AGENT_RELATIONSHIP]: 0,
       [MemoryType.AGENT_REQUEST]: 0,
       [MemoryType.AGENT_RESPONSE]: 0,
       [MemoryType.AGENT_TASK]: 0,
-      [MemoryType.AGENT_KNOWLEDGE]: 0,
-      [MemoryType.AGENT_COLLABORATION]: 0,
+      // Analysis Types
+      [MemoryType.ANALYSIS]: 0,
+      [MemoryType.CAPABILITY_DEFINITION]: 0,
       // System Types
-      [MemoryType.SYSTEM_EVENT]: 0,
-      [MemoryType.SYSTEM_COMMAND]: 0,
-      [MemoryType.SYSTEM_STATUS]: 0,
-      [MemoryType.SYSTEM_ERROR]: 0,
-      // Version Control Types
+      [MemoryType.DAILY_CYCLE_LOG]: 0,
+      [MemoryType.EXECUTION_OUTCOME]: 0,
+      [MemoryType.GOAL]: 0,
       [MemoryType.MEMORY_EDIT]: 0,
-      // Other
-      [MemoryType.UNKNOWN]: 0
+      [MemoryType.OTHER]: 0,
+      [MemoryType.REFERENCE]: 0,
+      [MemoryType.SYSTEM_COMMAND]: 0,
+      [MemoryType.SYSTEM_ERROR]: 0,
+      [MemoryType.SYSTEM_EVENT]: 0,
+      [MemoryType.SYSTEM_STATUS]: 0,
+      [MemoryType.TOOL_EXECUTION_METRICS]: 0,
+      [MemoryType.UNKNOWN]: 0,
+      [MemoryType.USER_MESSAGE]: 0,
+      [MemoryType.WEEKLY_CYCLE_LOG]: 0
     };
 
     return {
@@ -1433,21 +1455,32 @@ export class DefaultAgentMemory implements AgentMemory {
       [MemoryType.DECISION]: 0,
       [MemoryType.FEEDBACK]: 0,
       // Agent Interaction Types
+      [MemoryType.AGENT]: 0,
+      [MemoryType.AGENT_COLLABORATION]: 0,
+      [MemoryType.AGENT_KNOWLEDGE]: 0,
       [MemoryType.AGENT_MESSAGE]: 0,
+      [MemoryType.AGENT_RELATIONSHIP]: 0,
       [MemoryType.AGENT_REQUEST]: 0,
       [MemoryType.AGENT_RESPONSE]: 0,
       [MemoryType.AGENT_TASK]: 0,
-      [MemoryType.AGENT_KNOWLEDGE]: 0,
-      [MemoryType.AGENT_COLLABORATION]: 0,
+      // Analysis Types
+      [MemoryType.ANALYSIS]: 0,
+      [MemoryType.CAPABILITY_DEFINITION]: 0,
       // System Types
-      [MemoryType.SYSTEM_EVENT]: 0,
-      [MemoryType.SYSTEM_COMMAND]: 0,
-      [MemoryType.SYSTEM_STATUS]: 0,
-      [MemoryType.SYSTEM_ERROR]: 0,
-      // Version Control Types
+      [MemoryType.DAILY_CYCLE_LOG]: 0,
+      [MemoryType.EXECUTION_OUTCOME]: 0,
+      [MemoryType.GOAL]: 0,
       [MemoryType.MEMORY_EDIT]: 0,
-      // Other
-      [MemoryType.UNKNOWN]: 0
+      [MemoryType.OTHER]: 0,
+      [MemoryType.REFERENCE]: 0,
+      [MemoryType.SYSTEM_COMMAND]: 0,
+      [MemoryType.SYSTEM_ERROR]: 0,
+      [MemoryType.SYSTEM_EVENT]: 0,
+      [MemoryType.SYSTEM_STATUS]: 0,
+      [MemoryType.TOOL_EXECUTION_METRICS]: 0,
+      [MemoryType.UNKNOWN]: 0,
+      [MemoryType.USER_MESSAGE]: 0,
+      [MemoryType.WEEKLY_CYCLE_LOG]: 0
     };
 
     const stats: MemoryDecayStats = {

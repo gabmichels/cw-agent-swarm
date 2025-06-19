@@ -1,7 +1,7 @@
 import { ThinkingState } from '../types';
 import { IdGenerator } from '@/utils/ulid';
 import { getMemoryServices } from '../../../../server/memory/services';
-import { ImportanceLevel, MemorySource, MemoryType } from '../../../../constants/memory';
+import { ImportanceLevel, MemorySource, MemoryType } from '@/server/memory/config/types';
 import { CognitiveArtifactService } from '../../cognitive/CognitiveArtifactService';
 import { createTaskMetadata, createAgentToAgentMessageMetadata } from '../../../../server/memory/services/helpers/metadata-helpers';
 import { 

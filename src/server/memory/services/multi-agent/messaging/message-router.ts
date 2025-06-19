@@ -9,7 +9,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { StructuredId } from '../../../../../utils/ulid';
 import { AnyMemoryService } from '../../memory/memory-service-wrappers';
-import { MemoryType } from '../../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { CapabilityRegistry } from '../../../../../agents/shared/capabilities/capability-registry';
 import { CapabilityLevel, CapabilityType } from '../../../../../agents/shared/capabilities/types';
 

@@ -104,7 +104,7 @@ describe('DefaultCapabilityMemoryService', () => {
 
       // Verify memory service was called correctly
       expect(mockAddMemory).toHaveBeenCalledWith({
-        type: 'capability' as MemoryType,
+        type: 'capability_definition' as MemoryType,
         content: `Test Capability - A test capability - ${CapabilityType.SKILL}`,
         metadata: capability
       });
@@ -220,7 +220,7 @@ describe('DefaultCapabilityMemoryService', () => {
 
       // Verify memory service was called correctly
       expect(mockUpdateMemory).toHaveBeenCalledWith({
-        type: 'capability' as MemoryType,
+        type: 'capability_definition' as MemoryType,
         id: 'test-capability',
         content: `Updated Capability - An updated test capability - ${CapabilityType.SKILL}`,
         metadata: capability
@@ -268,7 +268,7 @@ describe('DefaultCapabilityMemoryService', () => {
 
       // Verify memory service was called correctly
       expect(mockDeleteMemory).toHaveBeenCalledWith({
-        type: 'capability' as MemoryType,
+        type: 'capability_definition' as MemoryType,
         id: 'test-capability'
       });
     });

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { MemoryType } from '../server/memory/config';
+import { MemoryType } from '@/server/memory/config/types';
 import useMemory from './useMemory';
 import { Message } from '../types';
 import { MessageType } from '../constants/message';

@@ -8,7 +8,7 @@ import MarkdownKnowledgeTab from '../knowledge/MarkdownKnowledgeTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import useKnowledgeMemory from '../../hooks/useKnowledgeMemory';
 import useMemory from '../../hooks/useMemory';
-import { MemoryType, ImportanceLevel } from '../../server/memory/config';
+import { MemoryType, ImportanceLevel } from '@/server/memory/config/types';
 import { FlaggedKnowledgeItem, KnowledgeSourceType, SuggestedKnowledgeType } from '../../lib/knowledge/flagging/types';
 import { FlaggedItemStatus } from '../../lib/knowledge/flagging/types';
 

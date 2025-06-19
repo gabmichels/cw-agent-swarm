@@ -1,7 +1,7 @@
 import { MemoryManager } from '../../agents/shared/base/managers/MemoryManager.interface';
 import { getLLM } from '../../lib/core/llm';
 import { AgentExecutorOptions } from '../../lib/shared/types/agentTypes';
-import { ImportanceLevel } from '../../constants/memory';
+import { ImportanceLevel } from '@/server/memory/config/types';
 import { MemoryType } from '../../server/memory/config/types';
 import { getMemoryServices } from '../memory/services';
 import { MemoryEntry } from '../../agents/shared/base/managers/MemoryManager.interface';

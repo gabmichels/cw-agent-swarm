@@ -7,7 +7,7 @@ import { EnhancedMemoryService } from '../multi-agent/enhanced-memory-service';
 import { CacheManager, CachePriority } from './types';
 import { GetMemoryParams, AddMemoryParams, UpdateMemoryParams, DeleteMemoryParams, MemoryResult, SearchMemoryParams } from '../memory/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
-import { MemoryType } from '../../config';
+import { MemoryType } from '@/server/memory/config/types';
 
 /**
  * Configuration for cached memory service

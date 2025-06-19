@@ -1,6 +1,6 @@
 import { getMemoryServices } from '../../../server/memory/services';
 import { WorkingMemoryItem } from '../types';
-import { ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel } from '@/server/memory/config/types';
 import { IdGenerator } from '../../../utils/ulid';
 import { MemoryType } from '../../../server/memory/config/types';
 import { SearchResult } from '../../../server/memory/services/search/types';

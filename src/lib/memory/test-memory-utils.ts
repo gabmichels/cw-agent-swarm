@@ -10,7 +10,7 @@
 
 import { getMemoryServices } from '../../server/memory/services';
 import { MemoryType } from '../../server/memory/config/types';
-import { ImportanceLevel } from '../../constants/memory';
+import { ImportanceLevel } from '@/server/memory/config/types';
 
 // Scoring details interface
 interface ScoringDetails {

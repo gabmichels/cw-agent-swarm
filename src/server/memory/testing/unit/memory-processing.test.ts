@@ -12,9 +12,9 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { MemoryService } from '../../services/memory/memory-service';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
-import { MemoryType } from '../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
-import { ImportanceLevel } from '../../config/types';
+import { ImportanceLevel } from '@/server/memory/config/types';
 import { CognitiveProcessType } from '../../../../types/metadata';
 import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../../types/entity-identifier';
 

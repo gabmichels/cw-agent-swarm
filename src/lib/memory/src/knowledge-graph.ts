@@ -1,7 +1,7 @@
 import { getMemoryServices } from '../../../server/memory/services';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { BaseMemorySchema } from '../../../server/memory/models';
-import { ImportanceLevel } from '../../../constants/memory';
+import { ImportanceLevel } from '@/server/memory/config/types';
 import { ulid } from 'ulid';
 import { ImportanceConverter } from '../../../services/importance/ImportanceConverter';
 import { logger } from '../../../lib/logging';

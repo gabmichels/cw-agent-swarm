@@ -7,7 +7,7 @@ import { MemoryService } from '../../services/memory/memory-service';
 import { SearchService } from '../../services/search/search-service';
 import { QdrantMemoryClient } from '../../services/client/qdrant-client';
 import { EmbeddingService } from '../../services/client/embedding-service';
-import { MemoryType } from '../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
 import { loadApiKey } from '../load-api-key';
 import { randomUUID } from 'crypto';

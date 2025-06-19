@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryType, ImportanceLevel } from '../../config/types';
+import { MemoryType, ImportanceLevel } from '@/server/memory/config/types';
 import { setupTestSuite, generateTestMemory } from './utils/test-setup';
 
 describe('Basic Memory Operations', () => {

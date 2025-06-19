@@ -4,7 +4,7 @@
 import { ICacheWarmer, CacheWarmingConfig, CacheWarmingStrategy, CacheWarmingTrigger, CacheWarmingResult, CachePriority } from './types';
 import { CacheManager } from './types';
 import { MemoryService } from '../memory/memory-service';
-import { MemoryType } from '../../config';
+import { MemoryType } from '@/server/memory/config/types';
 import { MemoryPoint, BaseMemorySchema } from '../../models/base-schema';
 import { MemoryErrorCode } from '@/lib/errors/types';
 import { handleMemoryError } from '../../utils';

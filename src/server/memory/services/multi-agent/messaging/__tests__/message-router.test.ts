@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MessageRouter, MessagePriority, RoutingStrategy, DeliveryStatus, AgentMessage, RoutingParams } from '../message-router';
 import { AnyMemoryService } from '../../../memory/memory-service-wrappers';
 import { CapabilityRegistry } from '../../../../../../agents/shared/capabilities/capability-registry';
-import { MemoryType } from '../../../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { createAgentId, createChatId } from '../../../../../../types/entity-identifier';
 
 // Mock dependencies

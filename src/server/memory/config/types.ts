@@ -6,89 +6,44 @@
  * Supported memory types - standardized enum for use throughout the system
  */
 export enum MemoryType {
-  // Base memory types
-  MESSAGE = 'message',
-  THOUGHT = 'thought',
-  DOCUMENT = 'document',
-  TASK = 'task',
-  MEMORY_EDIT = 'memory_edit',
-  
-  // Extended types for agent capabilities
-  KNOWLEDGE_GAP = 'knowledge_gap',
-  KNOWLEDGE_GAP_RESOLUTION = 'knowledge_gap_resolution',
-  TASK_COMPLETION = 'task_completion',
-  TOOL_FAILURE = 'tool_failure', 
-  TOOL_FALLBACK = 'tool_fallback',
-  REFLECTION = 'reflection',
-  CORRECTION = 'correction',
-  CORRECTION_DETAIL = 'correction_detail',
-  INSIGHT = 'insight',
-  SCHEDULED_TASK_RESULT = 'scheduled_task_result',
-  MAINTENANCE_LOG = 'maintenance_log',
-  KNOWLEDGE_INSIGHT = 'knowledge_insight',
-  ERROR_LOG = 'error_log',
-  DAILY_CYCLE_LOG = 'daily_cycle_log',
-  WEEKLY_CYCLE_LOG = 'weekly_cycle_log',
-  EXECUTION_OUTCOME = 'execution_outcome',
-  FEEDBACK_INSIGHT = 'feedback_insight',
-  BEHAVIOR_ADJUSTMENT = 'behavior_adjustment',
-  LESSON = 'lesson',
-  PERFORMANCE_SCORE = 'performance_score',
-  STRATEGY_ADJUSTMENT = 'strategy_adjustment',
-  STRATEGIC_INSIGHTS = 'strategic_insights',
-  BEHAVIOR_MODIFIERS = 'behavior_modifiers',
-  TASK_OUTCOME = 'task_outcome',
-  GRAPH_INSIGHTS = 'graph_insights',
-  SELF_IMPROVEMENT_LOG = 'self_improvement_log',
-  AUTONOMOUS_TASK = 'autonomous_task',
-  AUTONOMOUS_LOG = 'autonomous_log',
-  APPROVAL_REQUEST = 'approval_request',
-  DETECTED_OPPORTUNITY = 'detected_opportunity',
-  TASK_EXECUTION_DATA = 'task_execution_data',
-  PARAMETER_ADAPTATION = 'parameter_adaptation',
-  PARAMETER_ADAPTATION_ATTEMPT = 'parameter_adaptation_attempt',
-  TOOL_RESILIENCE = 'tool_resilience',
-  CAPACITY_CHECK = 'capacity_check',
-  SCHEDULING_ADJUSTMENT = 'scheduling_adjustment',
-  
-  // Tool routing and adaptation types
-  TOOL_EXECUTION_METRICS = 'tool_execution_metrics',
-  
-  // Agent communication and relationship types
   AGENT = 'agent',
-  AGENT_ACTIVITY = 'agent_activity',
-  AGENT_CAPABILITY = 'agent_capability',
-  CAPABILITY_DEFINITION = 'capability_definition',
-  CAPABILITY_USAGE = 'capability_usage',
-  CAPABILITY_METRICS = 'capability_metrics',
-  AGENT_RELATIONSHIP = 'agent_relationship',
-  
-  // Conversation analytics types
-  CONVERSATION_ANALYTICS = 'conversation_analytics',
-  CONVERSATION_INSIGHTS = 'conversation_insights',
-  
-  // Additional types from ChloeMemoryType that weren't in AgentMemoryType
-  CHAT = 'chat',
-  SYSTEM_PROMPT = 'system_prompt',
-  IMAGE = 'image',
-  PERSONA = 'persona',
-  STRATEGY = 'strategy',
-  VISION = 'vision',
-  ANALYSIS = 'analysis',
-  FEEDBACK = 'feedback',
-  USER_MESSAGE = 'user_message',
+  AGENT_COLLABORATION = 'agent_collaboration',
+  AGENT_KNOWLEDGE = 'agent_knowledge',
   AGENT_MESSAGE = 'agent_message',
-  FILE = 'file',
-  CODE = 'code',
-  REFERENCE = 'reference',
-  AGENDA = 'agenda',
+  AGENT_RELATIONSHIP = 'agent_relationship',
+  AGENT_REQUEST = 'agent_request',
+  AGENT_RESPONSE = 'agent_response',
+  AGENT_TASK = 'agent_task',
+  ANALYSIS = 'analysis',
+  CAPABILITY_DEFINITION = 'capability_definition',
+  CHAT = 'chat',
+  DAILY_CYCLE_LOG = 'daily_cycle_log',
+  DECISION = 'decision',
+  DOCUMENT = 'document',
+  EXECUTION_OUTCOME = 'execution_outcome',
+  FACT = 'fact',
+  FEEDBACK = 'feedback',
   GOAL = 'goal',
-  CONTEXT = 'context',
-  USER_CONTEXT = 'user_context',
-  USER_PROFILE = 'user_profile',
-  WORKSPACE = 'workspace',
-  INBOX = 'inbox',
-  OTHER = 'other'
+  IDEA = 'idea',
+  INSIGHT = 'insight',
+  KNOWLEDGE = 'knowledge',
+  MEMORY_EDIT = 'memory_edit',
+  MESSAGE = 'message',
+  OTHER = 'other',
+  REFERENCE = 'reference',
+  REFLECTION = 'reflection',
+  SUMMARY = 'summary',
+  SYSTEM_COMMAND = 'system_command',
+  SYSTEM_ERROR = 'system_error',
+  SYSTEM_EVENT = 'system_event',
+  SYSTEM_LEARNING = 'system_learning',
+  SYSTEM_STATUS = 'system_status',
+  TASK = 'task',
+  THOUGHT = 'thought',
+  TOOL_EXECUTION_METRICS = 'tool_execution_metrics',
+  UNKNOWN = 'unknown',
+  USER_MESSAGE = 'user_message',
+  WEEKLY_CYCLE_LOG = 'weekly_cycle_log'
 }
 
 /**
@@ -193,7 +148,7 @@ export enum ExtendedMemorySource {
   TOOL = 'tool',
   WEB = 'web',
   EXTERNAL = 'external',
-  FILE = 'file'
+
 }
 
 /**
@@ -235,3 +190,16 @@ export interface IndexDefinition {
    */
   fieldType: 'keyword' | 'integer' | 'float' | 'geo' | 'text' | 'bool' | 'datetime';
 } 
+
+// Re-exported from lib/constants/memory for compatibility
+export type { MemoryTypeCategory } from '../../../lib/constants/memory';
+export type { MemoryTypeString } from '../../../lib/constants/memory';
+export { isValidMemoryType } from '../../../lib/constants/memory';
+export { getMemoryTypeCategory } from '../../../lib/constants/memory';
+export { getMemoryTypeGroup } from '../../../lib/constants/memory';
+
+// Re-exported from memory config files for compatibility
+export { DEFAULTS } from './constants';
+export { COLLECTION_CONFIGS } from './collections';
+export { MEMORY_EDIT_COLLECTION } from './collections';
+export { COLLECTION_NAMES } from './constants';

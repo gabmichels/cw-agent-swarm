@@ -8,7 +8,7 @@ import { AppError } from '../../../../lib/errors/base';
 import { BaseMemorySchema } from '../../models/base-schema';
 import { CacheManager } from '../cache/types';
 import { StructuredId, IdGenerator } from '../../../../utils/ulid';
-import { MemoryType } from '../../config';
+import { MemoryType } from '@/server/memory/config/types';
 import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
 import { BaseMetadata } from '../../../../types/metadata';
 import { describe, it, expect, beforeEach, vi } from 'vitest';

@@ -4,7 +4,7 @@
  * Utility functions for common memory operations
  */
 
-import { MemoryType } from "../../config/types";
+import { MemoryType } from '@/server/memory/config/types';
 import { getMemoryServices } from "..";
 import { BaseMetadata, MessageMetadata, MessageRole, ThreadInfo } from "../../../../types/metadata";
 import { generateSystemUserId, generateSystemAgentId, generateSystemChatId } from "../../../../lib/core/id-generation";

@@ -6,12 +6,12 @@ import { SearchService } from '../../services/search/search-service';
 import { MemoryService } from '../../services/memory/memory-service';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
-import { COLLECTION_NAMES } from '../../config';
-import { MemoryType } from '../../config/types';
+import { COLLECTION_NAMES } from '@/server/memory/config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { FilterOptions, SearchResult } from '../../services/search/types';
 import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
-import { ImportanceLevel } from '../../../../constants/memory';
+import { ImportanceLevel } from '@/server/memory/config/types';
 
 describe('SearchService - Filter Method', () => {
   let searchService: SearchService;

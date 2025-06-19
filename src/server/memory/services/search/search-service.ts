@@ -1,7 +1,7 @@
 /**
  * Search service implementation
  */
-import { COLLECTION_NAMES, DEFAULTS, MemoryFilter, MemoryType } from '../../config';
+import { COLLECTION_NAMES, DEFAULTS, MemoryFilter, MemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { handleMemoryError } from '../../utils';
 import { IMemoryClient } from '../client/types';
@@ -84,7 +84,7 @@ export class SearchService {
     if (!result) {
       for (const [enumKey, collectionName] of Object.entries(COLLECTION_NAMES)) {
         if (enumKey.toLowerCase() === String(type).toLowerCase()) {
-          result = collectionName;
+          result = collectionName as string;
           break;
         }
       }

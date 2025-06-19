@@ -14,7 +14,7 @@ import { EnhancedMemoryService, EnhancedMemoryPoint } from '../enhanced-memory-s
 import { BaseMemorySchema } from '../../../models';
 import { IMemoryClient } from '../../client/types';
 import { EmbeddingService } from '../../client/embedding-service';
-import { MemoryType } from '../../../config';
+import { MemoryType } from '@/server/memory/config/types';
 import { createAgentId, createChatId, createUserId, StructuredId } from '../../../../../types/entity-identifier';
 
 // Test data constants

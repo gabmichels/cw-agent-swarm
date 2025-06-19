@@ -7,7 +7,7 @@ import { CacheWarmingStrategy, CacheWarmingTrigger, CacheManager } from '../../s
 import { MemoryService } from '../../services/memory/memory-service';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
-import { MemoryType } from '../../config';
+import { MemoryType } from '@/server/memory/config/types';
 import { CognitiveProcessType } from '@/types/metadata';
 import { createAgentId } from '@/types/entity-identifier';
 import { CachePriority } from '../../services/cache/types';

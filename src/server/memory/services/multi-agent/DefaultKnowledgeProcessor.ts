@@ -13,8 +13,8 @@ import { IMemoryClient } from '../client/types';
 import { logger } from '@/lib/logging';
 import { tagExtractor } from '@/utils/tagExtractor';
 import { AgentMemoryEntity } from '../../schema/agent';
-import { MemoryType } from '../../config/types';
-import { DEFAULTS } from '../../config';
+import { MemoryType } from '@/server/memory/config/types';
+import { DEFAULTS } from '@/server/memory/config/types';
 import { BaseMetadata } from '@/types/metadata';
 
 /**

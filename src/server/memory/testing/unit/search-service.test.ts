@@ -10,13 +10,13 @@ import { SearchService } from '../../services/search/search-service';
 import { MemoryService } from '../../services/memory/memory-service';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
-import { MemoryType } from '../../config/types';
-import { COLLECTION_NAMES } from '../../config/constants';
+import { MemoryType } from '@/server/memory/config/types';
+import { COLLECTION_NAMES } from '@/server/memory/config/types';
 import { generateMemoryPoint } from '../utils/test-data-generator';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
 import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
 import { MemoryContext, MemoryContextGroup, SearchResult, TypedMemoryContextGroup } from '../../services/search/types';
-import { ImportanceLevel } from '../../../../constants/memory';
+import { ImportanceLevel } from '@/server/memory/config/types';
 
 // Define extended interfaces for type assertion
 interface ExtendedSearchService extends SearchService {

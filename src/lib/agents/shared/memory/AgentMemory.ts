@@ -5,7 +5,7 @@
  * must follow. It provides a type-safe contract for memory operations.
  */
 
-import { MemoryType, ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType, ImportanceLevel, MemorySource } from '@/server/memory/config/types';
 import { 
   MemoryEntry, 
   MemorySearchOptions, 

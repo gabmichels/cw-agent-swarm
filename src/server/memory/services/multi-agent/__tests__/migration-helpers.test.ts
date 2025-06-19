@@ -19,7 +19,7 @@ import { MemoryService } from '../../memory/memory-service';
 import { EnhancedMemoryService } from '../enhanced-memory-service';
 import { IMemoryClient } from '../../client/types';
 import { EmbeddingService } from '../../client/embedding-service';
-import { MemoryType } from '../../../config';
+import { MemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../../models';
 import { createUserId, createAgentId } from '../../../../../types/entity-identifier';
 

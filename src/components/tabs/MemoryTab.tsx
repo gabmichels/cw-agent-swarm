@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown, Loader2, Search, Hash, Settings, Menu, Bug, User } from 'lucide-react';
 import MemoryItemComponent from '../memory/MemoryItem';
-import { MemoryType as ClientMemoryType, isValidMemoryType } from '../../lib/constants/memory';
+import { MemoryType as ClientMemoryType, isValidMemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models';
 import { SearchResult } from '../../server/memory/services/search/types';
 import useMemory from '../../hooks/useMemory';

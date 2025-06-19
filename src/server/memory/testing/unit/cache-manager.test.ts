@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CacheManager } from '../../services/cache/cache-manager';
-import { MemoryType } from '../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema } from '../../models';
 
 describe('CacheManager', () => {

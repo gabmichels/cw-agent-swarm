@@ -6,7 +6,7 @@ import { EnhancedMemoryService, EnhancedMemoryPoint } from '../enhanced-memory-s
 import { BaseMemorySchema, MemoryPoint } from '../../../models';
 import { IMemoryClient } from '../../client/types';
 import { EmbeddingService, EmbeddingResult } from '../../client/embedding-service';
-import { MemoryType } from '../../../config';
+import { MemoryType } from '@/server/memory/config/types';
 import { StructuredId } from '../../../../../utils/ulid';
 import { createAgentId, createChatId, createUserId } from '../../../../../types/entity-identifier';
 import { MemoryService } from '../../memory/memory-service';

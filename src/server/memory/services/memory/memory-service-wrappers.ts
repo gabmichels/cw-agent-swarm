@@ -25,8 +25,8 @@ import {
 } from '../../../../types/metadata';
 import { generateSystemUserId } from '../../../../lib/core/id-generation';
 import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
-import { MemoryType } from '../../config/types';
-import { ImportanceLevel } from '../../../../constants/memory';
+import { MemoryType } from '@/server/memory/config/types';
+import { ImportanceLevel } from '@/server/memory/config/types';
 import { MemoryService } from './memory-service';
 import { EnhancedMemoryService } from '../multi-agent/enhanced-memory-service';
 import { isEnhancedMemoryService } from '../multi-agent/migration-helpers';

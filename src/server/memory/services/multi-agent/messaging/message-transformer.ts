@@ -8,7 +8,7 @@
 
 import { StructuredId } from '../../../../../utils/ulid';
 import { AnyMemoryService } from '../../memory/memory-service-wrappers';
-import { MemoryType } from '../../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 
 /**
  * Message format types supported by the system

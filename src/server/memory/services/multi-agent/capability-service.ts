@@ -7,7 +7,7 @@
 import { MemoryService } from '../../services/memory/memory-service';
 import { MemoryResult } from '../../services/memory/types';
 import { CapabilityMemoryEntity, capabilitySchema } from '../../schema/capability';
-import { MemoryType } from '../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { getMemoryServices } from '../index';
 
 /**

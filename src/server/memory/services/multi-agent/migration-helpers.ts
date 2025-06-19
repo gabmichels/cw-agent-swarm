@@ -16,7 +16,7 @@ import { EnhancedMemoryService } from './enhanced-memory-service';
 import { IMemoryClient } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
-import { MemoryType } from '../../config';
+import { MemoryType } from '@/server/memory/config/types';
 import { createStructuredId, StructuredId } from '../../../../types/entity-identifier';
 
 /**
@@ -98,10 +98,20 @@ export class EnhancedMemoryMigrationManager {
     };
 
     try {
-      // Get all memory types to migrate
-      const memoryTypes = Object.values(MemoryType);
+      // Only migrate memory types that actually have collection configurations
+      // This prevents errors from trying to migrate types without collections
+      const usedMemoryTypes = [
+        MemoryType.MESSAGE,              // 326 uses - has collection
+        MemoryType.DOCUMENT,             // 165 uses - has collection  
+        MemoryType.THOUGHT,              // 106 uses - has collection
+        MemoryType.TASK,                 // 86 uses - has collection
+        MemoryType.MEMORY_EDIT,          // 20 uses - has collection
+        MemoryType.CAPABILITY_DEFINITION, // 15 uses - has collection
+        MemoryType.TOOL_EXECUTION_METRICS // has collection (mapped to DOCUMENT)
+        // Note: INSIGHT, REFLECTION, OTHER don't have collections - skip them
+      ];
       
-      for (const type of memoryTypes) {
+      for (const type of usedMemoryTypes) {
         const typeResult = await this.migrateMemoriesByType(type);
         
         // Aggregate results

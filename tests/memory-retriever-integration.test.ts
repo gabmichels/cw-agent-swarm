@@ -1,6 +1,6 @@
 import { vi, describe, test, expect, beforeAll } from 'vitest';
 import { MemoryRetriever } from '../src/services/thinking/memory/MemoryRetriever';
-import { MemoryType } from '../src/constants/memory';
+import { MemoryType } from '@/server/memory/config/types';
 import type { WorkingMemoryItem } from '../src/services/thinking/types';
 
 // Mock the MemoryRetriever class entirely to control the return structure

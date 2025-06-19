@@ -17,7 +17,7 @@ import {
 import { AnyMemoryService } from '../../../memory/memory-service-wrappers';
 import { MessageRouter, RoutingStrategy, MessagePriority, DeliveryStatus } from '../message-router';
 import { MessageTransformer, MessageFormat, EnrichmentType } from '../message-transformer';
-import { MemoryType } from '../../../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 
 // Mock dependencies
 // Memory Service

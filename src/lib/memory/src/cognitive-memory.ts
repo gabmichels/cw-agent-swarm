@@ -1,7 +1,7 @@
 import { getMemoryServices } from '../../../server/memory/services';
 import { DateTime } from 'luxon';
 import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
-import { ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { ImportanceLevel, MemorySource } from '@/server/memory/config/types';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
 import { SearchResult } from '../../../server/memory/services/search/types';
 import { BaseMetadata, CognitiveMemoryMetadata, MemoryEmotion } from '../../../types/metadata';

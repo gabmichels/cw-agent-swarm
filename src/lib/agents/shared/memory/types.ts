@@ -2,7 +2,7 @@
  * types.ts - Type declarations for the memory system
  */
 
-import { MemoryType, ImportanceLevel, MemorySource } from '../../../constants/memory';
+import { MemoryType, ImportanceLevel, MemorySource } from '@/server/memory/config/types';
 
 /**
  * Base memory schema

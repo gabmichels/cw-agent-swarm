@@ -6,7 +6,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { MemoryService } from '../../services/memory/memory-service';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
-import { MemoryType } from '../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema } from '../../models';
 
 describe('MemoryService', () => {

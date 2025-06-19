@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemoryServices } from '../../../server/memory/services';
-import { MemoryType } from '../../../server/memory/config';
-import { ImportanceLevel } from '../../../constants/memory';
+import { MemoryType } from '@/server/memory/config/types';
+import { ImportanceLevel } from '@/server/memory/config/types';
 import { KnowledgeGraphManager } from '../../../lib/agents/implementations/memory/KnowledgeGraphManager';
 import { KnowledgeNodeType } from '../../../lib/agents/shared/memory/types';
 import { BaseMetadata } from '../../../types/metadata';

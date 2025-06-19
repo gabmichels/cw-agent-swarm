@@ -6,7 +6,7 @@
  * Supports priority-based memory surfacing
  */
 
-import { ImportanceLevel, MemorySource } from '../../constants/memory';
+import { ImportanceLevel, MemorySource } from '@/server/memory/config/types';
 import { MemoryType } from '../../server/memory/config/types';
 import { MessageType } from '../../constants/message';
 import { storeInternalMessageToMemory } from './storeInternalMessageToMemory';

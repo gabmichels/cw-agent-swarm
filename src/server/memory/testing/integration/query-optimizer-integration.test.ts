@@ -16,11 +16,11 @@ import { FilterOperator, FilterCondition, QdrantFilter } from '../../services/fi
 import { AppError } from '../../../../lib/errors/base';
 import { CacheManager } from '../../services/cache/types';
 import { BaseMemorySchema } from '../../models/base-schema';
-import { MemoryType } from '../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
 import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../../types/entity-identifier';
-import { ImportanceLevel } from '../../config/types';
+import { ImportanceLevel } from '@/server/memory/config/types';
 
 // Extend MockEmbeddingService to include required method
 class TestEmbeddingService extends MockEmbeddingService {

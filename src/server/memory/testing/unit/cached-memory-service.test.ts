@@ -8,7 +8,7 @@ import { MemoryService } from '../../services/memory/memory-service';
 import { MockMemoryClient } from '../utils/mock-memory-client';
 import { MockEmbeddingService } from '../utils/mock-embedding-service';
 import { InMemoryCacheManager } from '../../services/cache/in-memory-cache';
-import { MemoryType } from '../../config/types';
+import { MemoryType } from '@/server/memory/config/types';
 import { CachePriority, CacheManager } from '../../services/cache/types';
 import { BaseMemorySchema } from '../../models/base-schema';
 import { EnhancedMemoryService } from '../../services/multi-agent/enhanced-memory-service';
