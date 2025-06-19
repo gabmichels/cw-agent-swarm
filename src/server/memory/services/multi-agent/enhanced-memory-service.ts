@@ -5,7 +5,7 @@
  * for improved query performance in multi-agent systems.
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { ulid } from 'ulid';
 import { MemoryService } from '../memory/memory-service';
 import { DEFAULTS, MemoryErrorCode, MemoryType } from '../../config';
 import { COLLECTION_CONFIGS as COLLECTIONS } from '../../config/collections';
@@ -113,8 +113,8 @@ export class EnhancedMemoryService extends MemoryService {
         };
       }
       
-      // Generate ID if not provided (use UUID for backward compatibility)
-      const id = params.id || uuidv4();
+      // Generate ID if not provided (use ULID for better performance and sorting)
+      const id = params.id || ulid();
       
       // Generate embedding if not provided
       const embedding = params.embedding || 
@@ -258,23 +258,77 @@ export class EnhancedMemoryService extends MemoryService {
     params: SearchMemoryParams
   ): Promise<EnhancedMemoryPoint<T>[]> {
     try {
+      // Get collection configuration
+      const collectionConfig = COLLECTIONS[params.type];
+      if (!collectionConfig) {
+        throw new Error(`Invalid memory type: ${params.type}`);
+      }
+      
       // Create filter conditions using top-level fields when available
       const filterConditions = this.createOptimizedFilterConditions(params.filter || {});
       
-      // Use existing search functionality but with optimized filters
-      const originalParams = { ...params };
-      if (filterConditions && filterConditions.length > 0) {
-        originalParams.filter = {
-          ...(originalParams.filter || {}),
-          $conditions: filterConditions
-        };
+      // If we have search text, get embedding
+      let searchVector: number[] | undefined;
+      if (params.query) {
+        const embeddingResult = await this.embeddingClient.getEmbedding(params.query);
+        searchVector = embeddingResult.embedding;
       }
       
-      // Call the parent method with our optimized params
-      const results = await super.searchMemories<T>(originalParams);
+      // Perform search using the memory client directly
+      let results: EnhancedMemoryPoint<T>[] = [];
       
-      // Return results cast to enhanced type
-      return results as EnhancedMemoryPoint<T>[];
+      if (searchVector) {
+        // Vector search with filters
+        const searchQuery: any = {
+          vector: searchVector,
+          limit: params.limit || 10,
+          offset: params.offset || 0
+        };
+        
+        // Add filter conditions if available
+        if (filterConditions && filterConditions.length > 0) {
+          searchQuery.filter = { must: filterConditions };
+        }
+        
+        const searchResults = await this.memoryClient.searchPoints<T>(
+          collectionConfig.name,
+          searchQuery
+        );
+        
+        // Extract points from search results - convert MemorySearchResult to MemoryPoint format
+        results = searchResults.map(result => ({
+          id: result.id,
+          vector: [], // Vector not needed for return
+          payload: result.payload,
+          // Add enhanced fields if they exist in payload metadata
+          ...this.extractIndexableFields(result.payload.metadata || {})
+        } as EnhancedMemoryPoint<T>));
+      } else if (filterConditions && filterConditions.length > 0) {
+        // Filter-only search (scroll with filters)
+        const scrollFilter = { must: filterConditions };
+        
+        const points = await this.memoryClient.scrollPoints<T>(
+          collectionConfig.name,
+          scrollFilter,
+          params.limit || 10,
+          params.offset || 0
+        );
+        
+        // Convert to enhanced memory points
+        results = points.map(point => point as EnhancedMemoryPoint<T>);
+      } else {
+        // Get all points (limited)
+        const points = await this.memoryClient.scrollPoints<T>(
+          collectionConfig.name,
+          undefined,
+          params.limit || 10,
+          params.offset || 0
+        );
+        
+        results = points.map(point => point as EnhancedMemoryPoint<T>);
+      }
+      
+      return results;
     } catch (error) {
       console.error('Error searching memories with optimization:', error);
       throw handleMemoryError(error, 'searchMemories');

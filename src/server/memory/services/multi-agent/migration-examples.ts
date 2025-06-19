@@ -1,32 +1,35 @@
 /**
- * Migration Examples
+ * Migration Examples for EnhancedMemoryService
  * 
- * This file provides real-world examples of migrating from MemoryService to EnhancedMemoryService
- * in different scenarios. Use these patterns to update your code to take advantage of the
- * dual-field optimization for improved query performance.
+ * This file contains practical examples of how to migrate from base MemoryService
+ * to EnhancedMemoryService in various scenarios.
  */
 
 import { MemoryService } from '../memory/memory-service';
 import { EnhancedMemoryService } from './enhanced-memory-service';
-import { IMemoryClient } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
+import { IMemoryClient } from '../client/types';
 import { MemoryType } from '../../config';
-import { 
-  migrateToEnhancedMemoryService, 
-  isEnhancedMemoryService, 
+import {
+  migrateToEnhancedMemoryService,
+  createMigrationManager,
+  isEnhancedMemoryService,
   asEnhancedMemoryService,
-  createEnhancedMemoryService 
+  createEnhancedMemoryService,
+  validateEnhancedMemoryService,
+  MigrationConfig,
+  MigrationResult
 } from './migration-helpers';
 
 /**
- * Example 1: Migrating an existing service instance
- * Use this pattern when you have access to a MemoryService instance
- * and want to upgrade it to EnhancedMemoryService capabilities
+ * Example 1: Simple service migration with full setup
+ * Use this pattern when you have all required dependencies available
  */
 async function migrateExistingServiceExample(
-  memoryService: MemoryService
+  memoryService: MemoryService,
+  memoryClient: IMemoryClient,
+  embeddingService: EmbeddingService
 ): Promise<EnhancedMemoryService> {
-  
   // First check if it's already an EnhancedMemoryService to avoid unnecessary migration
   if (isEnhancedMemoryService(memoryService)) {
     console.log('Service is already an EnhancedMemoryService');
@@ -35,7 +38,17 @@ async function migrateExistingServiceExample(
   
   // If not, migrate the service
   console.log('Migrating to EnhancedMemoryService');
-  return migrateToEnhancedMemoryService(memoryService);
+  const migrationResult = await migrateToEnhancedMemoryService(
+    memoryService,
+    memoryClient,
+    embeddingService
+  );
+  
+  // Log migration results
+  console.log(`Migration completed: ${migrationResult.successfulMigrations}/${migrationResult.totalProcessed} memories migrated`);
+  
+  // Create a new enhanced service with the same dependencies
+  return createEnhancedMemoryService(memoryClient, embeddingService);
 }
 
 /**
@@ -89,7 +102,7 @@ async function createNewServiceExample(
 ): Promise<EnhancedMemoryService> {
   
   // Create enhanced service directly
-  return new EnhancedMemoryService(
+  return createEnhancedMemoryService(
     client,
     embeddingService,
     {
@@ -105,6 +118,8 @@ async function createNewServiceExample(
  */
 async function optimizedQueryExample(
   memoryService: MemoryService,
+  memoryClient: IMemoryClient,
+  embeddingService: EmbeddingService,
   userId: string,
   chatId: string
 ) {
@@ -116,7 +131,15 @@ async function optimizedQueryExample(
   } else {
     // Try to migrate on-the-fly
     try {
-      enhancedService = migrateToEnhancedMemoryService(memoryService);
+      const migrationResult = await migrateToEnhancedMemoryService(
+        memoryService,
+        memoryClient,
+        embeddingService
+      );
+      console.log(`Migration completed: ${migrationResult.successfulMigrations} memories migrated`);
+      
+      // Create new enhanced service after migration
+      enhancedService = createEnhancedMemoryService(memoryClient, embeddingService);
     } catch (error) {
       console.warn('Could not migrate to EnhancedMemoryService:', error);
       // Continue with base service
@@ -162,7 +185,11 @@ async function optimizedQueryExample(
 class MemoryManager {
   private memoryService: EnhancedMemoryService;
   
-  constructor(serviceOrClient: MemoryService | IMemoryClient, embeddingService?: EmbeddingService) {
+  constructor(
+    serviceOrClient: MemoryService | IMemoryClient, 
+    embeddingService: EmbeddingService,
+    memoryClient?: IMemoryClient
+  ) {
     // Handle both MemoryService and direct client
     if (serviceOrClient instanceof MemoryService) {
       // We were given a service instance
@@ -170,24 +197,50 @@ class MemoryManager {
         // Already enhanced
         this.memoryService = serviceOrClient as EnhancedMemoryService;
       } else {
-        // Needs migration
-        this.memoryService = migrateToEnhancedMemoryService(serviceOrClient);
+        // Needs migration - but we can't do async in constructor
+        // So we create a new enhanced service instead
+        if (!memoryClient) {
+          throw new Error('Memory client is required when migrating from base MemoryService');
+        }
+        this.memoryService = createEnhancedMemoryService(memoryClient, embeddingService);
+        
+        // Note: You would need to call migrateData() separately after construction
+        console.warn('Created new EnhancedMemoryService. Call migrateData() to transfer existing data.');
       }
     } else {
       // We were given a client directly
-      if (!embeddingService) {
-        throw new Error('Embedding service is required when providing a client');
-      }
-      
       // Create new enhanced service
-      this.memoryService = new EnhancedMemoryService(
-        serviceOrClient,
-        embeddingService
-      );
+      this.memoryService = createEnhancedMemoryService(serviceOrClient, embeddingService);
     }
   }
   
+  /**
+   * Migrate data from an existing service (call this after constructor if needed)
+   */
+  async migrateData(
+    sourceService: MemoryService,
+    config?: Partial<MigrationConfig>
+  ): Promise<MigrationResult> {
+    if (isEnhancedMemoryService(sourceService)) {
+      console.log('Source service is already enhanced, no migration needed');
+      return {
+        totalProcessed: 0,
+        successfulMigrations: 0,
+        failedMigrations: 0,
+        validationErrors: [],
+        processingTimeMs: 0,
+        idMappings: new Map()
+      };
+    }
+    
+    const migrationManager = createMigrationManager(sourceService, this.memoryService, config);
+    return await migrationManager.migrateAllMemories();
+  }
+  
   // Class methods using this.memoryService...
+  getService(): EnhancedMemoryService {
+    return this.memoryService;
+  }
 }
 
 /**

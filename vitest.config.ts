@@ -17,6 +17,10 @@ export default defineConfig({
       '@': resolve(__dirname, './src'),
     },
     includeSource: ['src/**/*.ts'],
+    typecheck: {
+      // Disable strict type checking for test files
+      enabled: false
+    }
   },
   resolve: {
     alias: {

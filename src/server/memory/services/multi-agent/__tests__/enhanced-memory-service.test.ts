@@ -118,29 +118,40 @@ describe('EnhancedMemoryService', () => {
       // Create structured ID for testing
       const agentId = createAgentId('test-agent');
       
-      // Mock the createOptimizedFilterConditions method to return a known value
-      const mockConditions = [{ key: 'agentId', match: { value: agentId.toString() } }];
-      vi.spyOn(EnhancedMemoryService.prototype as any, 'createOptimizedFilterConditions').mockReturnValue(mockConditions);
+      // Mock scrollPoints to return test data
+      const mockPoints = [{
+        id: 'test-id',
+        vector: mockEmbedding,
+        payload: {
+          id: 'test-id',
+          text: 'Test message',
+          type: MemoryType.MESSAGE,
+          timestamp: mockTimestamp.toString(),
+          metadata: { agentId }
+        },
+        agentId: agentId.toString(),
+        timestamp: mockTimestamp
+      }];
       
-      // Mock super.searchMemories to avoid calling actual implementation
-      vi.spyOn(MemoryService.prototype, 'searchMemories').mockResolvedValue([]);
+      mockMemoryClient.scrollPoints.mockResolvedValue(mockPoints);
       
       // Call service
-      await service.searchMemories({
+      const results = await service.searchMemories({
         type: MemoryType.MESSAGE,
-        filter: {
-          agentId
-        }
+        filter: { agentId }
       });
       
-      // Verify createOptimizedFilterConditions was called with correct parameters
-      expect(EnhancedMemoryService.prototype['createOptimizedFilterConditions']).toHaveBeenCalledWith({ agentId });
+      // Verify scrollPoints was called with correct collection and filter
+      expect(mockMemoryClient.scrollPoints).toHaveBeenCalledTimes(1);
+      const scrollCall = mockMemoryClient.scrollPoints.mock.calls[0];
+      expect(scrollCall[0]).toBe('messages'); // collection name
+      expect(scrollCall[1]).toEqual({ must: expect.any(Array) }); // filter
+      expect(scrollCall[2]).toBe(10); // limit
+      expect(scrollCall[3]).toBe(0); // offset
       
-      // Verify MemoryService.searchMemories was called with modified params
-      const searchParams = (MemoryService.prototype.searchMemories as any).mock.calls[0][0];
-      expect(searchParams.type).toBe(MemoryType.MESSAGE);
-      expect(searchParams.filter).toBeDefined();
-      expect(searchParams.filter.$conditions).toEqual(mockConditions);
+      // Verify results are returned
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe('test-id');
     });
   });
 }); 
