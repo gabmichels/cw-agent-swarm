@@ -16,6 +16,8 @@ import { StructuredId } from '../../../../utils/ulid';
 import { structuredIdToString } from '../../../../types/entity-identifier';
 import { EmbeddingService } from '../client/embedding-service';
 import { IMemoryClient } from '../client/types';
+import { PerformanceOptimizer, PerformanceOptimizerConfig, VectorSearchOptimization } from './performance-optimizer';
+import { CacheManager } from '../cache/types';
 
 /**
  * Agent communication types following IMPLEMENTATION_GUIDELINES.md
@@ -119,15 +121,22 @@ const FIELD_MAPPING: Record<string, string> = {
 export interface EnhancedMemoryServiceOptions {
   // Default timestamp function
   getTimestamp?: () => number;
+  // Performance optimization configuration
+  performanceConfig?: Partial<PerformanceOptimizerConfig>;
+  // Cache manager for performance optimization
+  cacheManager?: CacheManager;
+  // Enable performance optimization
+  enablePerformanceOptimization?: boolean;
 }
 
 /**
- * Enhanced memory service with dual-field support
+ * Enhanced memory service with dual-field support and performance optimization
  */
 export class EnhancedMemoryService extends MemoryService {
   private embeddingClient: EmbeddingService;
   private memoryClient: IMemoryClient;
   private getTimestampFn: () => number;
+  private performanceOptimizer?: PerformanceOptimizer;
   
   /**
    * Create a new enhanced memory service
@@ -141,6 +150,14 @@ export class EnhancedMemoryService extends MemoryService {
     this.memoryClient = memoryClient;
     this.embeddingClient = embeddingClient;
     this.getTimestampFn = options?.getTimestamp || (() => Date.now());
+    
+    // Initialize performance optimizer if enabled and cache manager provided
+    if (options?.enablePerformanceOptimization !== false && options?.cacheManager) {
+      this.performanceOptimizer = new PerformanceOptimizer(
+        options.cacheManager,
+        options.performanceConfig
+      );
+    }
   }
   
   /**
@@ -311,87 +328,116 @@ export class EnhancedMemoryService extends MemoryService {
   }
   
   /**
-   * Search with optimized field usage
+   * Search with optimized field usage and performance optimization
    */
   async searchMemories<T extends BaseMemorySchema>(
     params: SearchMemoryParams
   ): Promise<EnhancedMemoryPoint<T>[]> {
     try {
-      // Get collection configuration
-      const collectionConfig = COLLECTIONS[params.type];
-      if (!collectionConfig) {
-        throw new Error(`Invalid memory type: ${params.type}`);
+      // Use performance optimizer if available
+      if (this.performanceOptimizer) {
+        return await this.performanceOptimizer.executeOptimizedSearch<T>(
+          params,
+          async (optimizedParams, optimization) => {
+            return await this.executeSearchWithOptimization<T>(optimizedParams as SearchMemoryParams, optimization);
+          }
+        );
       }
       
-      // Create filter conditions using top-level fields when available
-      const filterConditions = this.createOptimizedFilterConditions(params.filter || {});
-      
-      // If we have search text, get embedding
-      let searchVector: number[] | undefined;
-      if (params.query) {
-        const embeddingResult = await this.embeddingClient.getEmbedding(params.query);
-        searchVector = embeddingResult.embedding;
-      }
-      
-      // Perform search using the memory client directly
-      let results: EnhancedMemoryPoint<T>[] = [];
-      
-      if (searchVector) {
-        // Vector search with filters
-        const searchQuery: any = {
-          vector: searchVector,
-          limit: params.limit || 10,
-          offset: params.offset || 0
-        };
-        
-        // Add filter conditions if available
-        if (filterConditions && filterConditions.length > 0) {
-          searchQuery.filter = { must: filterConditions };
-        }
-        
-        const searchResults = await this.memoryClient.searchPoints<T>(
-          collectionConfig.name,
-          searchQuery
-        );
-        
-        // Extract points from search results - convert MemorySearchResult to MemoryPoint format
-        results = searchResults.map(result => ({
-          id: result.id,
-          vector: [], // Vector not needed for return
-          payload: result.payload,
-          // Add enhanced fields if they exist in payload metadata
-          ...this.extractIndexableFields(result.payload.metadata || {})
-        } as EnhancedMemoryPoint<T>));
-      } else if (filterConditions && filterConditions.length > 0) {
-        // Filter-only search (scroll with filters)
-        const scrollFilter = { must: filterConditions };
-        
-        const points = await this.memoryClient.scrollPoints<T>(
-          collectionConfig.name,
-          scrollFilter,
-          params.limit || 10,
-          params.offset || 0
-        );
-        
-        // Convert to enhanced memory points
-        results = points.map(point => point as EnhancedMemoryPoint<T>);
-      } else {
-        // Get all points (limited)
-        const points = await this.memoryClient.scrollPoints<T>(
-          collectionConfig.name,
-          undefined,
-          params.limit || 10,
-          params.offset || 0
-        );
-        
-        results = points.map(point => point as EnhancedMemoryPoint<T>);
-      }
-      
-      return results;
+      // Fallback to standard search
+      return await this.executeSearchWithOptimization<T>(params);
     } catch (error) {
       console.error('Error searching memories with optimization:', error);
       throw handleMemoryError(error, 'searchMemories');
     }
+  }
+  
+  /**
+   * Execute search with optional optimization parameters
+   */
+  private async executeSearchWithOptimization<T extends BaseMemorySchema>(
+    params: SearchMemoryParams,
+    optimization?: VectorSearchOptimization
+  ): Promise<EnhancedMemoryPoint<T>[]> {
+    // Get collection configuration
+    const collectionConfig = COLLECTIONS[params.type];
+    if (!collectionConfig) {
+      throw new Error(`Invalid memory type: ${params.type}`);
+    }
+    
+    // Apply optimization parameters if provided
+    const effectiveParams = optimization ? {
+      ...params,
+      limit: optimization.limit,
+      minScore: optimization.scoreThreshold
+    } : params;
+    
+    // Create filter conditions using top-level fields when available
+    const filterConditions = this.createOptimizedFilterConditions(effectiveParams.filter || {});
+    
+    // If we have search text, get embedding
+    let searchVector: number[] | undefined;
+    if (effectiveParams.query) {
+      const embeddingResult = await this.embeddingClient.getEmbedding(effectiveParams.query);
+      searchVector = embeddingResult.embedding;
+    }
+    
+    // Perform search using the memory client directly
+    let results: EnhancedMemoryPoint<T>[] = [];
+    
+    if (searchVector) {
+      // Vector search with filters
+      const searchQuery: any = {
+        vector: searchVector,
+        limit: effectiveParams.limit || 10,
+        offset: effectiveParams.offset || 0,
+        scoreThreshold: effectiveParams.minScore
+      };
+      
+      // Add filter conditions if available
+      if (filterConditions && filterConditions.length > 0) {
+        searchQuery.filter = { must: filterConditions };
+      }
+      
+      const searchResults = await this.memoryClient.searchPoints<T>(
+        collectionConfig.name,
+        searchQuery
+      );
+      
+      // Extract points from search results - convert MemorySearchResult to MemoryPoint format
+      results = searchResults.map(result => ({
+        id: result.id,
+        vector: [], // Vector not needed for return
+        payload: result.payload,
+        // Add enhanced fields if they exist in payload metadata
+        ...this.extractIndexableFields(result.payload.metadata || {})
+      } as EnhancedMemoryPoint<T>));
+    } else if (filterConditions && filterConditions.length > 0) {
+      // Filter-only search (scroll with filters)
+      const scrollFilter = { must: filterConditions };
+      
+      const points = await this.memoryClient.scrollPoints<T>(
+        collectionConfig.name,
+        scrollFilter,
+        effectiveParams.limit || 10,
+        effectiveParams.offset || 0
+      );
+      
+      // Convert to enhanced memory points
+      results = points.map(point => point as EnhancedMemoryPoint<T>);
+    } else {
+      // Get all points (limited)
+      const points = await this.memoryClient.scrollPoints<T>(
+        collectionConfig.name,
+        undefined,
+        effectiveParams.limit || 10,
+        effectiveParams.offset || 0
+      );
+      
+      results = points.map(point => point as EnhancedMemoryPoint<T>);
+    }
+    
+    return results;
   }
   
   /**
@@ -510,35 +556,45 @@ export class EnhancedMemoryService extends MemoryService {
   }
 
   /**
-   * Search agent memories with access control
-   * Pure function following IMPLEMENTATION_GUIDELINES.md principles
+   * Search agent memories with access control and performance optimization
    */
   async searchAgentMemories<T extends BaseMemorySchema>(
     params: AgentMemorySearchParams
   ): Promise<EnhancedMemoryPoint<T>[]> {
     try {
-      // Validate requesting agent has access
+      // Validate agent access
       const accessValidation = this.validateAgentAccess(params);
       if (!accessValidation.valid) {
-        throw new Error(`Access denied: ${accessValidation.error}`);
+        throw new Error(accessValidation.error || 'Access denied');
       }
 
-      // Build enhanced filter with agent-specific constraints
-      const agentFilter = this.buildAgentAccessFilter(params);
+      // Build agent-specific filters
+      const agentFilters = this.buildAgentAccessFilter(params);
       
-      // Combine with user-provided filters
-      const combinedFilter = {
+      // Combine with existing filters
+      const combinedFilters = {
         ...params.filter,
-        ...agentFilter
+        ...agentFilters
       };
 
-      // Search with enhanced filter
+      // Create search parameters with agent filters
       const searchParams: SearchMemoryParams = {
         ...params,
-        filter: combinedFilter
+        filter: combinedFilters
       };
 
-      return await this.searchMemories<T>(searchParams);
+      // Use performance optimizer if available
+      if (this.performanceOptimizer) {
+        return await this.performanceOptimizer.executeOptimizedSearch<T>(
+          searchParams,
+          async (optimizedParams, optimization) => {
+            return await this.executeSearchWithOptimization<T>(optimizedParams as SearchMemoryParams, optimization);
+          }
+        );
+      }
+      
+      // Fallback to standard search
+      return await this.executeSearchWithOptimization<T>(searchParams);
     } catch (error) {
       console.error('Error searching agent memories:', error);
       throw handleMemoryError(error, 'searchAgentMemories');
@@ -755,5 +811,55 @@ export class EnhancedMemoryService extends MemoryService {
     }
 
     return filter;
+  }
+
+  // ============================================================================
+  // PERFORMANCE OPTIMIZATION METHODS
+  // ============================================================================
+
+  /**
+   * Get performance statistics from the optimizer
+   */
+  getPerformanceStats(): any {
+    if (!this.performanceOptimizer) {
+      return {
+        cache: { hitRate: 0, totalQueries: 0, avgResponseTime: 0 },
+        queries: { avgExecutionTime: 0, slowQueries: 0, totalQueries: 0 },
+        optimization: { strategiesUsed: {}, avgScoreThreshold: 0, avgLimit: 0 }
+      };
+    }
+    
+    return this.performanceOptimizer.getPerformanceStats();
+  }
+
+  /**
+   * Clear performance cache
+   */
+  async clearPerformanceCache(pattern?: {
+    collection?: string;
+    agentId?: string;
+    type?: string;
+  }): Promise<void> {
+    if (this.performanceOptimizer) {
+      await this.performanceOptimizer.clearCache(pattern);
+    }
+  }
+
+  /**
+   * Get optimization recommendations for a query
+   */
+  getOptimizationRecommendations(params: SearchMemoryParams | AgentMemorySearchParams): string[] {
+    if (!this.performanceOptimizer) {
+      return ['Performance optimization not enabled'];
+    }
+    
+    return this.performanceOptimizer.getOptimizationRecommendations(params);
+  }
+
+  /**
+   * Check if performance optimization is enabled
+   */
+  isPerformanceOptimizationEnabled(): boolean {
+    return !!this.performanceOptimizer;
   }
 } 
