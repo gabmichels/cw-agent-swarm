@@ -62,6 +62,17 @@ import { getLLM } from '../../lib/core/llm';
 import { TaskScheduleType } from '../../lib/scheduler/models/Task.model';
 import { IAgent } from '../../services/thinking/graph/types';
 
+// Import multi-agent delegation service
+import { 
+  MultiAgentDelegationService, 
+  createMultiAgentDelegationService,
+  type IMultiAgentDelegationService 
+} from '../../lib/multi-agent/MultiAgentDelegationService';
+import { 
+  ToolDelegationPriority,
+  ToolCapabilityCategory 
+} from '../../lib/multi-agent/delegation/ToolDelegationProtocol';
+
 // Import new types
 // Removed problematic import from './types' as it doesn't exist
 
@@ -225,6 +236,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   
   // Add ThinkingService for proper thought storage
   private thinkingService: ThinkingService | null = null;
+  
+  // Multi-agent delegation service
+  private multiAgentDelegationService: IMultiAgentDelegationService | null = null;
   
   // Legacy compatibility properties
   private resourceTracker: ResourceUtilizationTracker | null = null;
@@ -592,7 +606,57 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         this.logger.warn("Failed to initialize ThinkingService, falling back to ThinkingProcessor only - thoughts will only appear in message conversationContext", { error });
       }
       
-      // Step 7: Initialize visualization components
+      // Step 7: Initialize multi-agent delegation service if communication manager is enabled
+      if (this.agentConfig.enableCommunicationManager) {
+        try {
+          this.multiAgentDelegationService = createMultiAgentDelegationService({
+            messagingService: {
+              sendMessage: async (toAgentId: string, request: any) => {
+                // Use the communication manager for inter-agent messaging
+                const commManager = this.getManager(ManagerType.COMMUNICATION);
+                if (commManager && typeof (commManager as any).sendMessage === 'function') {
+                  return await (commManager as any).sendMessage({
+                    id: request.id,
+                    type: 'delegation_request',
+                    senderId: this.agentId,
+                    recipientId: toAgentId,
+                    payload: request,
+                    timestamp: new Date(),
+                    priority: request.priority || 'normal'
+                  });
+                }
+                throw new Error('Communication manager not available');
+              }
+            }
+          });
+          
+          this.logger.system("Multi-agent delegation service initialized", {
+            hasCapabilityDiscovery: !!this.multiAgentDelegationService,
+            agentId: this.agentId
+          });
+          
+          // Auto-register this agent's capabilities from available tools
+          // This allows other agents to discover what this agent can do
+          setTimeout(async () => {
+            try {
+              await this.registerCapabilitiesFromTools();
+              this.logger.system("Agent capabilities auto-registered for multi-agent discovery", {
+                agentId: this.agentId
+              });
+            } catch (error) {
+              this.logger.warn("Failed to auto-register agent capabilities", { 
+                agentId: this.agentId,
+                error: error instanceof Error ? error.message : String(error)
+              });
+            }
+          }, 1000); // Wait 1 second for tools to be fully initialized
+          
+        } catch (error) {
+          this.logger.warn("Failed to initialize MultiAgentDelegationService", { error });
+        }
+      }
+      
+      // Step 8: Initialize visualization components
       try {
         this.visualizationConfig = {
           ...DEFAULT_VISUALIZATION_CONFIG,
@@ -614,7 +678,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         this.logger.warn("Failed to initialize visualization tracking", { error });
       }
       
-      // Step 8: Initialize resource tracking if enabled
+      // Step 9: Initialize resource tracking if enabled
       if (this.agentConfig.enableResourceTracking) {
         this.initializeResourceTracking();
         this.logger.system("Resource tracking initialized");
@@ -1164,6 +1228,73 @@ Please provide a helpful, contextual response based on this analysis and memory 
       const shouldCreateTask = this.shouldCreateTaskFromIntent(thinkingResult, message);
       const schedulerManager = this.schedulerManager || this.getManager(ManagerType.SCHEDULER);
       const planningManager = this.getManager<PlanningManager>(ManagerType.PLANNING);
+
+      // Step 2.5: Check for delegation opportunities based on user message
+      let delegationResult: { needsDelegation: boolean; suggestedTool?: string; suggestedCategory?: string; reasoning?: string } | null = null;
+      if (this.multiAgentDelegationService) {
+        try {
+          delegationResult = await this.analyzeForDelegation(message);
+          
+          if (delegationResult.needsDelegation) {
+            this.logger.info('Delegation opportunity detected', {
+              suggestedTool: delegationResult.suggestedTool,
+              suggestedCategory: delegationResult.suggestedCategory,
+              reasoning: delegationResult.reasoning
+            });
+            
+            // Attempt delegation first before proceeding with other processing paths
+            if (delegationResult.suggestedTool && delegationResult.suggestedCategory) {
+              try {
+                // Extract parameters from the user message using simple heuristics
+                const delegationParameters = this.extractParametersFromMessage(message, delegationResult.suggestedTool);
+                
+                const delegationResponse = await this.delegateToolToAgent(
+                  delegationResult.suggestedTool,
+                  delegationParameters,
+                  {
+                    toolCategory: delegationResult.suggestedCategory,
+                    priority: thinkingResult.priority > 7 ? 'high' : 'normal',
+                    timeout: 30000
+                  }
+                );
+                
+                this.logger.info('Successfully delegated task to another agent', {
+                  tool: delegationResult.suggestedTool,
+                  delegationResponse: typeof delegationResponse === 'object' ? 'object' : String(delegationResponse)
+                });
+                
+                // Return delegation success response
+                return {
+                  content: `I've delegated your ${delegationResult.suggestedTool} request to a specialized agent. ${delegationResponse.message || 'The task has been processed successfully.'}`,
+                  thoughts: [`Detected delegation opportunity for ${delegationResult.suggestedTool}`, `Successfully delegated to capable agent`, delegationResult.reasoning || 'Delegation completed'],
+                  metadata: {
+                    delegated: true,
+                    delegationTool: delegationResult.suggestedTool,
+                    delegationCategory: delegationResult.suggestedCategory,
+                    delegationResponse,
+                    thinkingResult,
+                    processingPath: 'delegation'
+                  }
+                };
+                
+              } catch (delegationError) {
+                this.logger.warn('Delegation attempt failed, continuing with normal processing', {
+                  error: delegationError instanceof Error ? delegationError.message : String(delegationError),
+                  suggestedTool: delegationResult.suggestedTool
+                });
+                
+                // Don't block normal processing if delegation fails
+                // The agent will handle the request itself as a fallback
+              }
+            }
+          }
+          
+        } catch (error) {
+          this.logger.warn('Failed to analyze for delegation opportunities', {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
 
       // Debug logging to understand manager availability
       this.logger.info('Manager availability check', {
@@ -2205,18 +2336,15 @@ Please provide a helpful, contextual response based on this analysis and memory 
       apiCallsPerMinute: number;
     }>
   ): void {
-    // Resource tracking functionality would be implemented here
-    this.logger.debug('Task utilization updated', { taskId, metrics });
+    this.resourceTracker?.recordTaskUtilization(taskId, metrics);
   }
 
   updateTaskCounts(activeTasks: number, pendingTasks: number): void {
-    // Resource tracking functionality would be implemented here
-    this.logger.debug('Task counts updated', { activeTasks, pendingTasks });
+    this.resourceTracker?.updateTaskCounts(activeTasks, pendingTasks);
   }
   
   getResourceUtilization() {
-    // Return default resource utilization
-    return {
+    return this.resourceTracker?.getCurrentUtilization() || {
       cpuUtilization: 0,
       memoryBytes: 0,
       tokensPerMinute: 0,
@@ -2590,5 +2718,356 @@ Task scheduled successfully (ID: ${safeTaskId})`;
   private estimateTokens(text: string): number {
     // Rough estimation: ~4 characters per token for English text
     return Math.ceil(text.length / 4);
+  }
+
+  // ====== Multi-Agent Delegation Methods ======
+  
+  /**
+   * Generic tool delegation - can delegate any tool to any capable agent
+   */
+  async delegateToolToAgent(
+    toolName: string,
+    parameters: Record<string, any>,
+    options: {
+      toolCategory?: string;
+      priority?: 'low' | 'normal' | 'high';
+      timeout?: number;
+      targetAgentId?: string;
+      requiresConfirmation?: boolean;
+    } = {}
+  ): Promise<any> {
+    if (!this.multiAgentDelegationService) {
+      throw new Error('Multi-agent delegation service not available. Communication manager may be disabled.');
+    }
+    
+    const priorityEnum = options.priority === 'high' ? ToolDelegationPriority.HIGH :
+                        options.priority === 'low' ? ToolDelegationPriority.LOW :
+                        ToolDelegationPriority.NORMAL;
+    
+    // Auto-detect tool category if not provided
+    const toolCategory = options.toolCategory || this.detectToolCategory(toolName, parameters);
+    
+    return await this.multiAgentDelegationService.delegateToolRequest(
+      this.agentId,
+      toolName,
+      toolCategory as ToolCapabilityCategory,
+      parameters,
+      {
+        priority: priorityEnum,
+        timeout: options.timeout || 30000,
+        targetAgentId: options.targetAgentId,
+        requiresConfirmation: options.requiresConfirmation || false
+      }
+    );
+  }
+  
+  /**
+   * Find agents that can handle a specific tool
+   */
+  async findAgentsForTool(
+    toolName: string,
+    toolCategory?: string,
+    options: {
+      excludeAgents?: string[];
+      minReliability?: number;
+      maxExecutionTime?: number;
+    } = {}
+  ): Promise<string[]> {
+    if (!this.multiAgentDelegationService) {
+      throw new Error('Multi-agent delegation service not available. Communication manager may be disabled.');
+    }
+    
+    const criteria = {
+      toolName,
+      toolCategory: toolCategory || this.detectToolCategory(toolName),
+      excludeAgents: options.excludeAgents,
+      minReliability: options.minReliability,
+      maxExecutionTime: options.maxExecutionTime
+    };
+    
+    const agentResults = await this.multiAgentDelegationService.findCapableAgents(criteria as any);
+    return Array.from(agentResults);
+  }
+  
+  /**
+   * Register this agent's capabilities dynamically based on available tools
+   */
+  async registerCapabilitiesFromTools(): Promise<void> {
+    if (!this.multiAgentDelegationService) {
+      throw new Error('Multi-agent delegation service not available. Communication manager may be disabled.');
+    }
+    
+    try {
+      // Get all available tools from this agent
+      const tools = await this.getTools();
+      
+      // Convert tools to capabilities
+      const capabilities = tools.map(tool => ({
+        name: tool.name || tool.id,
+        category: this.detectToolCategory(tool.name || tool.id, tool.description),
+        description: tool.description || `${tool.name || tool.id} tool capability`,
+        parameters: {},
+        permissions: ['execute'],
+        estimatedExecutionTime: 5000,
+        reliability: 0.95
+      }));
+      
+      await this.multiAgentDelegationService.registerAgentCapabilities(
+        this.agentId,
+        capabilities
+      );
+      
+      this.logger.info('Registered agent capabilities from available tools', {
+        agentId: this.agentId,
+        capabilitiesCount: capabilities.length,
+        toolNames: capabilities.map(c => c.name)
+      });
+      
+    } catch (error) {
+      this.logger.warn('Failed to register capabilities from tools', { 
+        agentId: this.agentId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  
+  /**
+   * Intelligently detect if a user request requires delegation
+   */
+  async analyzeForDelegation(userMessage: string): Promise<{
+    needsDelegation: boolean;
+    suggestedTool?: string;
+    suggestedCategory?: string;
+    suggestedParameters?: Record<string, any>;
+    reasoning?: string;
+  }> {
+    // Look for delegation keywords and patterns
+    const emailKeywords = ['send email', 'email', 'mail to', 'notify via email'];
+    const socialKeywords = ['post to', 'share on', 'tweet', 'linkedin post', 'social media'];
+    const analysisKeywords = ['analyze', 'report', 'calculate', 'data analysis', 'generate report'];
+    const fileKeywords = ['create file', 'save to', 'export', 'download', 'upload'];
+    
+    const message = userMessage.toLowerCase();
+    
+    // Check for email delegation
+    if (emailKeywords.some(keyword => message.includes(keyword))) {
+      return {
+        needsDelegation: true,
+        suggestedTool: 'sendEmail',
+        suggestedCategory: 'email',
+        reasoning: 'User request mentions email functionality'
+      };
+    }
+    
+    // Check for social media delegation
+    if (socialKeywords.some(keyword => message.includes(keyword))) {
+      return {
+        needsDelegation: true,
+        suggestedTool: 'createPost',
+        suggestedCategory: 'social_media',
+        reasoning: 'User request mentions social media functionality'
+      };
+    }
+    
+    // Check for analysis delegation
+    if (analysisKeywords.some(keyword => message.includes(keyword))) {
+      return {
+        needsDelegation: true,
+        suggestedTool: 'analyzeData',
+        suggestedCategory: 'analytics',
+        reasoning: 'User request mentions data analysis functionality'
+      };
+    }
+    
+    // Check for file operations
+    if (fileKeywords.some(keyword => message.includes(keyword))) {
+      return {
+        needsDelegation: true,
+        suggestedTool: 'processFile',
+        suggestedCategory: 'file_processing',
+        reasoning: 'User request mentions file operations'
+      };
+    }
+    
+    // Check if message mentions other agents directly
+    if (message.includes('agent') && (message.includes('ask') || message.includes('tell') || message.includes('have'))) {
+      return {
+        needsDelegation: true,
+        suggestedTool: 'generic_task',
+        suggestedCategory: 'communication',
+        reasoning: 'User request mentions delegating to other agents'
+      };
+    }
+    
+    return {
+      needsDelegation: false,
+      reasoning: 'No delegation patterns detected'
+    };
+  }
+  
+  /**
+   * Auto-detect tool category based on tool name and context
+   */
+  private detectToolCategory(toolName: string, context?: any): ToolCapabilityCategory {
+    const name = toolName.toLowerCase();
+    const contextStr = context ? String(context).toLowerCase() : '';
+    
+    // Email patterns
+    if (name.includes('email') || name.includes('mail') || name.includes('send_message')) {
+      return ToolCapabilityCategory.EMAIL;
+    }
+    
+    // Social media patterns
+    if (name.includes('post') || name.includes('tweet') || name.includes('social') || 
+        name.includes('linkedin') || name.includes('facebook') || name.includes('instagram')) {
+      return ToolCapabilityCategory.SOCIAL_MEDIA;
+    }
+    
+    // Analytics patterns
+    if (name.includes('analyze') || name.includes('report') || name.includes('calculate') ||
+        name.includes('data') || name.includes('metric') || name.includes('chart')) {
+      return ToolCapabilityCategory.ANALYTICS;
+    }
+    
+    // File processing patterns
+    if (name.includes('file') || name.includes('upload') || name.includes('download') ||
+        name.includes('export') || name.includes('import') || name.includes('process')) {
+      return ToolCapabilityCategory.FILE_PROCESSING;
+    }
+    
+    // Communication patterns
+    if (name.includes('message') || name.includes('notify') || name.includes('alert') ||
+        name.includes('communicate') || contextStr.includes('send') || contextStr.includes('message')) {
+      return ToolCapabilityCategory.COMMUNICATION;
+    }
+    
+    // Workspace patterns
+    if (name.includes('workspace') || name.includes('project') || name.includes('task') ||
+        name.includes('calendar') || name.includes('schedule')) {
+      return ToolCapabilityCategory.WORKSPACE;
+    }
+    
+    // Default to custom
+    return ToolCapabilityCategory.CUSTOM;
+  }
+  
+  /**
+   * Extract parameters from user message for tool delegation
+   */
+  private extractParametersFromMessage(message: string, toolName: string): Record<string, any> {
+    const lowerMessage = message.toLowerCase();
+    const parameters: Record<string, any> = {};
+    
+    // Tool-specific parameter extraction
+    switch (toolName.toLowerCase()) {
+      case 'sendemail':
+      case 'send_email':
+        // Extract email components
+        const emailMatch = message.match(/(?:to|email|send)\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+        if (emailMatch) {
+          parameters.to = [emailMatch[1]];
+        }
+        
+        // Extract subject
+        const subjectMatch = message.match(/(?:subject|about|regarding)[\s:]+([^.!?]+)/i);
+        if (subjectMatch) {
+          parameters.subject = subjectMatch[1].trim();
+        } else {
+          parameters.subject = `Message from ${this.getName()}`;
+        }
+        
+        // Extract body content
+        const bodyMatch = message.match(/(?:saying|tell them|message|content)[\s:]+["']?([^"']+)["']?/i);
+        if (bodyMatch) {
+          parameters.body = bodyMatch[1].trim();
+        } else {
+          parameters.body = message; // Use entire message as fallback
+        }
+        
+        parameters.priority = lowerMessage.includes('urgent') || lowerMessage.includes('asap') ? 'high' : 'normal';
+        break;
+        
+      case 'createpost':
+      case 'post':
+        // Extract social media content
+        const contentMatch = message.match(/(?:post|share|tweet)[\s:]+["']?([^"']+)["']?/i);
+        if (contentMatch) {
+          parameters.content = contentMatch[1].trim();
+        } else {
+          parameters.content = message;
+        }
+        
+        // Extract platforms
+        const platforms = [];
+        if (lowerMessage.includes('twitter') || lowerMessage.includes('tweet')) platforms.push('twitter');
+        if (lowerMessage.includes('linkedin')) platforms.push('linkedin');
+        if (lowerMessage.includes('facebook')) platforms.push('facebook');
+        if (lowerMessage.includes('instagram')) platforms.push('instagram');
+        
+        parameters.platforms = platforms.length > 0 ? platforms : ['twitter']; // Default to twitter
+        
+        // Extract hashtags
+        const hashtagMatches = message.match(/#[\w]+/g);
+        if (hashtagMatches) {
+          parameters.hashtags = hashtagMatches;
+        }
+        break;
+        
+      case 'analyzedata':
+      case 'analyze':
+        // Extract data source
+        const dataMatch = message.match(/(?:analyze|data|report)[\s:]+([^.!?]+)/i);
+        if (dataMatch) {
+          parameters.dataSource = dataMatch[1].trim();
+        }
+        
+        // Extract analysis type
+        if (lowerMessage.includes('performance')) parameters.analysisType = 'performance';
+        else if (lowerMessage.includes('trend')) parameters.analysisType = 'trend';
+        else if (lowerMessage.includes('summary')) parameters.analysisType = 'summary';
+        else parameters.analysisType = 'general';
+        break;
+        
+      case 'processfile':
+      case 'file':
+        // Extract file path or name
+        const fileMatch = message.match(/(?:file|document)[\s:]+([^\s.!?]+(?:\.[^\s.!?]+)?)/i);
+        if (fileMatch) {
+          parameters.fileName = fileMatch[1].trim();
+        }
+        
+        // Extract operation type
+        if (lowerMessage.includes('upload')) parameters.operation = 'upload';
+        else if (lowerMessage.includes('download')) parameters.operation = 'download';
+        else if (lowerMessage.includes('process')) parameters.operation = 'process';
+        else if (lowerMessage.includes('convert')) parameters.operation = 'convert';
+        else parameters.operation = 'process';
+        break;
+        
+      default:
+        // Generic parameter extraction
+        // Extract any quoted strings as content
+        const quotedMatches = message.match(/"([^"]+)"/g) || message.match(/'([^']+)'/g);
+        if (quotedMatches) {
+          parameters.content = quotedMatches[0].replace(/['"]/g, '');
+        }
+        
+        // Extract any @mentions as targets
+        const mentionMatches = message.match(/@[\w]+/g);
+        if (mentionMatches) {
+          parameters.mentions = mentionMatches;
+        }
+        
+        // Use the entire message as a general parameter
+        parameters.request = message;
+        break;
+    }
+    
+    // Add common metadata
+    parameters.timestamp = Date.now();
+    parameters.requestedBy = this.agentId;
+    parameters.originalMessage = message;
+    
+    return parameters;
   }
   }

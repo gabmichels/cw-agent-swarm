@@ -105,10 +105,10 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     enableOutputProcessor: true,
     enableResourceTracking: true,
     
-    // Phase 2 managers (disabled for now)
+    // Phase 2 managers (enable communication and collaboration for multi-agent capabilities)
     enableEthicsManager: false,
-    enableCollaborationManager: false,
-    enableCommunicationManager: false,
+    enableCollaborationManager: true,  // Enable for multi-agent approvals/coordination
+    enableCommunicationManager: true,  // Enable for multi-agent messaging/delegation
     enableNotificationManager: false,
     
     // Configure memory refresh

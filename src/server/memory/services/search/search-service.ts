@@ -698,19 +698,18 @@ export class SearchService {
         limit: options.limit ? options.limit * 2 : DEFAULTS.DEFAULT_LIMIT * 2 // Get more results to rerank
       });
       
-      // Get text search results (simple contains for now)
+            // For now, skip text search portion as it's causing Qdrant compatibility issues
+      // Instead, use vector search results only but with different weights
       const textSearchPromises = (options.types || Object.values(MemoryType)).map(type => {
         const memType = type as MemoryType;
         const collectionName = this.getCollectionNameForType(memType);
         if (!collectionName) return Promise.resolve([]);
-        
+
+        // Use simple scroll without text filters for now
         return this.client.scrollPoints<T>(
           collectionName,
-          {
-            ...options.filter,
-            $text: { $contains: query }
-          },
-          options.limit ? options.limit * 2 : DEFAULTS.DEFAULT_LIMIT * 2
+          options.filter, // Remove $text filter that's causing issues
+          Math.min(options.limit ? options.limit : DEFAULTS.DEFAULT_LIMIT, 50) // Limit to avoid too many results
         );
       });
       
