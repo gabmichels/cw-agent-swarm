@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { X, Settings, Wifi, Users, Shield, Bell, Palette, Database, Building } from 'lucide-react';
 import { SocialMediaSettingsModal } from './social-media/SocialMediaSettingsModal';
 import { DepartmentManagementModal } from './organization/DepartmentManagementModal';
+import { NotificationSettingsPanel } from './notifications/NotificationSettingsPanel';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [isSocialMediaModalOpen, setIsSocialMediaModalOpen] = useState(false);
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -105,15 +107,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Bell,
       items: [
         {
+          title: 'Notification Settings',
+          description: 'Configure all notification preferences and behaviors',
+          action: () => setIsNotificationSettingsOpen(true),
+          badge: 'New'
+        },
+        {
           title: 'Email Notifications',
           description: 'Configure email notification settings',
           action: () => console.log('Email notifications'),
-          disabled: true
-        },
-        {
-          title: 'Push Notifications',
-          description: 'Manage browser push notifications',
-          action: () => console.log('Push notifications'),
           disabled: true
         }
       ]
@@ -239,10 +241,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         userId={userId}
         organizationId={organizationId}
       />
+      
+      {/* Department Management Modal */}
       <DepartmentManagementModal
         isOpen={isDepartmentModalOpen}
         onClose={() => setIsDepartmentModalOpen(false)}
       />
+
+      {/* Notification Settings Modal */}
+      {isNotificationSettingsOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
+          <div className="bg-gray-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-gray-700">
+              <h2 className="text-xl font-semibold text-white flex items-center">
+                <Bell className="mr-2 h-5 w-5" />
+                Notification Settings
+              </h2>
+              <button
+                onClick={() => setIsNotificationSettingsOpen(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
+              <NotificationSettingsPanel />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }; 

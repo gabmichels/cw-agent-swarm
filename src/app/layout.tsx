@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import { ClientProviders } from '../components/providers/ClientProviders';
 
 // Initialize server components - this will only run on the server
 // The import itself will trigger the initialization
@@ -29,7 +30,9 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
       </head>
       <body className="min-h-screen bg-gray-900 text-gray-100">
-        {children}
+        <ClientProviders>
+          {children}
+        </ClientProviders>
       </body>
     </html>
   );

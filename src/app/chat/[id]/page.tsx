@@ -8,6 +8,9 @@ import TabsNavigation from '@/components/TabsNavigation';
 import ChatInput from '@/components/ChatInput';
 import ChatMessages from '@/components/ChatMessages';
 import DevModeToggle from '@/components/DevModeToggle';
+import { useChatSSE } from '@/hooks/useChatSSE';
+import { useMultiChannelSSE } from '@/hooks/useMultiChannelSSE';
+import { NotificationToastProvider } from '@/components/notifications/NotificationToastProvider';
 import { Message as ChatMessage, MessageType, MessageRole, MessageStatus, MessageAttachment } from '@/lib/multi-agent/types/message';
 import { ParticipantType } from '@/lib/multi-agent/types/chat';
 import { FileMetadata, FileAttachmentType as StorageFileType, FileProcessingStatus, FileAttachment as StorageFileAttachment } from '@/types/files';
@@ -299,36 +302,52 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     fetchOrCreateChat();
   }, [routeId, userId]);
 
-  // Add polling for message updates instead of using WebSockets
+  // Use SSE for real-time message updates
+  const sseData = useChatSSE(chat?.id || '', {
+    userId,
+    autoReconnect: true,
+    maxReconnectAttempts: 5,
+    reconnectDelay: 1000
+  });
+
+  // Use multi-channel SSE for global notifications
+  const notificationSSE = useMultiChannelSSE(userId, {
+    enableTaskNotifications: true,
+    enableAgentStatusNotifications: true,
+    enableSystemNotifications: true,
+    enableFileNotifications: true
+  });
+
+  // Update messages from SSE when new messages arrive
   useEffect(() => {
-    // Poll for new messages every 15 seconds
-    const pollInterval = 15000;
-    let pollingTimer: NodeJS.Timeout | null = null;
-
-    // Only start polling if we have a chat ID and currently on the chat tab
-    if (chat?.id && selectedTab === 'chat') {
-      // Define polling function
-      const pollMessages = async () => {
-        try {
-          // Always poll for messages, but pass appropriate shouldClearLoading flag
-          // When we're in loading state (thinking), let fetchMessages decide when to clear it
-          await fetchMessages(chat.id);
-        } catch (error) {
-          console.error('Error polling messages:', error);
-        }
-      };
+    if (sseData.messages.length > 0 && selectedTab === 'chat') {
+      // Convert SSE messages to MessageWithId format
+      const convertedMessages = sseData.messages.map(msg => ({
+        id: msg.id,
+        content: msg.content,
+        sender: {
+          id: msg.sender.id,
+          name: msg.sender.name,
+          role: msg.sender.role
+        },
+        timestamp: msg.timestamp,
+        attachments: [],
+        tags: []
+      }));
       
-      // Start polling
-      pollingTimer = setInterval(pollMessages, pollInterval);
-    }
-
-    // Cleanup on unmount or tab change
-    return () => {
-      if (pollingTimer) {
-        clearInterval(pollingTimer);
+      setMessages(prev => {
+        // Merge new messages with existing ones, avoiding duplicates
+        const existingIds = new Set(prev.map(m => m.id));
+        const newMessages = convertedMessages.filter(m => !existingIds.has(m.id));
+        return [...prev, ...newMessages];
+      });
+      
+      // Clear loading state when we get new messages
+      if (isLoading) {
+        setIsLoading(false);
       }
-    };
-  }, [chat?.id, selectedTab]);
+    }
+  }, [sseData.messages, selectedTab, isLoading]);
 
   // Handle pending navigation to message after tab switch and messages load
   useEffect(() => {
@@ -1070,7 +1089,12 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
 
   // UI matches main page
   return (
-    <div className="flex flex-col h-screen">
+    <NotificationToastProvider
+      enableSounds={true}
+      enableBrowserNotifications={true}
+      maxToasts={5}
+    >
+      <div className="flex flex-col h-screen">
       <Header
         selectedDepartment={selectedDepartment}
         selectedAgent={agentId}
@@ -1197,5 +1221,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         />
       )}
     </div>
+    </NotificationToastProvider>
   );
 }

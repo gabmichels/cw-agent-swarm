@@ -11,6 +11,7 @@ import { getChatService } from '../../../../../../server/memory/services/chat-se
 import { MessageMetadata } from '../../../../../../types/metadata';
 import { extractTags } from '../../../../../../utils/tagExtractor';
 import { MessageProcessingOptions, AgentResponse } from '../../../../../../agents/shared/base/AgentBase.interface';
+import { chatEventEmitter } from '../../../../../../lib/events/ChatEventEmitter';
 
 // Define interface for message attachments
 interface MessageAttachment {
@@ -557,6 +558,35 @@ export async function POST(
     if (userMemoryResult && userMemoryResult.id) {
       lastUserMessageId = userMemoryResult.id;
       console.log(`Saved user message to memory with ID: ${lastUserMessageId}`);
+      
+      // Emit SSE event for new user message
+      try {
+        chatEventEmitter.emitNewMessage(chatId, {
+          id: userMemoryResult.id,
+          content: content,
+          sender: {
+            id: actualUserId,
+            name: 'User', // TODO: Get actual user name from user service
+            role: 'user' as const,
+            avatar: undefined // TODO: Add user avatar support
+          },
+          timestamp: new Date(),
+          metadata: {
+            userId: actualUserId,
+            agentId: actualAgentId,
+            threadId: userThreadInfo.id,
+            attachments: processedAttachments,
+            importance: userImportance,
+            importanceScore: userImportanceScore,
+            tags: userMessageTags,
+            ...(metadata.replyTo && { replyTo: metadata.replyTo })
+          }
+        });
+        console.log(`SSE event emitted for user message in chat ${chatId}`);
+      } catch (sseError) {
+        console.error('Error emitting SSE event for user message:', sseError);
+        // Don't fail the request if SSE emission fails
+      }
     } else {
       console.error('🚨 USER MESSAGE SAVE FAILED!', userMemoryResult);
     }
@@ -759,6 +789,37 @@ export async function POST(
         }
       }
     );
+
+    // Emit SSE event for new agent message
+    try {
+      chatEventEmitter.emitNewMessage(chatId, {
+        id: assistantThreadInfo.id,
+        content: responseContent,
+        sender: {
+          id: actualAgentId,
+          name: agent.getName() || 'Assistant',
+          role: 'assistant' as const,
+          avatar: undefined // TODO: Add agent avatar support
+        },
+        timestamp: new Date(),
+        metadata: {
+          agentId: actualAgentId,
+          agentName: agent.getName() || 'Assistant',
+          userId: actualUserId,
+          threadId: assistantThreadInfo.id,
+          parentMessageId: lastUserMessageId,
+          thoughts,
+          memories,
+          importance,
+          importanceScore,
+          tags: responseMessageTags
+        }
+      });
+      console.log(`SSE event emitted for agent message in chat ${chatId}`);
+    } catch (sseError) {
+      console.error('Error emitting SSE event for agent message:', sseError);
+      // Don't fail the request if SSE emission fails
+    }
 
           // Return the response with all metadata
     return NextResponse.json({
