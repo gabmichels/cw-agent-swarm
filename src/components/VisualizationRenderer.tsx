@@ -307,8 +307,8 @@ const VisualizationRenderer: React.FC<VisualizationRendererProps> = ({
       case 'tool_execution':
         return (
           <div className="node-details tool">
-            <div><strong>Tool:</strong> {node.data.toolName}</div>
-            {node.data.result && <div><strong>Result:</strong> Available</div>}
+            <div key="tool-name"><strong>Tool:</strong> {node.data.toolName}</div>
+            {node.data.result && <div key="tool-result"><strong>Result:</strong> Available</div>}
           </div>
         );
       case 'error':
@@ -321,9 +321,9 @@ const VisualizationRenderer: React.FC<VisualizationRendererProps> = ({
       case 'self_correction':
         return (
           <div className="node-details correction">
-            <div><strong>Category:</strong> {node.data.category || 'General'}</div>
+            <div key="correction-category"><strong>Category:</strong> {node.data.category || 'General'}</div>
             {node.data.correctionText && (
-              <div className="text-truncate">
+              <div key="correction-text" className="text-truncate">
                 {node.data.correctionText.substring(0, 40)}
                 {node.data.correctionText.length > 40 && '...'}
               </div>
@@ -334,8 +334,8 @@ const VisualizationRenderer: React.FC<VisualizationRendererProps> = ({
       case 'memory_group_consolidation':
         return (
           <div className="node-details memory">
-            {node.data.memoryCount && <div><strong>Memories:</strong> {node.data.memoryCount}</div>}
-            {node.data.category && <div><strong>Category:</strong> {node.data.category}</div>}
+            {node.data.memoryCount && <div key="memory-count"><strong>Memories:</strong> {node.data.memoryCount}</div>}
+            {node.data.category && <div key="memory-category"><strong>Category:</strong> {node.data.category}</div>}
           </div>
         );
       default:

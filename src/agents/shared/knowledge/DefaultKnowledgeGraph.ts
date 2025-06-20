@@ -616,12 +616,25 @@ export class DefaultKnowledgeGraph implements KnowledgeGraph {
     this.ensureInitialized();
 
     if (this.useQdrant && this.qdrantStore) {
-      const [nodes, edges] = await Promise.all([
-        this.qdrantStore.getAllNodes(),
-        this.qdrantStore.getAllEdges()
-      ]);
-      return { nodes, edges };
+      try {
+        console.log('📊 Fetching visualization data from Qdrant...');
+        const [nodes, edges] = await Promise.all([
+          this.qdrantStore.getAllNodes(),
+          this.qdrantStore.getAllEdges()
+        ]);
+        console.log(`📊 Qdrant visualization data: ${nodes.length} nodes, ${edges.length} edges`);
+        return { nodes, edges };
+      } catch (error) {
+        console.error('❌ Error fetching visualization data from Qdrant:', error);
+        // Fallback to in-memory data
+        console.log('🔄 Falling back to in-memory data...');
+        return {
+          nodes: Array.from(this.nodes.values()),
+          edges: this.edges
+        };
+      }
     } else {
+      console.log(`📊 Using in-memory visualization data: ${this.nodes.size} nodes, ${this.edges.length} edges`);
       return {
         nodes: Array.from(this.nodes.values()),
         edges: this.edges

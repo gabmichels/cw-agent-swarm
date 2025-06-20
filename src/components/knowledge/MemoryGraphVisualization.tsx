@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -50,16 +50,13 @@ const CustomNode = ({ data }: { data: any }) => {
       transform: `scale(${data.size || 1})`,
       transition: 'transform 0.3s ease, box-shadow 0.3s ease'
     }}>
-      <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>{data.label}</div>
-      {data.description && <div style={{ fontSize: '0.85em' }}>{data.description}</div>}
+      <div key="label" style={{ fontWeight: 'bold', marginBottom: '5px' }}>{data.label}</div>
+      {data.description && <div key="description" style={{ fontSize: '0.85em' }}>{data.description}</div>}
     </div>
   );
 };
 
-// Define node types
-const nodeTypes: NodeTypes = {
-  custom: CustomNode,
-};
+// Define node types (moved inside component to avoid issues)
 
 interface MemoryGraphVisualizationProps {
   rootId?: string;
@@ -68,6 +65,8 @@ interface MemoryGraphVisualizationProps {
   limit?: number;
   className?: string;
   onNodeSelect?: (nodeData: any) => void;
+  onLoadingChange?: (loading: boolean) => void;
+  onDataChange?: (data: { nodes: any[]; edges: any[] }) => void;
 }
 
 const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
@@ -76,7 +75,9 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
   depth = 2,
   limit = 50,
   className = '',
-  onNodeSelect
+  onNodeSelect,
+  onLoadingChange,
+  onDataChange
 }) => {
   // Use the memory graph hook
   const { graphData, isLoading, error, refresh } = useMemoryGraph({
@@ -91,47 +92,13 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // Convert graph data to ReactFlow format
-  useEffect(() => {
-    if (graphData.nodes.length > 0) {
-      const flowNodes: Node[] = graphData.nodes.map((node, index) => ({
-        id: node.id,
-        type: 'custom',
-        position: getNodePosition(index, graphData.nodes.length),
-        data: {
-          label: node.label,
-          description: node.data?.payload?.metadata?.description || '',
-          type: node.type,
-          highlighted: node.id === selectedNodeId,
-          size: node.size || 1,
-          originalData: node.data
-        }
-      }));
-      
-      const flowEdges: Edge[] = graphData.edges.map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-        type: 'smoothstep',
-        animated: edge.type === EdgeType.DERIVES_FROM || edge.type === EdgeType.RESPONDS_TO,
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          width: 15,
-          height: 15
-        },
-        style: {
-          strokeWidth: edge.weight ? Math.max(1, Math.min(5, edge.weight * 3)) : 1
-        }
-      }));
-      
-      setNodes(flowNodes);
-      setEdges(flowEdges);
-    }
-  }, [graphData, selectedNodeId, setNodes, setEdges]);
+  // Define node types with useMemo to prevent recreating on every render
+  const nodeTypes: NodeTypes = useMemo(() => ({
+    custom: CustomNode,
+  }), []);
 
-  // Position nodes in a radial layout
-  const getNodePosition = (index: number, total: number) => {
+  // Position nodes in a radial layout (memoized to prevent recreating the function)
+  const getNodePosition = useCallback((index: number, total: number) => {
     // For small graphs, use a simple circular layout
     if (total <= 10) {
       const radius = 200;
@@ -154,11 +121,83 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
       x: 300 + radius * Math.cos(angle),
       y: 300 + radius * Math.sin(angle)
     };
-  };
+  }, []);
+
+  // Memoize the conversion of graph data to ReactFlow format to prevent infinite loops
+  const { flowNodes, flowEdges } = useMemo(() => {
+    // Create a unique session ID to ensure stable IDs within this component instance
+    const sessionId = Date.now().toString(36);
+    
+    const flowNodes: Node[] = graphData.nodes.map((node, index) => ({
+      id: `node-${sessionId}-${node.id}`, // Use original node ID with session prefix
+      type: 'default',
+      position: getNodePosition(index, graphData.nodes.length),
+      data: {
+        label: node.label,
+        originalId: node.id,
+        originalData: node
+      }
+    }));
+    
+    // Create a map for quick lookup of flow node IDs by original IDs
+    const nodeIdMap = new Map(
+      flowNodes.map(flowNode => [flowNode.data.originalId, flowNode.id])
+    );
+    
+    const flowEdges: Edge[] = graphData.edges.map((edge, index) => ({
+      id: `edge-${sessionId}-${edge.source}-${edge.target}-${index}`, // Stable ID based on source/target
+      source: nodeIdMap.get(edge.source) || edge.source,
+      target: nodeIdMap.get(edge.target) || edge.target,
+      label: edge.label,
+      type: 'smoothstep',
+      animated: edge.type === EdgeType.DERIVES_FROM || edge.type === EdgeType.RESPONDS_TO,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 15,
+        height: 15
+      },
+      style: {
+        strokeWidth: edge.weight ? Math.max(1, Math.min(5, edge.weight * 3)) : 1
+      }
+    }));
+    
+    return { flowNodes, flowEdges };
+  }, [graphData, getNodePosition]);
+
+  // Update ReactFlow state when memoized data changes
+  useEffect(() => {
+    setNodes(flowNodes);
+    setEdges(flowEdges);
+  }, [flowNodes, flowEdges, setNodes, setEdges]);
+
+  // Notify parent component of data changes (with useCallback to prevent recreating the function)
+  const notifyDataChange = useCallback(() => {
+    if (onDataChange) {
+      onDataChange({
+        nodes: graphData.nodes,
+        edges: graphData.edges
+      });
+    }
+  }, [onDataChange, graphData.nodes, graphData.edges]);
+
+  useEffect(() => {
+    notifyDataChange();
+  }, [notifyDataChange]);
+
+  // Notify parent component of loading state changes (with useCallback to prevent recreating the function)
+  const notifyLoadingChange = useCallback(() => {
+    if (onLoadingChange) {
+      onLoadingChange(isLoading);
+    }
+  }, [onLoadingChange, isLoading]);
+
+  useEffect(() => {
+    notifyLoadingChange();
+  }, [notifyLoadingChange]);
 
   // Handle node click
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
-    setSelectedNodeId(node.id);
+    setSelectedNodeId(node.data.originalId || node.id);
     
     if (onNodeSelect) {
       onNodeSelect(node.data.originalData);
@@ -215,12 +254,12 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
   return (
     <div className={`h-96 bg-gray-800 rounded-lg overflow-hidden ${className}`}>
       <ReactFlow
+        key={`reactflow-${graphData.nodes.length}-${graphData.edges.length}`}
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
-        nodeTypes={nodeTypes}
         fitView
       >
         <Background color="#4a5568" gap={16} />

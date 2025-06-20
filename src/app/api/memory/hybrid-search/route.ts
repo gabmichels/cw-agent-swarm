@@ -21,31 +21,36 @@ export async function POST(request: NextRequest) {
     // Initialize services
     const { searchService } = await getMemoryServices();
     
-    // Parse query parameters
+    // Parse query parameters from URL
     const url = new URL(request.url);
-    const params = parseQueryParams(url, {
+    const urlParams = parseQueryParams(url, {
       query: { type: 'string', defaultValue: '' },
       limit: { type: 'number', defaultValue: 10 },
       offset: { type: 'number', defaultValue: 0 },
       hybridRatio: { type: 'number', defaultValue: 0.7 }
     });
     
-    // Parse request body for filter
-    let filter = {};
+    // Parse request body for additional parameters and filter
+    let body: any = {};
     try {
-      const body = await request.json();
-      filter = body.filter || {};
+      body = await request.json();
     } catch (e) {
       // Ignore JSON parsing errors
     }
     
-    // Validate query parameter is provided
+    // Merge URL params with body params, with body taking precedence
+    const params = {
+      query: body.query || urlParams.query || '',
+      limit: body.limit || urlParams.limit,
+      offset: body.offset || urlParams.offset,
+      hybridRatio: body.hybridRatio !== undefined ? body.hybridRatio : urlParams.hybridRatio
+    };
+    
+    const filter = body.filter || {};
+    
+    // For empty query, search for all memories (useful for knowledge graph)
     if (!params.query) {
-      return NextResponse.json({
-        error: 'Search query is required',
-        results: [],
-        total: 0
-      }, { status: 400 });
+      params.query = '*'; // Wildcard search
     }
     
     // Perform hybrid search

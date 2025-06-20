@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
 import MemoryGraphVisualization from './MemoryGraphVisualization';
 import { MemoryType } from '../../server/memory/config';
 import { NodeType } from '../../hooks/useMemoryGraph';
@@ -13,8 +15,11 @@ const KnowledgeGraphPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [depth, setDepth] = useState<number>(2);
+  const [limit, setLimit] = useState<number>(50); // Node limit control
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [graphStats, setGraphStats] = useState<{ nodes: number; edges: number }>({ nodes: 0, edges: 0 });
+  const [isGraphLoading, setIsGraphLoading] = useState(false);
 
   // Handle type selection
   const toggleType = (type: MemoryType) => {
@@ -60,9 +65,9 @@ const KnowledgeGraphPage: React.FC = () => {
   };
 
   // Handle node selection
-  const handleNodeSelect = (nodeData: any) => {
+  const handleNodeSelect = useCallback((nodeData: any) => {
     setSelectedNode(nodeData);
-  };
+  }, []);
 
   // Handle root node selection from search results
   const selectRootNode = (id: string) => {
@@ -71,16 +76,45 @@ const KnowledgeGraphPage: React.FC = () => {
     setSearchQuery('');
   };
 
+  // Handle graph loading state changes
+  const handleGraphLoadingChange = useCallback((loading: boolean) => {
+    setIsGraphLoading(loading);
+  }, []);
+
+  // Handle graph data changes for statistics
+  const handleGraphDataChange = useCallback((data: { nodes: any[]; edges: any[] }) => {
+    setGraphStats({ nodes: data.nodes.length, edges: data.edges.length });
+  }, []);
+
   return (
     <div className="bg-gray-900 p-6 rounded-lg">
-      <h1 className="text-xl font-bold mb-6">Memory Relationship Graph</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold">Memory Relationship Graph</h1>
+        
+        {/* Graph Statistics */}
+        <div className="flex items-center gap-4 text-sm">
+          <div className="bg-gray-800 px-3 py-1 rounded">
+            <span className="text-gray-400">Nodes:</span>
+            <span className="ml-1 font-mono text-blue-400">{graphStats.nodes}</span>
+          </div>
+          <div className="bg-gray-800 px-3 py-1 rounded">
+            <span className="text-gray-400">Edges:</span>
+            <span className="ml-1 font-mono text-green-400">{graphStats.edges}</span>
+          </div>
+          {isGraphLoading && (
+            <div className="text-blue-400 text-sm">
+              <span className="animate-pulse">Loading graph...</span>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Controls section */}
       <div className="bg-gray-800 p-4 rounded-lg mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Left column - filters */}
           <div>
-            <h2 className="text-lg font-medium mb-3">Filters</h2>
+            <h2 className="text-lg font-medium mb-3">Filters & Limits</h2>
             
             {/* Memory type filter */}
             <div className="mb-4">
@@ -102,6 +136,31 @@ const KnowledgeGraphPage: React.FC = () => {
               </div>
             </div>
             
+            {/* Node limit control */}
+            <div className="mb-4">
+              <h3 className="text-sm font-medium mb-2">
+                Node Limit: {limit}
+                {graphStats.nodes >= limit && (
+                  <span className="ml-2 text-yellow-400 text-xs">(limit reached)</span>
+                )}
+              </h3>
+              <input
+                type="range"
+                min="10"
+                max="200"
+                step="10"
+                value={limit}
+                onChange={(e) => setLimit(parseInt(e.target.value))}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>10</span>
+                <span>50</span>
+                <span>100</span>
+                <span>200</span>
+              </div>
+            </div>
+            
             {/* Depth control */}
             <div className="mb-4">
               <h3 className="text-sm font-medium mb-2">Relationship Depth: {depth}</h3>
@@ -120,7 +179,7 @@ const KnowledgeGraphPage: React.FC = () => {
             </div>
           </div>
           
-          {/* Right column - search for root node */}
+          {/* Middle column - search for root node */}
           <div>
             <h2 className="text-lg font-medium mb-3">Focus Point</h2>
             <div className="mb-4">
@@ -179,6 +238,37 @@ const KnowledgeGraphPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Right column - Performance & Tips */}
+          <div>
+            <h2 className="text-lg font-medium mb-3">Performance Tips</h2>
+            <div className="space-y-2 text-sm text-gray-400">
+              <div className="bg-gray-700 p-2 rounded">
+                <div className="font-medium text-gray-300">Optimal Settings:</div>
+                <ul className="mt-1 space-y-1 text-xs">
+                  <li>• 20-50 nodes for fast rendering</li>
+                  <li>• Depth 1-2 for focused view</li>
+                  <li>• Use specific memory types</li>
+                  <li>• Set a focus point for better results</li>
+                </ul>
+              </div>
+              
+              {/* Performance warnings */}
+              {limit > 100 && (
+                <div className="bg-yellow-900/20 border border-yellow-600 p-2 rounded text-yellow-300">
+                  <div className="font-medium text-xs">⚠ High node limit</div>
+                  <div className="text-xs">May impact performance</div>
+                </div>
+              )}
+              
+              {graphStats.nodes === 0 && !isGraphLoading && (
+                <div className="bg-blue-900/20 border border-blue-600 p-2 rounded text-blue-300">
+                  <div className="font-medium text-xs">ℹ No data loaded</div>
+                  <div className="text-xs">Try adjusting filters or limits</div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -188,9 +278,11 @@ const KnowledgeGraphPage: React.FC = () => {
           rootId={selectedRootId || undefined}
           types={selectedTypes.length > 0 ? selectedTypes : undefined}
           depth={depth}
-          limit={100}
+          limit={limit}
           className="h-[600px]"
           onNodeSelect={handleNodeSelect}
+          onLoadingChange={handleGraphLoadingChange}
+          onDataChange={handleGraphDataChange}
         />
       </div>
 
