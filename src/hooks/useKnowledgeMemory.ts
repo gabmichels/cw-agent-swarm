@@ -1,6 +1,5 @@
-import { ImportanceLevel } from '../constants/memory';
+import { ImportanceLevel, MemoryType } from '@/constants/memory';
 import { useState, useCallback, useEffect } from 'react';
-import { MemoryType } from '../server/memory/config';
 import useMemory, { MemorySearchParams } from './useMemory';
 
 /**

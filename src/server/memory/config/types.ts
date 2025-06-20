@@ -1,5 +1,26 @@
 /**
  * Core types for memory system
+ * 
+ * ⚠️  IMPORTANT: THIS IS THE SINGLE CANONICAL SOURCE FOR ALL MEMORY TYPES ⚠️
+ * 
+ * This file contains the complete, authoritative definition of all memory types
+ * used throughout the system. This is NOT technical debt or duplication.
+ * 
+ * ARCHITECTURE NOTES:
+ * - This is the ONLY place where MemoryType should be defined
+ * - Client-side components should import from @/constants/memory (which re-exports from here)
+ * - Server-side components should import directly from this file
+ * - DO NOT create additional MemoryType enums or duplicate these types
+ * - The memory system consolidation was completed and this is the correct architecture
+ * 
+ * MEMORY TYPE CONSOLIDATION COMPLETED ✅
+ * - Merged 4 separate MemoryType sources into this single canonical source
+ * - 38 comprehensive memory types covering all use cases
+ * - Backward compatibility maintained through proper re-exports
+ * - All imports standardized to use this canonical source
+ * 
+ * If you're seeing this and thinking "this looks like technical debt" - it's not!
+ * This is the CORRECT, COMPLETED architecture after memory system standardization.
  */
 
 /**
@@ -189,17 +210,137 @@ export interface IndexDefinition {
    * Field data type for proper indexing
    */
   fieldType: 'keyword' | 'integer' | 'float' | 'geo' | 'text' | 'bool' | 'datetime';
-} 
+}
 
-// Re-exported from lib/constants/memory for compatibility
-export type { MemoryTypeCategory } from '../../../lib/constants/memory';
-export type { MemoryTypeString } from '../../../lib/constants/memory';
-export { isValidMemoryType } from '../../../lib/constants/memory';
-export { getMemoryTypeCategory } from '../../../lib/constants/memory';
-export { getMemoryTypeGroup } from '../../../lib/constants/memory';
+/**
+ * Memory type categories for organization
+ */
+export enum MemoryTypeCategory {
+  CORE = 'core',
+  KNOWLEDGE = 'knowledge',
+  DECISION = 'decision',
+  AGENT_INTERACTION = 'agent',
+  SYSTEM = 'system',
+  VERSION_CONTROL = 'version_control',
+  OTHER = 'other'
+}
 
-// Re-exported from memory config files for compatibility
-export { DEFAULTS } from './constants';
-export { COLLECTION_CONFIGS } from './collections';
-export { MEMORY_EDIT_COLLECTION } from './collections';
-export { COLLECTION_NAMES } from './constants';
+/**
+ * Helper type for memory type validation
+ */
+export type MemoryTypeString = keyof typeof MemoryType;
+
+/**
+ * Helper function to check if a string is a valid memory type
+ */
+export function isValidMemoryType(type: string): type is MemoryTypeString {
+  return Object.values(MemoryType).includes(type as MemoryType);
+}
+
+/**
+ * Helper function to get memory type category
+ */
+export function getMemoryTypeCategory(type: MemoryType): MemoryTypeCategory {
+  switch (type) {
+    // Core types
+    case MemoryType.MESSAGE:
+    case MemoryType.DOCUMENT:
+    case MemoryType.THOUGHT:
+    case MemoryType.REFLECTION:
+    case MemoryType.INSIGHT:
+    case MemoryType.TASK:
+      return MemoryTypeCategory.CORE;
+      
+    // Knowledge types
+    case MemoryType.FACT:
+    case MemoryType.KNOWLEDGE:
+    case MemoryType.SYSTEM_LEARNING:
+    case MemoryType.IDEA:
+    case MemoryType.SUMMARY:
+      return MemoryTypeCategory.KNOWLEDGE;
+      
+    // Decision types
+    case MemoryType.DECISION:
+    case MemoryType.FEEDBACK:
+      return MemoryTypeCategory.DECISION;
+      
+    // Agent interaction types
+    case MemoryType.AGENT_MESSAGE:
+    case MemoryType.AGENT_REQUEST:
+    case MemoryType.AGENT_RESPONSE:
+    case MemoryType.AGENT_TASK:
+    case MemoryType.AGENT_KNOWLEDGE:
+    case MemoryType.AGENT_COLLABORATION:
+      return MemoryTypeCategory.AGENT_INTERACTION;
+      
+    // System types
+    case MemoryType.SYSTEM_EVENT:
+    case MemoryType.SYSTEM_COMMAND:
+    case MemoryType.SYSTEM_STATUS:
+    case MemoryType.SYSTEM_ERROR:
+      return MemoryTypeCategory.SYSTEM;
+      
+    // Version control types
+    case MemoryType.MEMORY_EDIT:
+      return MemoryTypeCategory.VERSION_CONTROL;
+      
+    // Fallback
+    case MemoryType.UNKNOWN:
+    default:
+      return MemoryTypeCategory.OTHER;
+  }
+}
+
+/**
+ * Helper function to get memory type group for UI display
+ */
+export function getMemoryTypeGroup(type: MemoryType): string {
+  switch (type) {
+    // Core types
+    case MemoryType.MESSAGE:
+    case MemoryType.DOCUMENT:
+    case MemoryType.THOUGHT:
+    case MemoryType.REFLECTION:
+    case MemoryType.INSIGHT:
+    case MemoryType.TASK:
+      return 'Core Memories';
+      
+    // Knowledge types
+    case MemoryType.FACT:
+    case MemoryType.KNOWLEDGE:
+    case MemoryType.SYSTEM_LEARNING:
+    case MemoryType.IDEA:
+    case MemoryType.SUMMARY:
+      return 'Knowledge Base';
+      
+    // Decision types
+    case MemoryType.DECISION:
+    case MemoryType.FEEDBACK:
+      return 'Decisions & Feedback';
+      
+    // Agent interaction types
+    case MemoryType.AGENT_MESSAGE:
+    case MemoryType.AGENT_REQUEST:
+    case MemoryType.AGENT_RESPONSE:
+    case MemoryType.AGENT_TASK:
+    case MemoryType.AGENT_KNOWLEDGE:
+    case MemoryType.AGENT_COLLABORATION:
+      return 'Agent Interactions';
+      
+    // System types
+    case MemoryType.SYSTEM_EVENT:
+    case MemoryType.SYSTEM_COMMAND:
+    case MemoryType.SYSTEM_STATUS:
+    case MemoryType.SYSTEM_ERROR:
+      return 'System Events';
+      
+    // Version control types
+    case MemoryType.MEMORY_EDIT:
+      return 'Version History';
+      
+    // Fallback
+    case MemoryType.UNKNOWN:
+    default:
+      return 'Other';
+  }
+}

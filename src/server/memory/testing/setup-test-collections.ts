@@ -6,7 +6,7 @@
 import { loadApiKey } from './load-api-key';
 import { QdrantMemoryClient } from '../services/client/qdrant-client';
 import { MemoryType } from '@/server/memory/config/types';
-import { COLLECTION_NAMES } from '@/server/memory/config/types';
+import { COLLECTION_NAMES } from '@/server/memory/config/constants';
 
 // Setup test environment
 const TEST_QDRANT_URL = process.env.TEST_QDRANT_URL || 'http://localhost:6333';

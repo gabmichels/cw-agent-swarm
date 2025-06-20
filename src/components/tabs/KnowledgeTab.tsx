@@ -1,4 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { AlertCircleIcon, Filter, X, Tag, Info, RefreshCw, ChevronDown, Loader2, Search, Hash, Settings, Menu, Bug, User, Star, StarOff, Trash2, Edit3, BookOpen, Brain, FileText, Lightbulb, Target, MessageSquare, Archive, AlertTriangle } from 'lucide-react';
+import MemoryItemComponent from '../memory/MemoryItem';
+import { SearchResult } from '../../server/memory/services/search/types';
+import { BaseMemorySchema, MemoryPoint } from '../../server/memory/models';
+import { MemoryType, ImportanceLevel } from '@/constants/memory';
 import KnowledgeStats from '../knowledge/KnowledgeStats';
 import FlaggedItemsList from '../knowledge/FlaggedItemsList';
 import TagSelector from '../knowledge/TagSelector';
@@ -8,7 +13,6 @@ import MarkdownKnowledgeTab from '../knowledge/MarkdownKnowledgeTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import useKnowledgeMemory from '../../hooks/useKnowledgeMemory';
 import useMemory from '../../hooks/useMemory';
-import { MemoryType, ImportanceLevel } from '@/server/memory/config/types';
 import { FlaggedKnowledgeItem, KnowledgeSourceType, SuggestedKnowledgeType } from '../../lib/knowledge/flagging/types';
 import { FlaggedItemStatus } from '../../lib/knowledge/flagging/types';
 

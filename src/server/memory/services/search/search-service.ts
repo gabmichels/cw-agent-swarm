@@ -1,7 +1,8 @@
 /**
  * Search service implementation
  */
-import { COLLECTION_NAMES, DEFAULTS, MemoryFilter, MemoryType } from '@/server/memory/config/types';
+import { COLLECTION_NAMES, DEFAULTS } from '@/server/memory/config/constants';
+import { MemoryFilter, MemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { handleMemoryError } from '../../utils';
 import { IMemoryClient } from '../client/types';

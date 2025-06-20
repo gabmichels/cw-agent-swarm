@@ -2,8 +2,9 @@
  * Memory service implementation
  */
 import { v4 as uuidv4 } from 'uuid';
-import { DEFAULTS, MemoryType } from '@/server/memory/config/types';
-import { COLLECTION_CONFIGS as COLLECTIONS, MEMORY_EDIT_COLLECTION } from '@/server/memory/config/types';
+import { DEFAULTS } from '@/server/memory/config/constants';
+import { MemoryType } from '@/server/memory/config/types';
+import { COLLECTION_CONFIGS as COLLECTIONS, MEMORY_EDIT_COLLECTION } from '@/server/memory/config/collections';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
 import { handleMemoryError, validateAddMemoryParams, validateGetMemoryParams, validateUpdateMemoryParams, validateDeleteMemoryParams, validateRollbackMemoryParams } from '../../utils';
 import { IMemoryClient, SearchQuery } from '../client/types';

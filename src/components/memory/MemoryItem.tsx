@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Tag, Info, Calendar, Clock, ChevronDown, ChevronUp, Edit, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
-import { MemoryType } from '../../server/memory/config/types';
+import { MemoryType } from '@/constants/memory';
 import { BaseMemorySchema } from '../../server/memory/models/base-schema';
 import useMemory from '@/hooks/useMemory';
 import ReactMarkdown from 'react-markdown';

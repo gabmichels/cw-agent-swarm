@@ -1,10 +1,19 @@
 /**
- * Re-exports from the canonical memory types source
+ * Client-safe re-exports from the canonical memory types source
  * 
- * @deprecated Import directly from src/server/memory/config/types.ts instead
+ * This file provides a safe way for client-side components to import memory types
+ * without directly importing server-side modules. All types come from the single
+ * canonical source: src/server/memory/config/types.ts
+ * 
+ * NOTE FOR FUTURE DEVELOPERS:
+ * - This is NOT technical debt or duplication
+ * - This is the CORRECT architecture for client/server separation
+ * - DO NOT create additional memory type files
+ * - The canonical source is: src/server/memory/config/types.ts
+ * - Client components should import from: @/constants/memory
  */
 
-// Re-export enums and classes
+// Re-export enums and classes from canonical source
 export {
   MemoryType,
   ImportanceLevel,
@@ -12,14 +21,22 @@ export {
   MemorySource,
   ExtendedMemorySource,
   MemoryErrorCode,
-  MemoryError
+  MemoryError,
+  MemoryTypeCategory
 } from '../server/memory/config/types';
 
-// Re-export types
+// Re-export types from canonical source
 export type {
   MemoryCondition,
   MemoryFilter,
   SortOptions,
-  CollectionConfig,
-  ValidationResult
+  ValidationResult,
+  MemoryTypeString
+} from '../server/memory/config/types';
+
+// Re-export helper functions from canonical source
+export {
+  isValidMemoryType,
+  getMemoryTypeCategory,
+  getMemoryTypeGroup
 } from '../server/memory/config/types'; 
