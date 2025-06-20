@@ -307,8 +307,8 @@ export function recordResourceUsageMetric(
   
   agentMetricsStore.recordMetric(metric);
   
-  // Only log in development or when debug flag is set
-  if (process.env.NODE_ENV === 'development' || process.env.AGENT_METRICS_DEBUG === 'true') {
+  // Only log resource usage metrics when explicitly requested
+  if (process.env.AGENT_METRICS_DEBUG === 'true') {
     logger.debug(`Recorded resource usage metric for agent ${agentId}`, {
       agentId,
       memoryUsageBytes,
