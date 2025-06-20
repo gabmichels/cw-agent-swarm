@@ -15,6 +15,7 @@ import { AgentMemoryEntity, AgentStatus } from '../memory/schema/agent';
 import { AgentBase } from '../../agents/shared/base/AgentBase.interface';
 import { DefaultAgent } from '../../agents/shared/DefaultAgent';
 import { ManagerType } from '../../agents/shared/base/managers/ManagerType';
+import { VisualizationConfig } from '../../types/visualization-integration';
 
 // Import new bootstrap utilities at the top of the file
 import { 
@@ -122,6 +123,17 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
                  "You are a helpful assistant. Provide concise, accurate, and helpful responses.",
                  
     persona: (dbAgent.metadata as any)?.persona || {},
+    
+    // Visualization configuration - ensure comprehensive tracking is enabled
+    visualizationConfig: {
+      enabled: true,
+      trackMemoryRetrieval: true,
+      trackLLMInteraction: true,
+      trackToolExecution: true,
+      trackTaskCreation: true,
+      includePerformanceMetrics: true,
+      includeContextData: true
+    },
     
     // Manager-specific configurations
     managersConfig: {

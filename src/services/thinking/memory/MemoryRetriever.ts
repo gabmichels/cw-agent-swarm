@@ -8,6 +8,14 @@ import { BaseMemorySchema } from '../../../server/memory/models';
 import { extractQueryTags } from '../../../utils/queryTagExtractor';
 import { MessageReplyContext } from '../../../types/metadata';
 
+// Import visualization components for memory retrieval tracking
+import { ThinkingVisualizer } from '../visualization/ThinkingVisualizer';
+import { 
+  AgentVisualizationContext,
+  MemoryRetrievalVisualizationData 
+} from '../../../types/visualization-integration';
+import { VisualizationNodeType } from '../visualization/types';
+
 // Constants for memory retrieval
 const DEFAULT_MEMORY_LIMIT = 10;
 const DEFAULT_IMPORTANCE_WEIGHT = 1.5;
@@ -119,18 +127,56 @@ export class MemoryRetriever {
   private logLevel: MemoryRetrievalLogLevel = MemoryRetrievalLogLevel.BASIC;
   
   /**
-   * Retrieve relevant memories based on the query
+   * Retrieve relevant memories based on the query with visualization tracking
    */
   async retrieveMemories(
-    options: MemoryRetrievalOptions & { intentConfidence?: number }
+    options: MemoryRetrievalOptions & { intentConfidence?: number },
+    visualizationContext?: AgentVisualizationContext
   ): Promise<{
     memories: WorkingMemoryItem[];
     memoryIds: string[];
     fromWorkingMemoryOnly?: boolean;
   }> {
+    const startTime = Date.now();
+    let memoryNodeId: string | null = null;
+
     try {
       // Set logging level for this retrieval operation
       this.logLevel = options.logLevel ?? MemoryRetrievalLogLevel.BASIC;
+      
+      // Create visualization node for memory retrieval if context provided
+      if (visualizationContext) {
+        try {
+          const memoryVisualizationData: MemoryRetrievalVisualizationData = {
+            query: options.query,
+            retrievedCount: 0, // Will be updated later
+            memoryTypes: options.tags || [],
+            relevanceScores: [],
+            contextWindowUsage: {
+              used: 0,
+              available: 1000,
+              percentage: 0
+            }
+          };
+
+          // Add memory retrieval node to visualization
+          const nodeId = `memory_retrieval_${Date.now()}`;
+          visualizationContext.visualization.nodes.push({
+            id: nodeId,
+            type: VisualizationNodeType.MEMORY_RETRIEVAL,
+            label: `Memory Retrieval: "${options.query.substring(0, 30)}..."`,
+            data: memoryVisualizationData,
+            status: 'in_progress',
+            metrics: { startTime }
+          });
+          
+          memoryNodeId = nodeId;
+        } catch (visualizationError) {
+          // Continue with retrieval even if visualization fails
+          this.log(MemoryRetrievalLogLevel.ERROR, 
+            'Failed to create memory retrieval visualization node', visualizationError);
+        }
+      }
       
       // Log memory retrieval request
       this.log(MemoryRetrievalLogLevel.BASIC, 
@@ -149,6 +195,32 @@ export class MemoryRetriever {
           this.logTopMemories(workingMemoryResult.memories, 3);
         }
         
+        // Update visualization with working memory results if available
+        if (visualizationContext && memoryNodeId && workingMemoryResult.memories.length > 0) {
+          try {
+            const memoryNode = visualizationContext.visualization.nodes.find(n => n.id === memoryNodeId);
+            if (memoryNode) {
+              // Create new data object with updated values
+              const updatedData: MemoryRetrievalVisualizationData = {
+                query: options.query,
+                retrievedCount: workingMemoryResult.memories.length,
+                memoryTypes: [...new Set(workingMemoryResult.memories.map(m => m.type || 'unknown'))],
+                relevanceScores: workingMemoryResult.memories.map(m => (m as any).score || 0.5),
+                contextWindowUsage: {
+                  used: workingMemoryResult.memories.reduce((acc, m) => acc + (m.content?.length || 0), 0),
+                  available: 4000,
+                  percentage: Math.min(100, (workingMemoryResult.memories.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4000) * 100)
+                }
+              };
+              memoryNode.data = updatedData;
+              memoryNode.status = 'completed';
+              memoryNode.metrics = { ...memoryNode.metrics, endTime: Date.now(), duration: Date.now() - startTime };
+            }
+          } catch (visualizationError) {
+            this.log(MemoryRetrievalLogLevel.ERROR, 'Failed to update memory visualization', visualizationError);
+          }
+        }
+        
         return { 
           memories: workingMemoryResult.memories, 
           memoryIds: workingMemoryResult.memoryIds,
@@ -160,6 +232,32 @@ export class MemoryRetriever {
       // but exclude any IDs already found in working memory
       this.log(MemoryRetrievalLogLevel.BASIC, 
         `ℹ️ Working memory insufficient, proceeding to full memory retrieval`);
+      
+      // Update visualization with working memory results if available
+      if (visualizationContext && memoryNodeId && workingMemoryResult.memories.length > 0) {
+        try {
+          const memoryNode = visualizationContext.visualization.nodes.find(n => n.id === memoryNodeId);
+          if (memoryNode) {
+            // Create new data object with updated values
+            const updatedData: MemoryRetrievalVisualizationData = {
+              query: options.query,
+              retrievedCount: workingMemoryResult.memories.length,
+              memoryTypes: [...new Set(workingMemoryResult.memories.map(m => m.type || 'unknown'))],
+              relevanceScores: workingMemoryResult.memories.map(m => (m as any).score || 0.5),
+              contextWindowUsage: {
+                used: workingMemoryResult.memories.reduce((acc, m) => acc + (m.content?.length || 0), 0),
+                available: 4000,
+                percentage: Math.min(100, (workingMemoryResult.memories.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4000) * 100)
+              }
+            };
+            memoryNode.data = updatedData;
+            memoryNode.status = 'completed';
+            memoryNode.metrics = { ...memoryNode.metrics, endTime: Date.now(), duration: Date.now() - startTime };
+          }
+        } catch (visualizationError) {
+          this.log(MemoryRetrievalLogLevel.ERROR, 'Failed to update memory visualization', visualizationError);
+        }
+      }
       
       // Get memory services
       const { searchService } = await getMemoryServices();
@@ -367,9 +465,55 @@ export class MemoryRetriever {
         this.logTopMemories(memories, 3);
       }
       
-      return { 
-        memories, 
-        memoryIds: memories.map(memory => memory.id)
+      // Final step: Apply enhanced scoring and re-ranking
+      const finalMemories = this.applyEnhancedScoring(
+        memories,
+        options.query,
+        queryTags,
+        options.scoringWeights || {},
+        options.importanceWeighting?.enabled === true
+      );
+
+      // Limit to requested count
+      const limitedMemories = finalMemories.slice(0, options.limit || DEFAULT_MEMORY_LIMIT);
+
+      // Log final results
+      this.log(MemoryRetrievalLogLevel.BASIC, 
+        `✅ Final memory retrieval completed. Retrieved ${limitedMemories.length} memories.`);
+      
+      if (this.logLevel >= MemoryRetrievalLogLevel.VERBOSE) {
+        this.logTopMemories(limitedMemories, 3);
+      }
+
+      // Update final visualization with complete results
+      if (visualizationContext && memoryNodeId) {
+        try {
+          const memoryNode = visualizationContext.visualization.nodes.find(n => n.id === memoryNodeId);
+          if (memoryNode) {
+            const totalMemories = [...workingMemoryResult.memories, ...limitedMemories];
+            const finalData: MemoryRetrievalVisualizationData = {
+              query: options.query,
+              retrievedCount: totalMemories.length,
+              memoryTypes: [...new Set(totalMemories.map(m => m.type || 'unknown'))],
+              relevanceScores: totalMemories.map(m => (m as any).score || 0.5),
+              contextWindowUsage: {
+                used: totalMemories.reduce((acc, m) => acc + (m.content?.length || 0), 0),
+                available: 8000,
+                percentage: Math.min(100, (totalMemories.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 8000) * 100)
+              }
+            };
+            memoryNode.data = finalData;
+            memoryNode.status = 'completed';
+            memoryNode.metrics = { ...memoryNode.metrics, endTime: Date.now(), duration: Date.now() - startTime };
+          }
+        } catch (visualizationError) {
+          this.log(MemoryRetrievalLogLevel.ERROR, 'Failed to finalize memory visualization', visualizationError);
+        }
+      }
+
+      return {
+        memories: [...workingMemoryResult.memories, ...limitedMemories],
+        memoryIds: [...workingMemoryResult.memoryIds, ...memoryIds]
       };
     } catch (error) {
       this.log(MemoryRetrievalLogLevel.ERROR, `❌ Error retrieving memories:`, error);

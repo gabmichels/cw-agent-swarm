@@ -68,6 +68,17 @@ import { IAgent } from '../../services/thinking/graph/types';
 // Import workspace integration
 import { WorkspaceAgentIntegration } from '../../services/workspace/integration/WorkspaceAgentIntegration';
 
+// Import visualization components
+import { ThinkingVisualizer } from '../../services/thinking/visualization/ThinkingVisualizer';
+import { AgentVisualizationTracker } from '../../services/visualization/AgentVisualizationTracker';
+import { 
+  AgentVisualizationContext,
+  VisualizationRequestIdFactory,
+  DEFAULT_VISUALIZATION_CONFIG,
+  VisualizationConfig,
+  LLMInteractionVisualizationData
+} from '../../types/visualization-integration';
+
 // Agent status constants
 const AGENT_STATUS = {
   AVAILABLE: 'available',
@@ -160,6 +171,8 @@ interface DefaultAgentConfig {
     [key: string]: Record<string, unknown> | undefined;
   };
 
+  // Visualization configuration
+  visualizationConfig?: Partial<VisualizationConfig>;
 
 }
 
@@ -220,6 +233,11 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   protected initialized: boolean = false;
 
   private workspaceIntegration: WorkspaceAgentIntegration | null = null;
+
+  // Visualization components for agent decision tracking
+  private visualizer: ThinkingVisualizer | null = null;
+  private visualizationTracker: AgentVisualizationTracker | null = null;
+  private visualizationConfig: VisualizationConfig = DEFAULT_VISUALIZATION_CONFIG;
 
   /**
    * Create a new refactored DefaultAgent
@@ -574,7 +592,29 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         this.logger.warn("Failed to initialize ThinkingService, falling back to ThinkingProcessor only - thoughts will only appear in message conversationContext", { error });
       }
       
-      // Step 7: Initialize resource tracking if enabled
+      // Step 7: Initialize visualization components
+      try {
+        this.visualizationConfig = {
+          ...DEFAULT_VISUALIZATION_CONFIG,
+          ...this.agentConfig.visualizationConfig
+        };
+
+        this.visualizer = new ThinkingVisualizer();
+        this.visualizationTracker = new AgentVisualizationTracker(
+          this.visualizer,
+          this.visualizationConfig
+        );
+        
+        this.logger.system("Visualization tracking initialized", {
+          enabled: this.visualizationConfig.enabled,
+          trackMemoryRetrieval: this.visualizationConfig.trackMemoryRetrieval,
+          trackLLMInteraction: this.visualizationConfig.trackLLMInteraction
+        });
+      } catch (error) {
+        this.logger.warn("Failed to initialize visualization tracking", { error });
+      }
+      
+      // Step 8: Initialize resource tracking if enabled
       if (this.agentConfig.enableResourceTracking) {
         this.initializeResourceTracking();
         this.logger.system("Resource tracking initialized");
@@ -669,12 +709,70 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
    * Get LLM response - uses actual LLM with thinking context
    */
   async getLLMResponse(message: string, options?: GetLLMResponseOptions): Promise<AgentResponse> {
+    let llmNodeId: string | null = null;
+    const llmStartTime = Date.now();
+    
     try {
       this.logger.info('Getting LLM response', {
         message: message.substring(0, 100),
         hasThinkingResult: !!options?.thinkingResult,
         hasConversationHistory: !!(options?.conversationHistory && Array.isArray(options.conversationHistory) && options.conversationHistory.length > 0)
       });
+
+      // Initialize LLM visualization tracking if visualization context is available
+      const visualizationContext = (options as any)?.visualizationContext as AgentVisualizationContext;
+      
+      // Prepare enhanced input with thinking context for accurate processing and token counting
+      let enhancedInput = message;
+      if (options?.thinkingResult) {
+        const thinking = options.thinkingResult;
+        const memoryContext = thinking.context?.formattedMemoryContext || '';
+        const memoryContextSection = memoryContext ? 
+          `\nRelevant Memory Context:\n${memoryContext}` : '';
+        
+        enhancedInput = `User Input: ${message}
+
+Context from thinking analysis:
+- Intent: ${thinking.intent.primary} (confidence: ${thinking.intent.confidence})
+- Entities: ${thinking.entities.map(e => `${e.value} (${e.type})`).join(', ')}
+- Complexity: ${thinking.complexity}/10
+- Priority: ${thinking.priority}/10
+- Is Urgent: ${thinking.isUrgent}
+- Required Capabilities: ${thinking.requiredCapabilities.join(', ')}
+${thinking.reasoning && thinking.reasoning.length > 0 ? `- Reasoning: ${thinking.reasoning.join('; ')}` : ''}${memoryContextSection}
+
+Please provide a helpful, contextual response based on this analysis and memory context.`;
+      }
+
+      if (visualizationContext && this.visualizationTracker) {
+        try {
+          const systemPrompt = await this.generateSystemPrompt();
+          const conversationHistory: MemoryEntry[] = Array.isArray(options?.conversationHistory) ? options.conversationHistory : [];
+          
+          // Create LLM interaction visualization data
+          const llmVisualizationData: LLMInteractionVisualizationData = {
+            promptTokens: this.estimateTokens(enhancedInput),
+            completionTokens: 0, // Will be updated after response
+            totalTokens: this.estimateTokens(enhancedInput + systemPrompt + conversationHistory.map(h => h.content).join('')),
+            model: this.agentConfig.modelName || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
+            temperature: this.agentConfig.temperature || 0.7,
+            maxTokens: this.agentConfig.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000),
+            systemPromptLength: systemPrompt.length,
+            contextLength: conversationHistory.map(h => h.content).join('').length,
+            userMessageLength: enhancedInput.length
+          };
+
+          llmNodeId = await this.visualizationTracker.createLLMInteractionNode(
+            visualizationContext,
+            llmVisualizationData,
+            systemPrompt,
+            enhancedInput
+          );
+
+        } catch (visualizationError) {
+          this.logger.warn('Failed to create LLM visualization node', { error: visualizationError });
+        }
+      }
 
       // Check if we have a mock model for testing
       const mockModel = (this as any).model;
@@ -871,6 +969,32 @@ Please provide a helpful, contextual response based on this analysis and memory 
         }
       };
 
+      // Update LLM visualization with completion data
+      if (visualizationContext && this.visualizationTracker && llmNodeId) {
+        try {
+          const actualTokenUsage: LLMInteractionVisualizationData = {
+            promptTokens: this.estimateTokens(enhancedInput || message),
+            completionTokens: this.estimateTokens(llmContent),
+            totalTokens: this.estimateTokens((enhancedInput || message) + llmContent),
+            model: this.agentConfig.modelName || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
+            temperature: this.agentConfig.temperature || 0.7,
+            maxTokens: this.agentConfig.maxTokens || (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 32000),
+            systemPromptLength: (await this.generateSystemPrompt()).length,
+            contextLength: Array.isArray(options?.conversationHistory) ? options.conversationHistory.map(h => h.content).join('').length : 0,
+            userMessageLength: (enhancedInput || message).length
+          };
+
+          await this.visualizationTracker.completeLLMInteractionNode(
+            visualizationContext,
+            llmNodeId,
+            response,
+            actualTokenUsage
+          );
+        } catch (visualizationError) {
+          this.logger.warn('Failed to complete LLM visualization node', { error: visualizationError });
+        }
+      }
+
       return response;
 
     } catch (error) {
@@ -895,20 +1019,72 @@ Please provide a helpful, contextual response based on this analysis and memory 
   }
 
   /**
-   * Process user input - orchestrates thinking and LLM response
+   * Process user input - orchestrates thinking and LLM response with visualization tracking
    */
   async processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse> {
+    const startTime = Date.now();
+    let visualizationContext: AgentVisualizationContext | null = null;
+    
     try {
       this.logger.info('Processing user input', {
         message: message.substring(0, 100),
         hasOptions: !!options
       });
 
+      // Initialize visualization tracking if enabled
+      if (this.visualizationTracker && this.visualizer) {
+        try {
+          const requestId = VisualizationRequestIdFactory.generate();
+          const visualization = this.visualizer.initializeVisualization(
+            requestId.toString(),
+            options?.userId || 'anonymous',
+            this.agentId,
+            options?.chatId || 'unknown',
+            message,
+            options?.messageId
+          );
+
+          visualizationContext = {
+            requestId,
+            userId: options?.userId || 'anonymous',
+            agentId: this.agentId,
+            chatId: options?.chatId || 'unknown',
+            messageId: options?.messageId,
+            userMessage: message,
+            visualization,
+            startTime
+          };
+
+          // Create initial user input node
+          await this.visualizationTracker.createUserInputNode(visualizationContext);
+          
+          this.logger.debug('Visualization tracking initialized', {
+            requestId: requestId.toString(),
+            visualizationId: visualization.id
+          });
+        } catch (error) {
+          this.logger.warn('Failed to initialize visualization tracking for request', { error });
+        }
+      }
+
       // Step 1: Thinking phase - analyze the input and determine intent
       const thinkingResult = await this.think(message, {
         userId: options?.userId,
         ...options
       });
+      
+      // Create thinking visualization node
+      let thinkingNodeId: string | undefined;
+      if (visualizationContext && this.visualizationTracker) {
+        try {
+          thinkingNodeId = await this.visualizationTracker.createThinkingNode(
+            visualizationContext,
+            thinkingResult
+          );
+        } catch (error) {
+          this.logger.warn('Failed to create thinking visualization node', { error });
+        }
+      }
       
       this.logger.info('=== THINKING COMPLETED - ANALYZING RESULT ===', {
         intent: thinkingResult.intent.primary,
@@ -925,6 +1101,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       // Step 2: Get memory manager for conversation history
       const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
       let conversationHistory: MemoryEntry[] = [];
+      let memoryNodeId: string | undefined;
       
       // Check if this is a summary request to expand conversation history
       const isSummaryRequest = thinkingResult.intent?.isSummaryRequest || false;
@@ -943,6 +1120,34 @@ Please provide a helpful, contextual response based on this analysis and memory 
           
           // Retrieve recent conversation history with expanded limit for summaries
           conversationHistory = await memoryManager.getRecentMemories(conversationHistoryLimit);
+          
+          // Create memory retrieval visualization node
+          if (visualizationContext && this.visualizationTracker) {
+            try {
+              // Convert MemoryManager.MemoryEntry to types.MemoryEntry for visualization
+              const visualizationMemories = conversationHistory.map(entry => ({
+                id: entry.id,
+                content: entry.content,
+                type: 'conversation_history',
+                source: 'memory_manager',
+                embedding: [] as number[], // Empty embedding for visualization
+                metadata: entry.metadata,
+                importance: 0.5,
+                created_at: entry.createdAt.toISOString(),
+                updated_at: entry.lastAccessedAt?.toISOString() || entry.createdAt.toISOString()
+              }));
+
+              memoryNodeId = await this.visualizationTracker.createMemoryRetrievalNode(
+                visualizationContext,
+                `Recent conversation history (limit: ${conversationHistoryLimit})`,
+                visualizationMemories,
+                thinkingNodeId
+              );
+            } catch (error) {
+              this.logger.warn('Failed to create memory retrieval visualization node', { error });
+            }
+          }
+          
           this.logger.info('Retrieved conversation history', {
             historyCount: conversationHistory.length,
             isSummaryRequest,
@@ -1362,6 +1567,26 @@ Please provide a helpful, contextual response based on this analysis and memory 
         thinkingResultReasoning: thinkingResult.reasoning,
         intentPrimary: thinkingResult.intent.primary
       });
+
+      // Finalize visualization tracking with complete processing information
+      if (visualizationContext && this.visualizationTracker) {
+        try {
+          const processingTimeMs = Date.now() - startTime;
+          await this.visualizationTracker.finalizeVisualization(
+            visualizationContext,
+            response,
+            processingTimeMs
+          );
+          
+          this.logger.debug('Visualization tracking finalized', {
+            requestId: visualizationContext.requestId.toString(),
+            processingTimeMs,
+            responseLength: response.content.length
+          });
+        } catch (error) {
+          this.logger.warn('Failed to finalize visualization tracking', { error });
+        }
+      }
 
       return response;
 
@@ -2357,5 +2582,13 @@ Task scheduled successfully (ID: ${safeTaskId})`;
     return `Perfect! I've scheduled your request to be handled ${timeExpression}. The task will execute automatically when the time comes. ⏰✅
 
 Task scheduled successfully (ID: ${safeTaskId})`;
+  }
+
+  /**
+   * Simple token estimation method (rough approximation)
+   */
+  private estimateTokens(text: string): number {
+    // Rough estimation: ~4 characters per token for English text
+    return Math.ceil(text.length / 4);
   }
   }

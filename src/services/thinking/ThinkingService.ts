@@ -690,7 +690,8 @@ I've decided to delegate this task to an agent with the appropriate specializati
    */
   private async processMemoryRetrieval(
     query: string,
-    options: ThinkingOptions
+    options: ThinkingOptions,
+    visualizationContext?: any // Add visualization context parameter
   ): Promise<{
     memories: WorkingMemoryItem[];
     formattedMemoryContext: string;
@@ -731,8 +732,11 @@ I've decided to delegate this task to an agent with the appropriate specializati
     console.log(`[MEMORY-DEBUGGING] Retrieval options:`, JSON.stringify(retrievalOptions));
     
     try {
-      // Retrieve memories for the query
-      const result = await memoryRetriever.retrieveMemories(retrievalOptions);
+      // Retrieve memories for the query with visualization context
+      const result = await memoryRetriever.retrieveMemories(
+        retrievalOptions,
+        visualizationContext // Pass visualization context to memory retrieval
+      );
       const memories = result.memories;
       
       console.log(`[MEMORY-DEBUGGING] Retrieved ${memories.length} memories`);

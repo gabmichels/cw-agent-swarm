@@ -37,6 +37,7 @@ import BookmarksTab from '@/components/tabs/BookmarksTab';
 import { createReplyContextFromMessage } from '@/lib/metadata/reply-context-factory';
 import { MessageMetadata } from '@/types/metadata';
 import { createStructuredId, EntityNamespace, EntityType, structuredIdToString } from '@/types/entity-identifier';
+import { VisualizationDashboard } from '@/components/visualization/VisualizationDashboard';
 
 // Define message priority enum
 enum MessagePriority {
@@ -982,27 +983,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           />
         );
       case 'visualizations':
-        // Use an iframe to embed the visualizations page with loading state
+        // Use the new VisualizationDashboard component for integrated experience
         return (
-          <div className="w-full h-full relative">
-            <div className="absolute inset-0 flex items-center justify-center" id="visualization-loading">
-              <div className="flex flex-col items-center">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                <p className="mt-4 text-gray-600">Loading visualization...</p>
-              </div>
-            </div>
-            <iframe 
-              src={`/visualizations?chatId=${chat?.id || ''}&messageId=`}
-              className="w-full h-full border-none"
-              title="Thinking Process Visualizations"
-              sandbox="allow-scripts allow-same-origin allow-popups allow-modals"
-              onLoad={() => {
-                const loader = document.getElementById('visualization-loading');
-                if (loader) {
-                  loader.style.display = 'none';
-                }
-              }}
-            />
+          <div className="w-full h-full">
+            <VisualizationDashboard />
           </div>
         );
       case 'bookmarks':
