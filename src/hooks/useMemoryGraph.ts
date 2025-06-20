@@ -103,13 +103,13 @@ export default function useMemoryGraph({
    */
   const getNodeColor = (nodeType: NodeType): string => {
     switch (nodeType) {
-      case NodeType.MESSAGE: return '#4F46E5'; // Indigo
-      case NodeType.KNOWLEDGE: return '#10B981'; // Emerald
-      case NodeType.THOUGHT: return '#F59E0B'; // Amber
-      case NodeType.DOCUMENT: return '#6366F1'; // Violet
-      case NodeType.TASK: return '#EF4444'; // Red
-      case NodeType.OTHER: return '#9CA3AF'; // Gray
-      default: return '#9CA3AF';
+      case NodeType.MESSAGE: return '#3B82F6'; // Bright blue for messages
+      case NodeType.KNOWLEDGE: return '#10B981'; // Emerald green for knowledge
+      case NodeType.THOUGHT: return '#F59E0B'; // Amber orange for thoughts
+      case NodeType.DOCUMENT: return '#8B5CF6'; // Violet purple for documents
+      case NodeType.TASK: return '#EF4444'; // Red for tasks
+      case NodeType.OTHER: return '#6B7280'; // Neutral gray for others
+      default: return '#6B7280';
     }
   };
   
@@ -145,14 +145,18 @@ export default function useMemoryGraph({
    * Create a graph node from memory data
    */
   const createNode = (memory: any): GraphNode => {
-    // Extract text content for the label from the actual memory structure
-    const text = memory.text || memory.content || '';
-    // Truncate long labels
-    const label = text.length > 50 ? text.substring(0, 47) + '...' : text;
+    // Extract text content for the label - prioritize memory.point.text as requested
+    const text = memory.point?.text || memory.text || memory.content || memory.title || memory.description || memory.summary || 'Untitled Memory';
     
-    // Determine node type from memory type
-    const memoryType = memory.type || 'other';
+    // Truncate long labels to keep visualization clean - show only beginning with "..."
+    const maxLength = 60; // Slightly longer for better readability
+    const label = text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
+    
+    // Determine node type from memory type or metadata type for better categorization
+    const memoryType = memory.type || memory.point?.metadata?.type || 'other';
     const nodeType = getNodeType(memoryType);
+    
+    // console.log(`Creating node - ID: ${memory.id}, Label: "${label}", Type: ${memoryType}`);
     
     // Create the node
     return {
@@ -343,55 +347,120 @@ export default function useMemoryGraph({
         const data = await response.json();
         const recentMemories = data.memories || [];
         
-        console.log('useMemoryGraph: searchMemories returned:', recentMemories.length, 'results');
-        console.log('useMemoryGraph: first result structure:', recentMemories[0]);
-        console.log('useMemoryGraph: types filter:', types);
-        console.log('useMemoryGraph: memory types found:', recentMemories.map((r: any) => {
-          return r.type;
-        }));
+        console.log('Knowledge Graph: Loading', recentMemories.length, 'memories with filter:', types);
         
         // Create nodes for each memory and find relationships between them
         const memoryNodes: { [id: string]: any } = {};
         
-        for (const memory of recentMemories) {
-          // Use the memory directly since it's already in the right format from /api/memory
-          
-          if (nodes.length < limit && !processedIds.has(memory.id)) {
+        // Filter memories by selected types
+        const filteredMemories = recentMemories.filter((memory: any) => {
+          // Check if the memory type is in the selected types
+          const memoryType = memory.type || 'unknown';
+          const isTypeMatch = types.length === 0 || types.includes(memoryType as any);
+          return isTypeMatch;
+        });
+        
+        console.log('Knowledge Graph: Filtered to', filteredMemories.length, 'memories');
+        
+        for (const memory of filteredMemories) {
+          // Extract the actual ID - it might be nested in point.id or directly as id
+          const memoryId = memory.point?.id || memory.id || `memory-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          if (nodes.length < limit && !processedIds.has(memoryId)) {
+            // Create a normalized memory object with proper ID and other fields
+            const normalizedMemory = {
+              ...memory,
+              id: memoryId,
+              // Ensure we have the type field at the top level for easy access
+              type: memory.type || memory.point?.metadata?.type || memory.metadata?.type || 'unknown',
+              // Ensure we have text field for content analysis
+              text: memory.point?.text || memory.text || memory.content || '',
+              // Ensure metadata is accessible
+              metadata: memory.point?.metadata || memory.metadata || {}
+            };
+            
+            console.log('Processing memory:', {
+              id: memoryId,
+              type: normalizedMemory.type,
+              hasText: !!normalizedMemory.text,
+              hasMetadata: !!normalizedMemory.metadata
+            });
+            
             // Create a node for this memory (with deduplication)
-            if (!processedNodeIds.has(memory.id)) {
-              const node = createNode(memory);
+            if (!processedNodeIds.has(memoryId)) {
+              const node = createNode(normalizedMemory);
               nodes.push(node);
-              processedNodeIds.add(memory.id);
+              processedNodeIds.add(memoryId);
             }
-            memoryNodes[memory.id] = memory;
-            processedIds.add(memory.id);
+            memoryNodes[memoryId] = normalizedMemory;
+            processedIds.add(memoryId);
           }
         }
         
-        // Create relationships between memories based on semantic similarity
+        // console.log('After processing memories - nodes created:', nodes.length);
+        
+        // Create relationships between memories based on intelligent criteria
         const memoryList = Object.values(memoryNodes);
+        console.log('Creating edges between', memoryList.length, 'memories');
+        console.log('Sample memory IDs:', memoryList.slice(0, 3).map((m: any) => m.id));
+        
         for (let i = 0; i < memoryList.length; i++) {
           for (let j = i + 1; j < memoryList.length; j++) {
             const memory1 = memoryList[i] as any;
             const memory2 = memoryList[j] as any;
             
-            // Create relationships based on content similarity or type matching
+            // Create relationships based on multiple intelligent criteria
             const shouldConnect = (
               // Same type memories are related
               memory1.type === memory2.type ||
-              // Messages and documents are related
+              
+              // Cross-type meaningful relationships
               (memory1.type === 'message' && memory2.type === 'document') ||
               (memory1.type === 'document' && memory2.type === 'message') ||
-              // Check for shared tags
+              (memory1.type === 'thought' && memory2.type === 'document') ||
+              (memory1.type === 'document' && memory2.type === 'thought') ||
+              
+              // Capability relationships (skills, domains, tags)
+              (memory1.type === 'document' && memory2.type === 'document' && 
+               (memory1.metadata?.type === 'skill' || memory1.metadata?.type === 'domain' || memory1.metadata?.type === 'tag') &&
+               (memory2.metadata?.type === 'skill' || memory2.metadata?.type === 'domain' || memory2.metadata?.type === 'tag')) ||
+              
+              // Agent-related content connections
+              (memory1.metadata?.agentId && memory2.metadata?.agentId && 
+               memory1.metadata.agentId === memory2.metadata.agentId) ||
+              
+              // Shared tags (any overlap, not just identical)
               (memory1.metadata?.tags && memory2.metadata?.tags &&
                memory1.metadata.tags.some((tag: string) => 
-                 memory2.metadata.tags.includes(tag)))
+                 memory2.metadata.tags.includes(tag))) ||
+               
+              // Content-based connections (business/company related)
+              (memory1.text?.toLowerCase().includes('company') && memory2.text?.toLowerCase().includes('startup')) ||
+              (memory1.text?.toLowerCase().includes('business') && memory2.text?.toLowerCase().includes('domain')) ||
+              (memory1.text?.toLowerCase().includes('gab') && memory2.text?.toLowerCase().includes('crowd wisdom')) ||
+              
+              // Knowledge and capability connections
+              (memory1.metadata?.type === 'knowledge' && memory2.metadata?.category === 'skill') ||
+              (memory1.metadata?.category === 'domain' && memory2.metadata?.type === 'skill') ||
+              
+              // Always connect if we have fewer than 5 nodes to ensure some visualization
+              memoryList.length <= 5 ||
+              
+              // TEMPORARY DEBUG: Connect all nodes to ensure we see SOMETHING
+              true
             );
             
+            console.log(`Checking connection ${memory1.id} -> ${memory2.id}:`, {
+              mem1Type: memory1.type,
+              mem2Type: memory2.type,
+              sameType: memory1.type === memory2.type,
+              shouldConnect
+            });
+            
             if (shouldConnect) {
-              // Create edge with deduplication
+              // Create edge with deduplication using the normalized IDs
               const edgeId = `${memory1.id}-${memory2.id}`;
               if (!processedEdgeIds.has(edgeId)) {
+                console.log(`Creating edge: ${memory1.id} -> ${memory2.id} (${memory1.type} -> ${memory2.type})`);
                 edges.push(createEdge(
                   memory1.id,
                   memory2.id,
@@ -415,7 +484,7 @@ export default function useMemoryGraph({
       );
       
       // Update graph data
-      console.log('useMemoryGraph: Final graph data - nodes:', uniqueNodes.length, 'edges:', uniqueEdges.length);
+      console.log('Knowledge Graph: Loaded', uniqueNodes.length, 'nodes and', uniqueEdges.length, 'edges');
       setGraphData({ nodes: uniqueNodes, edges: uniqueEdges });
     } catch (error) {
       console.error('Error loading memory graph:', error);

@@ -8,7 +8,9 @@ import ReactFlow, {
   NodeTypes,
   useNodesState,
   useEdgesState,
-  MarkerType
+  MarkerType,
+  Handle,
+  Position
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import useMemoryGraph, { GraphNode, GraphEdge, NodeType, EdgeType } from '../../hooks/useMemoryGraph';
@@ -16,43 +18,81 @@ import { MemoryType } from '../../server/memory/config';
 
 // Custom node component for different node types
 const CustomNode = ({ data }: { data: any }) => {
-  let bgColor = '#9CA3AF'; // default gray
-  
-  switch (data.type) {
-    case NodeType.MESSAGE:
-      bgColor = '#4F46E5'; // Indigo
-      break;
-    case NodeType.KNOWLEDGE:
-      bgColor = '#10B981'; // Emerald
-      break;
-    case NodeType.THOUGHT:
-      bgColor = '#F59E0B'; // Amber
-      break;
-    case NodeType.DOCUMENT:
-      bgColor = '#6366F1'; // Violet
-      break;
-    case NodeType.TASK:
-      bgColor = '#EF4444'; // Red
-      break;
-    default:
-      bgColor = '#9CA3AF'; // Gray
-  }
+  // Use the color passed from the graph data, or fall back to type-based colors
+  const bgColor = data.color || '#6B7280'; // Use provided color or default gray
   
   return (
-    <div style={{ 
-      background: bgColor, 
-      color: '#fff',
-      padding: '10px', 
-      borderRadius: '5px',
-      minWidth: '150px',
-      maxWidth: '250px',
-      boxShadow: data.highlighted ? '0 0 10px 2px rgba(255, 255, 0, 0.7)' : '0 4px 6px rgba(0, 0, 0, 0.1)',
-      transform: `scale(${data.size || 1})`,
-      transition: 'transform 0.3s ease, box-shadow 0.3s ease'
-    }}>
-      <div key="label" style={{ fontWeight: 'bold', marginBottom: '5px' }}>{data.label}</div>
-      {data.description && <div key="description" style={{ fontSize: '0.85em' }}>{data.description}</div>}
-    </div>
+    <>
+      {/* Handles for connecting edges - React Flow requires these */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: '#555' }}
+        isConnectable={true}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ background: '#555' }}
+        isConnectable={true}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: '#555' }}
+        isConnectable={true}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ background: '#555' }}
+        isConnectable={true}
+      />
+      
+      <div style={{ 
+        background: bgColor, 
+        color: '#fff',
+        padding: '12px', 
+        borderRadius: '8px',
+        minWidth: '160px',
+        maxWidth: '280px',
+        border: `2px solid ${bgColor}`,
+        boxShadow: data.highlighted ? '0 0 15px 3px rgba(255, 255, 0, 0.7)' : '0 4px 8px rgba(0, 0, 0, 0.2)',
+        transform: `scale(${data.size || 1})`,
+        transition: 'all 0.3s ease',
+        fontSize: '13px',
+        lineHeight: '1.4'
+      }}>
+        <div 
+          key="label" 
+          style={{ 
+            fontWeight: 'bold', 
+            marginBottom: '4px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {data.label}
+        </div>
+        {data.type && (
+          <div 
+            key="type" 
+            style={{ 
+              fontSize: '11px', 
+              opacity: 0.9,
+              textTransform: 'capitalize',
+              backgroundColor: 'rgba(0,0,0,0.2)',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              display: 'inline-block'
+            }}
+          >
+            {data.type}
+          </div>
+        )}
+      </div>
+    </>
   );
 };
 
@@ -97,29 +137,57 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
     custom: CustomNode,
   }), []);
 
-  // Position nodes in a radial layout (memoized to prevent recreating the function)
+  // Position nodes in a better layout to prevent overlap
   const getNodePosition = useCallback((index: number, total: number) => {
-    // For small graphs, use a simple circular layout
-    if (total <= 10) {
-      const radius = 200;
-      const slice = (2 * Math.PI) / total;
-      const angle = slice * index;
+    // Node dimensions - account for actual node size (minWidth: 160px, maxWidth: 280px)
+    const nodeWidth = 280; // Use max width for spacing calculations
+    const nodeHeight = 80; // Estimated height with padding
+    
+    // For very small graphs, use a simple horizontal line
+    if (total <= 5) {
+      const spacing = nodeWidth + 50; // Node width plus gap
+      const startX = -(total - 1) * spacing / 2; // Center the line
       
       return {
-        x: 300 + radius * Math.cos(angle),
-        y: 300 + radius * Math.sin(angle)
+        x: 600 + startX + index * spacing,
+        y: 400
       };
     }
     
-    // For larger graphs, use a force-directed inspired layout
-    // This is a simplified version - in production you'd use a proper force simulation
-    const spiralFactor = 15;
-    const angle = 0.8 * index;
-    const radius = spiralFactor * Math.sqrt(index);
+    // For medium graphs, use multiple horizontal rows
+    if (total <= 20) {
+      const nodesPerRow = Math.min(6, Math.ceil(total / 3)); // Max 6 nodes per row
+      const row = Math.floor(index / nodesPerRow);
+      const col = index % nodesPerRow;
+      const horizontalSpacing = nodeWidth + 60; // Node width plus generous gap
+      const verticalSpacing = nodeHeight + 80; // Node height plus generous gap
+      
+      // Center each row
+      const nodesInThisRow = Math.min(nodesPerRow, total - row * nodesPerRow);
+      const rowStartX = -(nodesInThisRow - 1) * horizontalSpacing / 2;
+      
+      return {
+        x: 600 + rowStartX + col * horizontalSpacing,
+        y: 300 + row * verticalSpacing
+      };
+    }
+    
+    // For larger graphs, use a wide grid with maximum spacing
+    const maxNodesPerRow = 8; // Limit nodes per row to prevent overcrowding
+    const row = Math.floor(index / maxNodesPerRow);
+    const col = index % maxNodesPerRow;
+    const horizontalSpacing = nodeWidth + 80; // Extra generous horizontal spacing
+    const verticalSpacing = nodeHeight + 100; // Extra generous vertical spacing
+    
+    // Center each row based on how many nodes are in it
+    const totalRows = Math.ceil(total / maxNodesPerRow);
+    const nodesInThisRow = Math.min(maxNodesPerRow, total - row * maxNodesPerRow);
+    const rowStartX = -(nodesInThisRow - 1) * horizontalSpacing / 2;
+    const gridStartY = -(totalRows - 1) * verticalSpacing / 2;
     
     return {
-      x: 300 + radius * Math.cos(angle),
-      y: 300 + radius * Math.sin(angle)
+      x: 600 + rowStartX + col * horizontalSpacing,
+      y: 400 + gridStartY + row * verticalSpacing
     };
   }, []);
 
@@ -130,12 +198,23 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
     
     const flowNodes: Node[] = graphData.nodes.map((node, index) => ({
       id: `node-${sessionId}-${node.id}`, // Use original node ID with session prefix
-      type: 'default',
+      type: 'custom',
       position: getNodePosition(index, graphData.nodes.length),
       data: {
         label: node.label,
         originalId: node.id,
-        originalData: node
+        originalData: node,
+        color: node.color,
+        type: node.type
+      },
+      style: {
+        backgroundColor: node.color,
+        color: '#FFFFFF',
+        border: `2px solid ${node.color}`,
+        borderRadius: '8px',
+        padding: '8px',
+        fontSize: '12px',
+        fontWeight: '500'
       }
     }));
     
@@ -144,22 +223,56 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
       flowNodes.map(flowNode => [flowNode.data.originalId, flowNode.id])
     );
     
-    const flowEdges: Edge[] = graphData.edges.map((edge, index) => ({
-      id: `edge-${sessionId}-${edge.source}-${edge.target}-${index}`, // Stable ID based on source/target
-      source: nodeIdMap.get(edge.source) || edge.source,
-      target: nodeIdMap.get(edge.target) || edge.target,
-      label: edge.label,
-      type: 'smoothstep',
-      animated: edge.type === EdgeType.DERIVES_FROM || edge.type === EdgeType.RESPONDS_TO,
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        width: 15,
-        height: 15
-      },
-      style: {
-        strokeWidth: edge.weight ? Math.max(1, Math.min(5, edge.weight * 3)) : 1
-      }
-    }));
+    console.log('Node ID mapping:', Object.fromEntries(nodeIdMap));
+    console.log('Graph edges to convert:', graphData.edges.map(e => ({ source: e.source, target: e.target })));
+    
+    const flowEdges: Edge[] = graphData.edges
+      .map((edge, index) => {
+        const sourceFlowId = nodeIdMap.get(edge.source);
+        const targetFlowId = nodeIdMap.get(edge.target);
+        
+        // Debug logging for every edge
+        console.log(`Edge ${index}: ${edge.source} -> ${edge.target}`, {
+          sourceFlowId,
+          targetFlowId,
+          sourceExists: nodeIdMap.has(edge.source),
+          targetExists: nodeIdMap.has(edge.target)
+        });
+        
+        // Only create edge if both source and target nodes exist in the flow
+        if (sourceFlowId && targetFlowId) {
+          const flowEdge = {
+            id: `edge-${sessionId}-${edge.source}-${edge.target}-${index}`,
+            source: sourceFlowId,
+            target: targetFlowId,
+            label: edge.label,
+            type: 'smoothstep',
+            animated: edge.type === EdgeType.DERIVES_FROM || edge.type === EdgeType.RESPONDS_TO,
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              width: 15,
+              height: 15
+            },
+            style: {
+              strokeWidth: edge.weight ? Math.max(1, Math.min(5, edge.weight * 3)) : 1
+            }
+          };
+          console.log('Created valid flow edge:', flowEdge);
+          return flowEdge;
+        } else {
+          console.error('Failed to create edge - missing nodes:', {
+            edgeSource: edge.source,
+            edgeTarget: edge.target,
+            sourceFlowId,
+            targetFlowId,
+            availableNodes: Array.from(nodeIdMap.keys())
+          });
+        }
+        return null;
+      })
+      .filter(edge => edge !== null) as Edge[];
+      
+    console.log(`Created ${flowNodes.length} nodes and ${flowEdges.length} edges for ReactFlow`);
     
     return { flowNodes, flowEdges };
   }, [graphData, getNodePosition]);
@@ -257,6 +370,7 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
         key={`reactflow-${graphData.nodes.length}-${graphData.edges.length}`}
         nodes={nodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
@@ -266,16 +380,8 @@ const MemoryGraphVisualization: React.FC<MemoryGraphVisualizationProps> = ({
         <Controls />
         <MiniMap 
           nodeColor={(node) => {
-            const nodeType = node.data?.type || NodeType.OTHER;
-            
-            switch (nodeType) {
-              case NodeType.MESSAGE: return '#4F46E5'; // Indigo
-              case NodeType.KNOWLEDGE: return '#10B981'; // Emerald
-              case NodeType.THOUGHT: return '#F59E0B'; // Amber
-              case NodeType.DOCUMENT: return '#6366F1'; // Violet
-              case NodeType.TASK: return '#EF4444'; // Red
-              default: return '#9CA3AF'; // Gray
-            }
+            // Use the actual color from the node data
+            return node.data?.color || '#6B7280';
           }}
           maskColor="rgba(0, 0, 0, 0.2)"
         />

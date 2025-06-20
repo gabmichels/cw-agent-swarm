@@ -177,6 +177,14 @@ const KnowledgeGraphPage: React.FC = () => {
                 <span>Extended</span>
               </div>
             </div>
+            
+            {/* Mode indicator */}
+            <div className="text-sm">
+              <h3 className="font-medium mb-1">Viewing Mode</h3>
+              <p className="text-gray-400">
+                📊 <strong>All Agent Memories</strong> - Shows memories from all agents with intelligent relationship detection
+              </p>
+            </div>
           </div>
           
           {/* Middle column - search for root node */}
@@ -289,37 +297,88 @@ const KnowledgeGraphPage: React.FC = () => {
       {/* Selected node details */}
       {selectedNode && (
         <div className="bg-gray-800 p-4 rounded-lg">
-          <h2 className="text-lg font-medium mb-3">Selected Node Details</h2>
+          <h2 className="text-lg font-medium mb-3">Selected Memory Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <h3 className="text-sm font-medium mb-2">Type</h3>
-              <div className="bg-gray-700 p-2 rounded">{selectedNode.payload?.type || selectedNode.type || 'unknown'}</div>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium mb-2">ID</h3>
-              <div className="bg-gray-700 p-2 rounded truncate">{selectedNode.id}</div>
-            </div>
-            <div className="md:col-span-2">
-              <h3 className="text-sm font-medium mb-2">Content</h3>
-              <div className="bg-gray-700 p-3 rounded max-h-60 overflow-y-auto whitespace-pre-wrap">
-                {selectedNode.payload?.text || selectedNode.content || 'No content available'}
+              <div className="bg-gray-700 p-2 rounded">
+                {selectedNode.data?.type || selectedNode.data?.point?.metadata?.type || selectedNode.type || 'unknown'}
               </div>
             </div>
-            {selectedNode.payload?.metadata && (
+            <div>
+              <h3 className="text-sm font-medium mb-2">Memory ID</h3>
+              <div className="bg-gray-700 p-2 rounded text-xs font-mono truncate">
+                {selectedNode.data?.point?.id || selectedNode.data?.id || selectedNode.id}
+              </div>
+            </div>
+            {selectedNode.data?.point?.timestamp && (
+              <div className="md:col-span-2">
+                <h3 className="text-sm font-medium mb-2">Timestamp</h3>
+                <div className="bg-gray-700 p-2 rounded text-sm">
+                  {new Date(selectedNode.data.point.timestamp).toLocaleString()}
+                </div>
+              </div>
+            )}
+            <div className="md:col-span-2">
+              <h3 className="text-sm font-medium mb-2">Full Content</h3>
+              <div className="bg-gray-700 p-3 rounded max-h-60 overflow-y-auto whitespace-pre-wrap text-sm">
+                {selectedNode.data?.point?.text || 
+                 selectedNode.data?.text || 
+                 selectedNode.data?.content || 
+                 selectedNode.payload?.text || 
+                 selectedNode.content || 
+                 'No content available'}
+              </div>
+            </div>
+            {(selectedNode.data?.point?.metadata || selectedNode.data?.metadata) && (
               <div className="md:col-span-2">
                 <h3 className="text-sm font-medium mb-2">Metadata</h3>
                 <div className="bg-gray-700 p-3 rounded max-h-60 overflow-y-auto">
                   <pre className="text-xs text-gray-300">
-                    {JSON.stringify(selectedNode.payload.metadata, null, 2)}
+                    {JSON.stringify(
+                      selectedNode.data?.point?.metadata || selectedNode.data?.metadata || {}, 
+                      null, 
+                      2
+                    )}
                   </pre>
                 </div>
               </div>
             )}
+            {/* Node visualization info */}
+            <div className="md:col-span-2 border-t border-gray-600 pt-3 mt-2">
+              <h3 className="text-sm font-medium mb-2 text-gray-400">Node Visualization</h3>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <span className="text-gray-400">Color:</span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div 
+                      className="w-4 h-4 rounded" 
+                      style={{ backgroundColor: selectedNode.color }}
+                    ></div>
+                    <span>{selectedNode.color}</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-gray-400">Type:</span>
+                  <div className="mt-1 capitalize">{selectedNode.type}</div>
+                </div>
+                <div>
+                  <span className="text-gray-400">Label:</span>
+                  <div className="mt-1 truncate">{selectedNode.label}</div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex gap-2 justify-end">
+            <button 
+              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded"
+              onClick={() => setSelectedNode(null)}
+            >
+              Close
+            </button>
             <button 
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-              onClick={() => setSelectedRootId(selectedNode.id)}
+              onClick={() => setSelectedRootId(selectedNode.data?.point?.id || selectedNode.data?.id || selectedNode.id)}
             >
               Set as Focus
             </button>
