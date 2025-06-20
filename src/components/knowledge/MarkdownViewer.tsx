@@ -327,7 +327,7 @@ export default function MarkdownViewer() {
                           <span className="px-1.5 py-0.5 text-xs bg-gray-600 text-white rounded">{doc.source}</span>
                           <span className="px-1.5 py-0.5 text-xs bg-gray-600 text-white rounded">{doc.type}</span>
                           {doc.tags.slice(0, 3).map((tag, idx) => (
-                            <span key={idx} className="px-1.5 py-0.5 text-xs bg-blue-800 text-white rounded">{tag}</span>
+                            <span key={`tag-${doc.id}-${idx}-${tag}`} className="px-1.5 py-0.5 text-xs bg-blue-800 text-white rounded">{tag}</span>
                           ))}
                           {doc.tags.length > 3 && (
                             <span className="px-1.5 py-0.5 text-xs bg-gray-600 text-white rounded">+{doc.tags.length - 3}</span>

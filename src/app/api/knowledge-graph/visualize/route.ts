@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DefaultKnowledgeGraph } from '../../../../agents/shared/knowledge/DefaultKnowledgeGraph';
+import KnowledgeGraphSingleton from '../../../../lib/singletons/knowledge-graph-singleton';
 import { KnowledgeNodeType, KnowledgeEdgeType, KnowledgeNode, KnowledgeEdge } from '../../../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 
 /**
@@ -15,11 +15,16 @@ export async function GET(request: NextRequest) {
     const tags = searchParams.getAll('tag');
     
     // Get singleton instance of the knowledge graph
-    const graphManager = new DefaultKnowledgeGraph();
-    await graphManager.initialize();
+    const graphManager = await KnowledgeGraphSingleton.getInstance();
     
-    // Get visualization data
+    // Debug: Check if singleton is initialized and has data
+    console.log('🔍 Debug: Singleton initialized?', KnowledgeGraphSingleton.isInitialized());
+    const stats = await graphManager.getStats();
+    console.log('🔍 Debug: Graph stats:', stats);
+    
+    // Get visualization data (using sync method for in-memory storage)
     const { nodes: allNodes, edges: allEdges } = graphManager.getVisualizationData();
+    console.log('🔍 Debug: Retrieved nodes:', allNodes.length, 'edges:', allEdges.length);
     
     // Apply filters
     let filteredNodes = allNodes;
