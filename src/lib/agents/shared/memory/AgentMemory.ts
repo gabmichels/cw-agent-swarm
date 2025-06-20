@@ -13,16 +13,13 @@ import {
   MemoryDecayConfig,
   MemoryDecayStats,
   MemoryDecayResult,
-  KnowledgeNode,
-  KnowledgeEdge,
-  KnowledgeNodeType,
-  KnowledgeEdgeType,
-  KnowledgeGraphManager,
   SearchResult,
   MemoryError,
   BaseMemorySchema
 } from './types';
 import { handleError } from '../../../errors/errorHandler';
+import { DefaultKnowledgeGraph } from '../../../../agents/shared/knowledge/DefaultKnowledgeGraph';
+import { KnowledgeNode, KnowledgeEdge, KnowledgeNodeType, KnowledgeEdgeType } from '../../../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 
 /**
  * Core memory interface for agents
@@ -103,7 +100,7 @@ export interface AgentMemory {
   /**
    * Get the knowledge graph manager
    */
-  getKnowledgeGraph(): KnowledgeGraphManager;
+  getKnowledgeGraph(): DefaultKnowledgeGraph;
 
   /**
    * Add a memory entry to the knowledge graph

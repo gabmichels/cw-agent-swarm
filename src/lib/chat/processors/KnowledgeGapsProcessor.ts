@@ -1,23 +1,23 @@
-import { KnowledgeGraphManager } from '../../agents/implementations/memory/KnowledgeGraphManager';
+import { DefaultKnowledgeGraph } from '../../../agents/shared/knowledge/DefaultKnowledgeGraph';
 import { SemanticSearchService } from '../../knowledge/SemanticSearchService';
 import { KnowledgeGapsService } from '../../knowledge/gaps/KnowledgeGapsService';
 import { logger } from '../../logging';
 import { Message } from '../../../types';
-import { KnowledgeNodeType } from '../../agents/shared/memory/types';
+import { KnowledgeNodeType } from '../../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 
 /**
  * A processor that analyzes chat conversations for knowledge gaps
  * Implements Milestone 5.2: Knowledge Gaps Identification
  */
 export class KnowledgeGapsProcessor {
-  private knowledgeGraph: KnowledgeGraphManager;
+  private knowledgeGraph: DefaultKnowledgeGraph;
   private searchService: SemanticSearchService;
   private gapsService: KnowledgeGapsService;
   private samplingProbability: number;
   private minMessagesRequired: number;
 
   constructor(options: {
-    knowledgeGraph: KnowledgeGraphManager,
+    knowledgeGraph: DefaultKnowledgeGraph,
     searchService?: SemanticSearchService,
     dataDir?: string,
     samplingProbability?: number, // Probability from 0-1 of analyzing a conversation

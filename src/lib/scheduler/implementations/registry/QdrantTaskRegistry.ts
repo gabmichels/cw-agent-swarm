@@ -12,7 +12,8 @@ import { TaskRegistry } from '../../interfaces/TaskRegistry.interface';
 import { TaskRegistryError, TaskRegistryErrorCode } from '../../errors/TaskRegistryError';
 import { ulid } from 'ulid';
 import { randomUUID } from 'crypto';
-import { LRUCache } from 'lru-cache';
+// Use require for lru-cache to avoid TypeScript definition issues
+const LRU = require('lru-cache');
 
 // Define the cache options type
 interface CacheOptions {
@@ -71,10 +72,10 @@ export class QdrantTaskRegistry implements TaskRegistry {
   private initialized = false;
 
   // Cache for task objects - improves read performance
-  private taskCache: LRUCache<string, Task>;
+  private taskCache: any; // Use any type to avoid TypeScript issues with lru-cache
   
   // Cache frequently accessed task lists (like pending tasks) for faster scheduling
-  private queryCache: LRUCache<string, Task[]>;
+  private queryCache: any; // Use any type to avoid TypeScript issues with lru-cache
   
   // Options for caching behavior
   private cacheOptions: CacheOptions;
@@ -100,12 +101,12 @@ export class QdrantTaskRegistry implements TaskRegistry {
     this.handlerRegistry = HandlerRegistry.getInstance();
     
     // Initialize caches
-    this.taskCache = new LRUCache<string, Task>({
+    this.taskCache = new LRU({
       max: this.cacheOptions.maxSize,
       ttl: this.cacheOptions.ttlMs,
     });
     
-    this.queryCache = new LRUCache<string, Task[]>({
+    this.queryCache = new LRU({
       max: 50, // Keep fewer query results in cache
       ttl: 30000, // Shorter TTL for query results (30 seconds)
     });

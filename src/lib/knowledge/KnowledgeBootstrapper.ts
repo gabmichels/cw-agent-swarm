@@ -1,5 +1,5 @@
-import { KnowledgeGraphManager } from '../agents/implementations/memory/KnowledgeGraphManager';
-import { KnowledgeNodeType, KnowledgeNode } from '../agents/shared/memory/types';
+import { DefaultKnowledgeGraph } from '../../agents/shared/knowledge/DefaultKnowledgeGraph';
+import { KnowledgeNodeType, KnowledgeNode } from '../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 import { logger } from '../logging';
 import { KnowledgeBootstrapSource } from './types';
 import { OpenAI } from 'openai';
@@ -15,9 +15,9 @@ const openai = new OpenAI({
  * Base class for bootstrapping a knowledge graph with initial data
  */
 export abstract class KnowledgeBootstrapper {
-  protected knowledgeGraph: KnowledgeGraphManager;
+  protected knowledgeGraph: DefaultKnowledgeGraph;
 
-  constructor(knowledgeGraph: KnowledgeGraphManager) {
+  constructor(knowledgeGraph: DefaultKnowledgeGraph) {
     this.knowledgeGraph = knowledgeGraph;
   }
 
@@ -54,18 +54,17 @@ export abstract class KnowledgeBootstrapper {
     // Add concepts to the knowledge graph
     for (const concept of concepts) {
       try {
-        const node: KnowledgeNode = {
-          id: `concept_${concept.name.toLowerCase().replace(/\s+/g, '_')}`,
+        const nodeId = await this.knowledgeGraph.addNode({
           label: concept.name,
           type: KnowledgeNodeType.CONCEPT,
           description: concept.description,
           tags: ['concept'],
           metadata: {
             addedAt: new Date().toISOString(),
-            source: 'bootstrap'
+            source: 'bootstrap',
+            conceptId: `concept_${concept.name.toLowerCase().replace(/\s+/g, '_')}`
           }
-        };
-        await this.knowledgeGraph.addNode(node);
+        });
       } catch (error) {
         logger.error(`Error adding concept ${concept.name}:`, error);
       }
@@ -78,8 +77,7 @@ export abstract class KnowledgeBootstrapper {
       // Add principles to the knowledge graph
       for (const principle of principles) {
         try {
-          const node: KnowledgeNode = {
-            id: `principle_${principle.name.toLowerCase().replace(/\s+/g, '_')}`,
+          const nodeId = await this.knowledgeGraph.addNode({
             label: principle.name,
             type: KnowledgeNodeType.CONCEPT, // Using CONCEPT since PRINCIPLE is not in enum
             description: principle.description,
@@ -87,12 +85,12 @@ export abstract class KnowledgeBootstrapper {
             metadata: {
               addedAt: new Date().toISOString(),
               source: 'bootstrap',
+              principleId: `principle_${principle.name.toLowerCase().replace(/\s+/g, '_')}`,
               examples: principle.examples,
               applications: principle.applications,
               importance: principle.importance
             }
-          };
-          await this.knowledgeGraph.addNode(node);
+          });
         } catch (error) {
           logger.error(`Error adding principle ${principle.name}:`, error);
         }
@@ -104,8 +102,7 @@ export abstract class KnowledgeBootstrapper {
       const framework = await this.extractFramework(source);
       
       try {
-        const node: KnowledgeNode = {
-          id: `framework_${source.name.toLowerCase().replace(/\s+/g, '_')}`,
+        const nodeId = await this.knowledgeGraph.addNode({
           label: source.name,
           type: KnowledgeNodeType.PROCESS, // Using PROCESS since FRAMEWORK is not in enum
           description: framework.description,
@@ -113,11 +110,11 @@ export abstract class KnowledgeBootstrapper {
           metadata: {
             addedAt: new Date().toISOString(),
             source: 'bootstrap',
+            frameworkId: `framework_${source.name.toLowerCase().replace(/\s+/g, '_')}`,
             steps: framework.steps,
             applications: framework.applications
           }
-        };
-        await this.knowledgeGraph.addNode(node);
+        });
       } catch (error) {
         logger.error(`Error adding framework ${source.name}:`, error);
       }
@@ -126,8 +123,7 @@ export abstract class KnowledgeBootstrapper {
     // If the source is research or case study, add as research
     if (source.type === 'research' || source.type === 'case_study') {
       try {
-        const node: KnowledgeNode = {
-          id: `research_${source.name.toLowerCase().replace(/\s+/g, '_')}`,
+        const nodeId = await this.knowledgeGraph.addNode({
           label: source.name,
           type: KnowledgeNodeType.INSIGHT, // Using INSIGHT since RESEARCH is not in enum
           description: source.content.substring(0, 500),
@@ -135,10 +131,10 @@ export abstract class KnowledgeBootstrapper {
           metadata: {
             addedAt: new Date().toISOString(),
             source: 'bootstrap',
+            researchId: `research_${source.name.toLowerCase().replace(/\s+/g, '_')}`,
             fullContent: source.content
           }
-        };
-        await this.knowledgeGraph.addNode(node);
+        });
       } catch (error) {
         logger.error(`Error adding research ${source.name}:`, error);
       }

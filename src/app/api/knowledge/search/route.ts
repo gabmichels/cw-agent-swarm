@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
+import { DefaultKnowledgeGraph } from '../../../../agents/shared/knowledge/DefaultKnowledgeGraph';
 import { SemanticSearchService } from '../../../../lib/knowledge/SemanticSearchService';
 import { logger } from '../../../../lib/logging';
-import { KnowledgeNodeType } from '../../../../lib/agents/shared/memory/types';
+import { KnowledgeNodeType } from '../../../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 
-let graphManager: KnowledgeGraphManager | null = null;
+let graphManager: DefaultKnowledgeGraph | null = null;
 let searchService: SemanticSearchService | null = null;
 
 async function getSearchService(): Promise<SemanticSearchService> {
   if (!searchService) {
     if (!graphManager) {
-      graphManager = new KnowledgeGraphManager();
+      graphManager = new DefaultKnowledgeGraph();
       await graphManager.initialize();
     }
     searchService = new SemanticSearchService(graphManager);

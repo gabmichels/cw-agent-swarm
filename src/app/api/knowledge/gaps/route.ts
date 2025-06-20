@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
+import { DefaultKnowledgeGraph } from '../../../../agents/shared/knowledge/DefaultKnowledgeGraph';
 import { SemanticSearchService } from '../../../../lib/knowledge/SemanticSearchService';
 import { KnowledgeGapsService } from '../../../../lib/knowledge/gaps/KnowledgeGapsService';
 import { logger } from '../../../../lib/logging';
 
-let graphManager: KnowledgeGraphManager | null = null;
+let graphManager: DefaultKnowledgeGraph | null = null;
 let searchService: SemanticSearchService | null = null;
 let gapsService: KnowledgeGapsService | null = null;
 
@@ -14,7 +14,7 @@ let gapsService: KnowledgeGapsService | null = null;
 async function getGapsService(): Promise<KnowledgeGapsService> {
   if (!gapsService) {
     if (!graphManager) {
-      graphManager = new KnowledgeGraphManager();
+      graphManager = new DefaultKnowledgeGraph();
       await graphManager.initialize();
     }
     

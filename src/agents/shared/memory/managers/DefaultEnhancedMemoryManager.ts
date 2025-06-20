@@ -19,7 +19,7 @@ import { AbstractBaseManager } from '../../base/managers/BaseManager';
 import { ManagerType } from '../../base/managers/ManagerType';
 import { ManagerHealth } from '../../base/managers/ManagerHealth';
 import { SemanticSearchService } from '../../../../lib/knowledge/SemanticSearchService';
-import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
+import { DefaultKnowledgeGraph } from '../../../../agents/shared/knowledge/DefaultKnowledgeGraph';
 import { tagExtractor } from '../../../../utils/tagExtractor';
 import { Tag } from '../../../../lib/memory/TagExtractor';
 
@@ -47,7 +47,7 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
   protected versionHistory: MemoryVersionHistory;
   protected _config: EnhancedMemoryManagerConfig;
   protected semanticSearch: SemanticSearchService;
-  protected knowledgeGraphManager: KnowledgeGraphManager;
+  protected knowledgeGraphManager: DefaultKnowledgeGraph;
 
   /**
    * Create a new DefaultEnhancedMemoryManager
@@ -106,7 +106,7 @@ export class DefaultEnhancedMemoryManager extends AbstractBaseManager implements
     });
 
     // Initialize knowledge graph manager
-    this.knowledgeGraphManager = new KnowledgeGraphManager();
+    this.knowledgeGraphManager = new DefaultKnowledgeGraph();
 
     // Initialize semantic search service
     this.semanticSearch = new SemanticSearchService(this.knowledgeGraphManager);

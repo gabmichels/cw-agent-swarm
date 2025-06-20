@@ -3,5 +3,13 @@ description:
 globs: 
 alwaysApply: true
 ---
-When creating PRDs or planning implementations, reference the file @IMPLEMENTATION_GUIDELINES.md for all decisions and coding practices. No placeholder code. Prioritize test coverage and performance.
+---
+description: Implementation plans reference @IMPLEMENTATION_GUIDELINES.md
+globs:
+  - "**/*.md"
+alwaysApply: false
+---
+
+
+When creating, reading and executing PRDs or planning implementations in MD files, use the file @IMPLEMENTATION_GUIDELINES.md for all decisions and coding practices. No placeholder code. Prioritize test coverage and performance.
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { KnowledgeGraphManager } from '../../../../lib/agents/implementations/memory/KnowledgeGraphManager';
-import { KnowledgeNodeType, KnowledgeEdgeType, KnowledgeNode, KnowledgeEdge } from '../../../../lib/agents/shared/memory/types';
+import { DefaultKnowledgeGraph } from '../../../../agents/shared/knowledge/DefaultKnowledgeGraph';
+import { KnowledgeNodeType, KnowledgeEdgeType, KnowledgeNode, KnowledgeEdge } from '../../../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 
 /**
  * API endpoint for visualizing the knowledge graph
@@ -15,11 +15,11 @@ export async function GET(request: NextRequest) {
     const tags = searchParams.getAll('tag');
     
     // Get singleton instance of the knowledge graph
-    const graphManager = new KnowledgeGraphManager();
+    const graphManager = new DefaultKnowledgeGraph();
     await graphManager.initialize();
     
     // Get visualization data
-    const { nodes: allNodes, edges: allEdges } = graphManager.getGraphVisualizationData();
+    const { nodes: allNodes, edges: allEdges } = graphManager.getVisualizationData();
     
     // Apply filters
     let filteredNodes = allNodes;

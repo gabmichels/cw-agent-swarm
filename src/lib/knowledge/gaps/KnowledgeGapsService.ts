@@ -1,5 +1,5 @@
 import { OpenAI } from 'openai';
-import { KnowledgeGraphManager } from '../../agents/implementations/memory/KnowledgeGraphManager';
+import { DefaultKnowledgeGraph } from '../../../agents/shared/knowledge/DefaultKnowledgeGraph';
 import { SemanticSearchService } from '../SemanticSearchService';
 import { logger } from '../../logging';
 import { v4 as uuidv4 } from 'uuid';
@@ -59,13 +59,13 @@ export interface GapAnalysisOptions {
  * Implements Milestone 5.2: Knowledge Gaps Identification
  */
 export class KnowledgeGapsService {
-  private graphManager: KnowledgeGraphManager;
+  private graphManager: DefaultKnowledgeGraph;
   private searchService: SemanticSearchService;
   private knowledgeGaps: Map<string, KnowledgeGap> = new Map();
   private learningPriorities: Map<string, LearningPriority> = new Map();
   private dataDir: string;
 
-  constructor(graphManager: KnowledgeGraphManager, searchService: SemanticSearchService, dataDir?: string) {
+  constructor(graphManager: DefaultKnowledgeGraph, searchService: SemanticSearchService, dataDir?: string) {
     this.graphManager = graphManager;
     this.searchService = searchService;
     this.dataDir = dataDir || path.join(process.cwd(), 'data', 'knowledge-gaps');

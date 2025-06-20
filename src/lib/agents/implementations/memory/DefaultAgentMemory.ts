@@ -32,7 +32,8 @@ import {
 } from '../../shared/memory/types';
 import { handleError } from '../../../errors/errorHandler';
 import { getMemoryServices } from '../../../../server/memory/services';
-import { KnowledgeGraphManager } from './KnowledgeGraphManager';
+import { DefaultKnowledgeGraph } from '../../../../agents/shared/knowledge/DefaultKnowledgeGraph';
+import { KnowledgeGraph } from '../../../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 import { ImportanceConverter } from '../../../../services/importance/ImportanceConverter';
 
 /**
@@ -69,7 +70,7 @@ export class DefaultAgentMemory implements AgentMemory {
   private totalPruned: number = 0;
   private decayConfig: MemoryDecayConfig;
   private decayStats: MemoryDecayStats;
-  private knowledgeGraph: KnowledgeGraphManager;
+  private knowledgeGraph: DefaultKnowledgeGraph;
   private agentId: string;
   private queryExpansionConfig: QueryExpansionConfig;
   private queryClusteringConfig: QueryClusteringConfig;
@@ -102,7 +103,7 @@ export class DefaultAgentMemory implements AgentMemory {
     this.agentId = agentId;
     this.decayConfig = this.getDefaultDecayConfig();
     this.decayStats = this.getDefaultDecayStats();
-    this.knowledgeGraph = new KnowledgeGraphManager();
+    this.knowledgeGraph = new DefaultKnowledgeGraph();
     this.queryExpansionConfig = {
       enabled: true,
       maxExpansions: 3,
@@ -374,7 +375,7 @@ export class DefaultAgentMemory implements AgentMemory {
   /**
    * Get the knowledge graph manager
    */
-  getKnowledgeGraph(): KnowledgeGraphManager {
+  getKnowledgeGraph(): DefaultKnowledgeGraph {
     return this.knowledgeGraph;
   }
 
@@ -387,13 +388,13 @@ export class DefaultAgentMemory implements AgentMemory {
       const memoryId = `memory-${memory.id}`;
       const label = memory.content.substring(0, 30) + (memory.content.length > 30 ? '...' : '');
 
-      await this.knowledgeGraph.addNode({
-        id: memoryId,
+      const nodeId = await this.knowledgeGraph.addNode({
         label,
         type: KnowledgeNodeType.CONCEPT,
         description: memory.content,
         metadata: {
           originalId: memory.id,
+          memoryNodeId: memoryId,
           type: memory.type,
           importance: memory.importance,
           ...memory.metadata
@@ -403,13 +404,19 @@ export class DefaultAgentMemory implements AgentMemory {
       // Find and connect to related memories
       const relatedMemories = await this.findRelatedMemories(memory.id);
       for (const related of relatedMemories) {
-        const relatedId = `memory-${related.id}`;
-        await this.knowledgeGraph.addEdge({
-          from: memoryId,
-          to: relatedId,
-          type: KnowledgeEdgeType.RELATED_TO,
-          label: 'Related memory'
+        // Find related memory nodes by searching for their memoryNodeId
+        const relatedNodes = await this.knowledgeGraph.findNodes(`memory-${related.id}`, {
+          limit: 1
         });
+        
+        if (relatedNodes.length > 0) {
+          await this.knowledgeGraph.addEdge({
+            from: nodeId,
+            to: relatedNodes[0].id,
+            type: KnowledgeEdgeType.RELATED_TO,
+            label: 'Related memory'
+          });
+        }
       }
     } catch (error) {
       handleError(MemoryError.initFailed('Failed to add memory to graph', { error: error instanceof Error ? error.message : String(error) }));

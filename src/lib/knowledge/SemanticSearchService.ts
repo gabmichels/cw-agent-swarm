@@ -1,6 +1,6 @@
 import { OpenAI } from 'openai';
-import { KnowledgeGraphManager } from '../agents/implementations/memory/KnowledgeGraphManager';
-import { KnowledgeNode, KnowledgeNodeType } from '../agents/shared/memory/types';
+import { DefaultKnowledgeGraph } from '../../agents/shared/knowledge/DefaultKnowledgeGraph';
+import { KnowledgeNode, KnowledgeNodeType } from '../../agents/shared/knowledge/interfaces/KnowledgeGraph.interface';
 import { logger } from '../logging';
 import { getMemoryServices } from '../../server/memory/services';
 
@@ -36,11 +36,11 @@ export interface RelevanceFeedback {
  * - Adds relevance feedback mechanisms
  */
 export class SemanticSearchService {
-  private graphManager: KnowledgeGraphManager;
+  private graphManager: DefaultKnowledgeGraph;
   private feedbackLog: Map<string, RelevanceFeedback[]> = new Map();
   private relevanceBoosts: Map<string, number> = new Map();
   
-  constructor(graphManager: KnowledgeGraphManager) {
+  constructor(graphManager: DefaultKnowledgeGraph) {
     this.graphManager = graphManager;
   }
   
@@ -77,7 +77,10 @@ export class SemanticSearchService {
       let allNodes: KnowledgeNode[] = [];
       
       for (const type of types) {
-        const nodes = await this.graphManager.findNodes('', type, 100);
+        const nodes = await this.graphManager.findNodes('', { 
+          nodeTypes: [type], 
+          limit: 100 
+        });
         allNodes.push(...nodes);
       }
       
@@ -237,7 +240,10 @@ export class SemanticSearchService {
     const keywords = query.toLowerCase().split(/\s+/);
     const limit = options.limit || 10;
     
-    const nodes = await this.graphManager.findNodes(query, options.types?.[0], limit);
+    const nodes = await this.graphManager.findNodes(query, { 
+      nodeTypes: options.types, 
+      limit 
+    });
     const results = nodes.map(node => ({
       item: node,
       score: keywords.filter(kw => 

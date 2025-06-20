@@ -5,7 +5,8 @@
  * and precomputation features.
  */
 
-import { LRUCache } from 'lru-cache';
+// Use require for lru-cache to avoid TypeScript definition issues
+const LRU = require('lru-cache');
 import { EmbeddingService, EmbeddingServiceOptions, EmbeddingResult } from './embedding-service';
 import { IEnhancedEmbeddingService, EmbeddingCacheConfig } from './types';
 import { AppError } from '../../../../lib/errors/base';
@@ -35,7 +36,7 @@ interface CacheEntry {
  * Enhanced embedding service implementation
  */
 export class EnhancedEmbeddingService extends EmbeddingService implements IEnhancedEmbeddingService {
-  private cache: LRUCache<string, CacheEntry>;
+  private cache: any; // Use any type to avoid TypeScript issues with lru-cache
   private cacheStats = {
     hits: 0,
     misses: 0,
@@ -56,7 +57,7 @@ export class EnhancedEmbeddingService extends EmbeddingService implements IEnhan
     
     // Initialize cache with configuration
     const config = { ...DEFAULT_CACHE_CONFIG, ...options?.cacheConfig };
-    this.cache = new LRUCache<string, CacheEntry>({
+    this.cache = new LRU({
       max: config.maxSize,
       ttl: config.ttlMs,
       updateAgeOnGet: true
@@ -204,16 +205,16 @@ export class EnhancedEmbeddingService extends EmbeddingService implements IEnhan
   async updateCacheConfig(config: Partial<EmbeddingCacheConfig>): Promise<void> {
     // Update cache size and TTL
     if (config.maxSize !== undefined || config.ttlMs !== undefined) {
-      const newCache = new LRUCache<string, CacheEntry>({
+      const newCache = new LRU({
         max: config.maxSize ?? this.cache.max,
         ttl: config.ttlMs ?? this.cache.ttl,
         updateAgeOnGet: true
       });
       
-      // Copy existing entries using Array.from
-      Array.from(this.cache.entries()).forEach(([key, value]) => {
+      // Copy existing entries using Array.from with proper typing
+      for (const [key, value] of this.cache.entries()) {
         newCache.set(key, value);
-      });
+      }
       
       this.cache = newCache;
     }
