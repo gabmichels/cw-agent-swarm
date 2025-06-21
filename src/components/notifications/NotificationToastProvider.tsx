@@ -129,17 +129,30 @@ export const NotificationToastProvider: React.FC<NotificationToastProviderProps>
   useEffect(() => {
     if (!enableSounds) return;
 
-    const preloadAudio = () => {
-      Object.entries(NOTIFICATION_SOUNDS).forEach(([type, soundPath]) => {
+    const preloadAudio = async () => {
+      for (const [type, soundPath] of Object.entries(NOTIFICATION_SOUNDS)) {
         try {
-          const audio = new Audio(soundPath);
-          audio.preload = 'auto';
-          audio.volume = 0.7; // Default volume
-          audioCache.current.set(type, audio);
+          // Check if the sound file exists before creating Audio object
+          const response = await fetch(soundPath, { method: 'HEAD' });
+          if (response.ok) {
+            const audio = new Audio(soundPath);
+            audio.preload = 'auto';
+            audio.volume = 0.7; // Default volume
+            
+            // Handle audio loading errors gracefully
+            audio.addEventListener('error', () => {
+              console.warn(`Sound file not available for ${type}: ${soundPath}`);
+              audioCache.current.delete(type);
+            });
+            
+            audioCache.current.set(type, audio);
+          } else {
+            console.warn(`Sound file not found for ${type}: ${soundPath}`);
+          }
         } catch (error) {
-          console.warn(`Failed to preload audio for ${type}:`, error);
+          console.warn(`Failed to check/preload audio for ${type}: ${soundPath}`, error);
         }
-      });
+      }
     };
 
     preloadAudio();
