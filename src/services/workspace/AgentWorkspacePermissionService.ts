@@ -314,7 +314,7 @@ export class AgentWorkspacePermissionService {
     });
     
     const activePermissions = permissions.filter(p => !p.revokedAt);
-    const agentIds = [...new Set(activePermissions.map(p => p.agentId))];
+    const agentIds = Array.from(new Set(activePermissions.map(p => p.agentId)));
     
     return agentIds;
   }

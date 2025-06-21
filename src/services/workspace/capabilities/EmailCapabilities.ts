@@ -38,9 +38,11 @@ export interface EmailSearchCriteria {
   subject?: string;
   hasAttachment?: boolean;
   isUnread?: boolean;
+  labels?: readonly string[];
   after?: Date;
   before?: Date;
   maxResults?: number;
+  pageToken?: string;
 }
 
 export interface SendEmailParams {
@@ -687,7 +689,7 @@ export class EmailCapabilities {
     const unreadEmails = emails.filter(email => !email.isRead);
     const overdueReplies = emails.filter(email => this.isOverdueReply(email));
     
-    const needsAttention = [...new Set([...urgentEmails, ...overdueReplies])];
+    const needsAttention = Array.from(new Set([...urgentEmails, ...overdueReplies]));
     
     const analysis: AttentionAnalysis = {
       needsAttention,

@@ -1,4 +1,4 @@
-import { BaseTool, ToolResult } from '../../../../lib/shared/types/agentTypes';
+import { BaseTool } from '../../../../lib/shared/types/agentTypes';
 import { 
   WorkflowPlatform, 
   WorkflowParameter, 
@@ -29,6 +29,20 @@ export interface ExternalWorkflowToolConfig {
 }
 
 /**
+ * Tool result interface
+ */
+export interface ToolResult {
+  success: boolean;
+  data?: unknown;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+/**
  * External workflow tool that executes workflows on external platforms
  * Integrates with the agent tool system to provide seamless workflow execution
  */
@@ -41,23 +55,9 @@ export class ExternalWorkflowTool extends BaseTool {
     n8nService?: N8nService,
     zapierService?: ZapierService
   ) {
-    super();
+    super(config.name, config.description, {});
     this.n8nService = n8nService;
     this.zapierService = zapierService;
-  }
-
-  /**
-   * Get tool name
-   */
-  get name(): string {
-    return this.config.name;
-  }
-
-  /**
-   * Get tool description
-   */
-  get description(): string {
-    return this.config.description;
   }
 
   /**

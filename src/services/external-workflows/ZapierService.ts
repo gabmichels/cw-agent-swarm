@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import {
   IExternalWorkflowService,
   WorkflowExecutionRequest,
@@ -39,7 +39,7 @@ interface ZapierExecution {
   readonly workflowId: string;
   readonly zapUrl: string;
   readonly startedAt: Date;
-  readonly status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   readonly timeoutHandle?: NodeJS.Timeout;
 }
 
