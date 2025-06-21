@@ -369,19 +369,277 @@ model SocialMediaAuditLog {
 // OAuth State Management - for secure OAuth flows
 model OAuthState {
   id            String   @id @default(uuid())
-  state         String   @unique // The OAuth state parameter
-  tenantId      String
-  userId        String
-  platform      String   // References SocialMediaProvider.name
-  accountType   String   // personal, business, etc.
-  codeVerifier  String?  // For PKCE support
-  returnUrl     String?  // Where to redirect after OAuth
-  metadata      String?  // Additional state data as JSON
-  expiresAt     DateTime // States expire after 10 minutes
+  state         String   @unique
+  provider      String
+  redirectUri   String
+  tenantId      String?  // Multi-tenant support
+  userId        String?  // User identifier
+  platform      String?  // Platform name (e.g., 'twitter', 'instagram')
+  accountType   String?  // Account type (e.g., 'personal', 'business')
+  codeVerifier  String?  // PKCE code verifier
+  returnUrl     String?  // Return URL after OAuth
+  metadata      String?  // Additional metadata as JSON string
   createdAt     DateTime @default(now())
+  expiresAt     DateTime
 
   @@index([state])
   @@index([expiresAt])
   @@index([tenantId])
   @@index([userId])
+  @@index([platform])
+}
+
+// Cost Tracking Models
+
+model CostEntry {
+  id              String   @id @default(uuid())
+  timestamp       DateTime @default(now())
+  category        String   // CostCategory enum value
+  service         String   // Service that incurred the cost (apify, openai, n8n, etc.)
+  operation       String   // Specific operation
+  costUsd         Float    // Cost in USD
+  unitsConsumed   Int      // Number of units consumed
+  unitType        String   // CostUnit enum value
+  costPerUnit     Float    // Cost per unit
+  tier            String   // CostTier enum value
+  
+  // Who initiated this cost
+  initiatedByType String   // 'agent', 'user', 'system'
+  initiatedById   String   // Agent ID, User ID, or System ID
+  initiatedByName String?  // Optional display name
+  
+  // Session/workflow context
+  sessionId       String?  // Optional session ID
+  
+  // Metadata stored as JSON
+  toolParameters    String? // JSON string of tool parameters
+  executionDetails  String? // JSON string of execution details
+  researchContext   String? // JSON string of research context
+  workflowContext   String? // JSON string of workflow context
+  departmentId      String? // Department attribution
+  tags              String? // JSON array of tags
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([timestamp])
+  @@index([category])
+  @@index([service])
+  @@index([initiatedByType, initiatedById])
+  @@index([sessionId])
+  @@index([departmentId])
+  @@index([tier])
+}
+
+model CostBudget {
+  id                  String   @id @default(uuid())
+  name                String
+  period              String   // 'daily', 'weekly', 'monthly', 'yearly'
+  budgetUsd           Float    // Budget amount in USD
+  spentUsd            Float    @default(0) // Current spent amount
+  remainingUsd        Float    // Remaining budget (calculated)
+  utilizationPercent  Float    @default(0) // Utilization percentage
+  
+  // Categories and services this budget applies to
+  categories          String   // JSON array of CostCategory values
+  services            String?  // JSON array of service names
+  departmentId        String?  // Optional department filter
+  
+  // Alert thresholds (percentages)
+  warningThreshold    Float    @default(75)
+  criticalThreshold   Float    @default(90)
+  maximumThreshold    Float    @default(100)
+  
+  // Budget status
+  status              String   @default("active") // 'active', 'exceeded', 'suspended'
+  
+  // Auto-actions when limits are hit
+  onWarningAction     String?  // 'notify', 'throttle'
+  onCriticalAction    String?  // 'notify', 'throttle', 'suspend'
+  onMaximumAction     String?  // 'notify', 'suspend', 'block'
+  
+  // Validity period
+  validFrom           DateTime
+  validTo             DateTime
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([period])
+  @@index([status])
+  @@index([departmentId])
+  @@index([validFrom, validTo])
+}
+
+model CostAlert {
+  id                String   @id @default(uuid())
+  name              String
+  type              String   // 'budget_threshold', 'unusual_spending', 'cost_spike', 'service_limit'
+  
+  // Conditions (stored as JSON)
+  categories        String?  // JSON array of CostCategory values to monitor
+  services          String?  // JSON array of service names to monitor
+  costThresholdUsd  Float?   // Cost threshold in USD
+  percentageIncrease Float?  // Percentage increase threshold
+  timeWindow        String?  // 'hour', 'day', 'week', 'month'
+  minOperations     Int?     // Minimum operations to trigger
+  
+  // Alert configuration
+  severity          String   // 'info', 'warning', 'critical'
+  enabled           Boolean  @default(true)
+  cooldownMinutes   Int      @default(60) // Cooldown period between alerts
+  
+  // Notification channels (stored as JSON)
+  emailNotifications    String? // JSON array of email addresses
+  slackNotifications    String? // JSON array of Slack channels/webhooks
+  webhookNotifications  String? // JSON array of webhook URLs
+  
+  // Tracking
+  lastTriggered     DateTime?
+  triggerCount      Int      @default(0)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([type])
+  @@index([severity])
+  @@index([enabled])
+  @@index([lastTriggered])
+}
+
+model ToolCostConfig {
+  id                String   @id @default(uuid())
+  toolId            String   @unique // Tool identifier
+  toolName          String   // Human-readable tool name
+  category          String   // CostCategory enum value
+  pricingModel      String   // 'per_call', 'per_result', 'per_minute', 'per_token', 'tiered', 'custom'
+  
+  // Base cost configuration
+  fixedCostUsd      Float?   // Fixed cost per operation
+  variableCostPerUnit Float? // Variable cost per unit
+  unitType          String?  // CostUnit enum value for variable cost
+  
+  // Tiered pricing (stored as JSON)
+  tieredPricing     String?  // JSON array of pricing tiers
+  
+  // Free tier limits
+  freeTierUnits     Int?     // Units per period for free tier
+  freeTierPeriod    String?  // 'daily', 'weekly', 'monthly'
+  freeTierResetDay  Int?     // Day of month for monthly reset
+  
+  // Cost estimation factors (stored as JSON)
+  estimationFactors String?  // JSON object with factors and multipliers
+  baseMultiplier    Float    @default(1.0)
+  
+  // Configuration status
+  enabled           Boolean  @default(true)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([toolId])
+  @@index([category])
+  @@index([enabled])
+}
+
+model ExternalWorkflowCost {
+  id                      String   @id @default(uuid())
+  platform                String   // 'n8n', 'zapier', 'make', 'power_automate', 'custom'
+  workflowId              String   // Workflow ID on the platform
+  workflowName            String   // Human-readable workflow name
+  
+  // Cost structure
+  costPerExecution        Float    // Cost per execution
+  monthlySubscriptionCost Float?   // Monthly subscription cost if applicable
+  
+  // Usage limits
+  executionsPerMonth      Int?     // Monthly execution limit
+  dataTransferMBLimit     Int?     // Data transfer limit in MB
+  computeMinutesLimit     Int?     // Compute minutes limit
+  
+  // Current usage tracking
+  executionsThisMonth     Int      @default(0)
+  dataTransferMBUsed      Int      @default(0)
+  computeMinutesUsed      Int      @default(0)
+  
+  // Cost breakdown
+  subscriptionCost        Float    @default(0)
+  executionCosts          Float    @default(0)
+  overageCosts            Float    @default(0)
+  totalCost               Float    @default(0)
+  
+  // Reset tracking for monthly limits
+  lastResetDate           DateTime @default(now())
+  
+  // Configuration status
+  enabled                 Boolean  @default(true)
+  
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([platform, workflowId])
+  @@index([platform])
+  @@index([enabled])
+  @@index([lastResetDate])
+}
+
+model CostOptimization {
+  id                    String   @id @default(uuid())
+  title                 String
+  description           String   // Long description
+  category              String   // CostCategory enum value
+  service               String   // Service this applies to
+  potentialSavingsUsd   Float    // Potential savings in USD
+  effort                String   // 'low', 'medium', 'high'
+  priority              String   // 'low', 'medium', 'high', 'critical'
+  
+  // Actions and risks (stored as JSON)
+  actions               String   // JSON array of action objects
+  risks                 String   // JSON array of risk objects
+  
+  // Status tracking
+  status                String   @default("pending") // 'pending', 'in_progress', 'completed', 'dismissed'
+  assignedTo            String?  // Optional assignee
+  dueDate               DateTime?
+  completedAt           DateTime?
+  
+  // Analysis context
+  analysisStartDate     DateTime // Start date of analysis period
+  analysisEndDate       DateTime // End date of analysis period
+  
+  generatedAt           DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([category])
+  @@index([service])
+  @@index([status])
+  @@index([priority])
+  @@index([potentialSavingsUsd])
+}
+
+model CostForecast {
+  id                    String   @id @default(uuid())
+  forecastPeriodStart   DateTime
+  forecastPeriodEnd     DateTime
+  
+  // Predictions by category (stored as JSON)
+  predictions           String   // JSON object with category predictions
+  totalPredictedCost    Float    // Total predicted cost
+  
+  // Forecast metadata
+  confidence            Float    // Overall confidence (0-1)
+  accuracy              Float?   // Accuracy if historical
+  
+  // Influencing factors (stored as JSON)
+  factors               String   // JSON array of factor objects
+  
+  // Analysis context
+  basedOnPeriodStart    DateTime // Historical period used for forecast
+  basedOnPeriodEnd      DateTime
+  
+  generatedAt           DateTime @default(now())
+
+  @@index([forecastPeriodStart, forecastPeriodEnd])
+  @@index([totalPredictedCost])
+  @@index([confidence])
 } 

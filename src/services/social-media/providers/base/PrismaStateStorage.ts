@@ -10,6 +10,8 @@ export interface StateData {
   codeVerifier?: string; // For PKCE support
   returnUrl?: string;
   metadata?: Record<string, any>;
+  provider?: string; // OAuth provider (e.g., 'twitter', 'instagram')
+  redirectUri?: string; // OAuth redirect URI
 }
 
 /**
@@ -39,6 +41,8 @@ export class PrismaStateStorage {
         create: {
           id: ulid(),
           state,
+          provider: data.provider || data.platform,
+          redirectUri: data.redirectUri || '',
           tenantId: data.tenantId,
           userId: data.userId,
           platform: data.platform,
@@ -47,8 +51,10 @@ export class PrismaStateStorage {
           returnUrl: data.returnUrl,
           metadata: data.metadata ? JSON.stringify(data.metadata) : null,
           expiresAt
-        },
+        } as any,
         update: {
+          provider: data.provider || data.platform,
+          redirectUri: data.redirectUri || '',
           tenantId: data.tenantId,
           userId: data.userId,
           platform: data.platform,
@@ -57,7 +63,7 @@ export class PrismaStateStorage {
           returnUrl: data.returnUrl,
           metadata: data.metadata ? JSON.stringify(data.metadata) : null,
           expiresAt
-        }
+        } as any
       });
 
       console.log('OAuth state stored in database:', { state, platform: data.platform });
@@ -85,13 +91,15 @@ export class PrismaStateStorage {
       }
 
       const stateData: StateData = {
-        tenantId: record.tenantId,
-        userId: record.userId,
-        platform: record.platform,
-        accountType: record.accountType,
+        tenantId: record.tenantId || '',
+        userId: record.userId || '',
+        platform: record.platform || '',
+        accountType: record.accountType || undefined,
         codeVerifier: record.codeVerifier || undefined,
         returnUrl: record.returnUrl || undefined,
-        metadata: record.metadata ? JSON.parse(record.metadata) : undefined
+        metadata: record.metadata ? JSON.parse(record.metadata) : undefined,
+        provider: (record as any).provider,
+        redirectUri: (record as any).redirectUri
       };
 
       console.log('OAuth state retrieved from database:', { state, platform: record.platform });
@@ -137,13 +145,15 @@ export class PrismaStateStorage {
       return records.map(record => [
         record.state,
         {
-          tenantId: record.tenantId,
-          userId: record.userId,
-          platform: record.platform,
-          accountType: record.accountType,
+          tenantId: record.tenantId || '',
+          userId: record.userId || '',
+          platform: record.platform || '',
+          accountType: record.accountType || undefined,
           codeVerifier: record.codeVerifier || undefined,
           returnUrl: record.returnUrl || undefined,
-          metadata: record.metadata ? JSON.parse(record.metadata) : undefined
+          metadata: record.metadata ? JSON.parse(record.metadata) : undefined,
+          provider: (record as any).provider,
+          redirectUri: (record as any).redirectUri
         }
       ]);
     } catch (error) {
