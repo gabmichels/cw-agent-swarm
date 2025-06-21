@@ -99,7 +99,7 @@ export class QueryEnhancer {
   
   constructor() {
     this.llm = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
+      modelName: process.env.OPENAI_MODEL_NAME,
       temperature: 0.2
     });
   }

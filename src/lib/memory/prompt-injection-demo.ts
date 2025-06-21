@@ -167,7 +167,7 @@ async function generateMemoryAugmentedResponse(
     
     // Initialize the LLM
     const model = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
+      modelName: process.env.OPENAI_MODEL_NAME,
       temperature: 0.7
     });
     

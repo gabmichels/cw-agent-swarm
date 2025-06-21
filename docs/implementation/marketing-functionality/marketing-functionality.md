@@ -614,7 +614,7 @@ class AdPlatformOrchestrator {
    
    // Basic integration
    const apifyClient = new ApifyClient({
-     token: process.env.APIFY_API_TOKEN
+     token: process.env.APIFY_API_KEY
    });
    
    // Keyword research quick win

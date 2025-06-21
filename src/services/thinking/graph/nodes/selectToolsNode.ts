@@ -47,7 +47,7 @@ export async function selectToolsNode(state: ThinkingState): Promise<ThinkingSta
     
     // Create an LLM instance
     const model = new ChatOpenAI({
-      modelName: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
+      modelName: process.env.OPENAI_MODEL_NAME || 'gpt-3.5-turbo',
       temperature: 0.2,
     });
     
