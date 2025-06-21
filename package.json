@@ -61,7 +61,9 @@
     "cleanup-agents": "node scripts/cleanup-simple.js",
     "capability-demo": "ts-node src/scripts/run-capability-demo.ts",
     "storage:start": "docker-compose up -d minio createbuckets",
-    "storage:stop": "docker-compose down"
+    "storage:stop": "docker-compose down",
+    "protect:files": "powershell -File scripts/protect-critical-files.ps1",
+    "unprotect:files": "powershell -File scripts/unprotect-critical-files.ps1"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.812.0",

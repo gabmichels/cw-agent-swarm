@@ -195,3 +195,13 @@ coverage/
 # Temporary folders
 tmp/
 temp/
+
+# Database files (SQLite)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/prisma/dev.db*
+/backups/
