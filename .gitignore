@@ -198,6 +198,9 @@ temp/
 
 # Database files (SQLite)
 *.db
+
+# Backup files
+backups/
 *.db-journal
 *.db-wal
 *.db-shm

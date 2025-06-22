@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { X, Settings, Wifi, Users, Shield, Bell, Palette, Database, Building } from 'lucide-react';
 import { SocialMediaSettingsModal } from './social-media/SocialMediaSettingsModal';
+import { ThirdPartyToolsSettingsModal } from './third-party-tools/ThirdPartyToolsSettingsModal';
+import { ApiKeySettingsModal } from './api-keys/ApiKeySettingsModal';
 import { DepartmentManagementModal } from './organization/DepartmentManagementModal';
 import { NotificationSettingsPanel } from './notifications/NotificationSettingsPanel';
 
@@ -20,6 +22,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   organizationId
 }) => {
   const [isSocialMediaModalOpen, setIsSocialMediaModalOpen] = useState(false);
+  const [isThirdPartyToolsModalOpen, setIsThirdPartyToolsModalOpen] = useState(false);
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
 
@@ -37,6 +41,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           description: 'Connect and manage social media accounts',
           action: () => setIsSocialMediaModalOpen(true),
           badge: 'New'
+        },
+        {
+          title: 'Third-Party Tools',
+          description: 'Connect to Zoom, Dropbox, OneDrive, and more',
+          action: () => setIsThirdPartyToolsModalOpen(true),
+          badge: 'Phase 2.5'
         },
         {
           title: 'Workspace Integrations',
@@ -89,8 +99,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {
           title: 'API Keys',
           description: 'Manage your API keys and tokens',
-          action: () => console.log('API keys'),
-          disabled: true
+          action: () => setIsApiKeyModalOpen(true),
+          badge: 'New'
         },
         {
           title: 'Data Export',
@@ -238,6 +248,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <SocialMediaSettingsModal
         isOpen={isSocialMediaModalOpen}
         onClose={() => setIsSocialMediaModalOpen(false)}
+        userId={userId}
+        organizationId={organizationId}
+      />
+      
+      {/* Third-Party Tools Settings Modal */}
+      <ThirdPartyToolsSettingsModal
+        isOpen={isThirdPartyToolsModalOpen}
+        onClose={() => setIsThirdPartyToolsModalOpen(false)}
+        userId={userId}
+        organizationId={organizationId}
+      />
+      
+      {/* API Keys Settings Modal */}
+      <ApiKeySettingsModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
         userId={userId}
         organizationId={organizationId}
       />

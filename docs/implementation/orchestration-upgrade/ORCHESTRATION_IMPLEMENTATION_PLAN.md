@@ -25,11 +25,13 @@ Build a **simplified integration platform** that:
 
 ## 📊 **Strategic Integration Decision Framework**
 
+> **📋 For detailed decision criteria and evaluation process, see:** [**DIRECT_INTEGRATION_DECISION_FRAMEWORK.md**](./DIRECT_INTEGRATION_DECISION_FRAMEWORK.md)
+
 ### **Tier 1: Direct Integrations (28 Core Tools)**
 ```
 Direct Integration IF:
-✅ Used by 80%+ of business users (high adoption)
-✅ Daily/weekly usage frequency (high value)
+✅ Used by 80%+ of target users (universal adoption)
+✅ Daily/weekly usage frequency (high engagement)
 ✅ Stable, well-documented API (maintainable)
 ✅ High business impact workflows (strategic value)
 ✅ Cost-effective vs external platforms (ROI positive)

@@ -642,4 +642,179 @@ model CostForecast {
   @@index([forecastPeriodStart, forecastPeriodEnd])
   @@index([totalPredictedCost])
   @@index([confidence])
+}
+
+// ============================================================================
+// INTEGRATION MANAGEMENT SYSTEM
+// ============================================================================
+
+model IntegrationType {
+  id          String   @id @default(uuid())
+  name        String   @unique // OAUTH_2, API_KEY, OAUTH_1
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model IntegrationCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique // SOCIAL_MEDIA, WORKSPACE, EXTERNAL_WORKFLOW, AI_SERVICES
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model IntegrationProvider {
+  id                String   @id @default(uuid())
+  name              String   @unique // OPENAI, CODA, STRIPE, ZOOM, DROPBOX
+  displayName       String   // "OpenAI", "Coda", "Stripe API"
+  category          String   // References IntegrationCategory.name
+  type              String   // References IntegrationType.name
+  description       String?
+  iconUrl           String?
+  documentationUrl  String?
+  isActive          Boolean  @default(true)
+  requiresUserAuth  Boolean  @default(true) // false for system-wide keys
+  
+  // OAuth Configuration (if applicable)
+  oauthAuthUrl      String?
+  oauthTokenUrl     String?
+  oauthScopes       String? // JSON array as string
+  
+  // API Key Configuration (if applicable)
+  apiKeyName        String? // "API Key", "Secret Key", "Access Token"
+  apiKeyFormat      String? // Validation regex or format description
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  connections       IntegrationConnection[]
+  systemConfig      SystemIntegrationConfig?
+  
+  @@index([category])
+  @@index([type])
+  @@index([isActive])
+}
+
+model IntegrationConnection {
+  id                String   @id @default(uuid())
+  userId            String?  // null for system-wide connections
+  organizationId    String?
+  providerId        String
+  
+  // Connection Details
+  displayName       String   // User-friendly name
+  status            String   @default("ACTIVE") // ACTIVE, EXPIRED, ERROR, DISABLED
+  
+  // OAuth Data (encrypted)
+  accessToken       String?
+  refreshToken      String?
+  tokenExpiresAt    DateTime?
+  scopes            String?  // JSON array as string
+  
+  // API Key Data (encrypted)
+  apiKey            String?
+  apiSecret         String?
+  
+  // Metadata
+  providerAccountId String?  // External account ID
+  accountEmail      String?
+  accountName       String?
+  lastValidated     DateTime?
+  lastUsed          DateTime?
+  
+  // Configuration
+  isEnabled         Boolean  @default(true)
+  configuration     String?  // JSON configuration as string
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  provider          IntegrationProvider @relation(fields: [providerId], references: [id])
+  permissions       AgentIntegrationPermission[]
+  auditLogs         IntegrationAuditLog[]
+  
+  @@index([userId])
+  @@index([organizationId])
+  @@index([providerId])
+  @@index([status])
+  @@index([isEnabled])
+}
+
+model AgentIntegrationPermission {
+  id                      String   @id @default(uuid())
+  agentId                 String
+  integrationConnectionId String
+  capabilities            String   // JSON array of allowed capabilities
+  accessLevel             String   // READ, WRITE, ADMIN
+  restrictions            String?  // JSON restrictions
+  grantedBy               String
+  grantedAt               DateTime @default(now())
+  revokedAt               DateTime?
+  lastUsedAt              DateTime?
+  
+  // Relations
+  connection              IntegrationConnection @relation(fields: [integrationConnectionId], references: [id])
+  
+  @@index([agentId])
+  @@index([integrationConnectionId])
+}
+
+model IntegrationAuditLog {
+  id                      String   @id @default(uuid())
+  integrationConnectionId String
+  agentId                 String?
+  action                  String   // CONNECT, DISCONNECT, USE, REFRESH, ERROR
+  result                  String   // SUCCESS, FAILURE
+  details                 String?  // JSON details
+  ipAddress               String?
+  userAgent               String?
+  createdAt               DateTime @default(now())
+  
+  // Relations
+  connection              IntegrationConnection @relation(fields: [integrationConnectionId], references: [id])
+  
+  @@index([integrationConnectionId])
+  @@index([agentId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// SYSTEM CONFIGURATION
+// ============================================================================
+
+model SystemIntegrationConfig {
+  id                String   @id @default(uuid())
+  providerId        String   @unique
+  
+  // System-wide API keys (for fallback)
+  systemApiKey      String?  // Encrypted
+  systemApiSecret   String?  // Encrypted
+  
+  // OAuth App Configuration
+  clientId          String?
+  clientSecret      String?  // Encrypted
+  redirectUri       String?
+  
+  // Usage Limits
+  dailyLimit        Int?
+  monthlyLimit      Int?
+  rateLimitPerMin   Int?
+  
+  // Feature Flags
+  isEnabled         Boolean  @default(true)
+  requireUserAuth   Boolean  @default(true)
+  allowSystemFallback Boolean @default(false)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  provider          IntegrationProvider @relation(fields: [providerId], references: [id])
+  
+  @@index([providerId])
+  @@index([isEnabled])
 } 
