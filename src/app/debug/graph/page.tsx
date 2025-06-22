@@ -411,7 +411,7 @@ export default function GraphDebugPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-4">Chloe's Decision Process Visualization</h1>
+      <h1 className="text-2xl font-bold mb-4">Chloe&apos;s Decision Process Visualization</h1>
       
       {/* Tab Navigation */}
       <div className="border-b border-gray-200 mb-6">
@@ -736,7 +736,7 @@ export default function GraphDebugPage() {
                 <h3 className="font-semibold mb-3">Knowledge Graph Insights</h3>
                 <p className="text-sm text-gray-700">
                   This visualization shows the knowledge entities and relationships relevant to the current task:
-                  "{planningState.goal}". The knowledge graph helps Chloe make informed decisions by leveraging
+                  &quot;{planningState.goal}&quot;. The knowledge graph helps Chloe make informed decisions by leveraging
                   structured knowledge about concepts, tools, and processes related to the task.
                 </p>
                 <p className="text-sm text-gray-700 mt-2">

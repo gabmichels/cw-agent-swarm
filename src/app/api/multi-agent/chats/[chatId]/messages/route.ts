@@ -461,17 +461,13 @@ export async function POST(
             maxTokens: 300 
           });
           
+          const response = await cheapModel.invoke(prompt);
+          const responseContent = typeof response === 'string' ? response : response.content;
+          
           try {
-            const response = await cheapModel.invoke(prompt);
-            const responseContent = typeof response === 'string' ? response : response.content;
-            
-            try {
-              return JSON.parse(responseContent) as T;
-            } catch {
-              return responseContent as T;
-            }
-          } catch (error) {
-            throw error;
+            return JSON.parse(responseContent) as T;
+          } catch {
+            return responseContent as T;
           }
         }
       };

@@ -297,7 +297,7 @@ export default function VisualizationsPage() {
               <div className={`${hasServerError ? 'bg-amber-50' : 'bg-blue-50'} p-3 text-${hasServerError ? 'amber' : 'blue'}-800 text-sm border-b border-${hasServerError ? 'amber' : 'blue'}-200`}>
                 {hasServerError ? (
                   <>
-                    <strong>Server Error:</strong> {error}. Showing an example visualization instead. The actual visualization data couldn't be retrieved due to a server configuration issue.
+                    <strong>Server Error:</strong> {error}. Showing an example visualization instead. The actual visualization data couldn&apos;t be retrieved due to a server configuration issue.
                   </>
                 ) : (
                   <>
@@ -332,7 +332,7 @@ export default function VisualizationsPage() {
                   There are no visualizations available for this chat yet. Visualizations are created when you interact with the agent.
                 </p>
                 <p className="text-gray-600 text-sm">
-                  Try sending a new message to the agent to generate visualizations, or click "Example Visualization" in the sidebar to see a demo.
+                  Try sending a new message to the agent to generate visualizations, or click &quot;Example Visualization&quot; in the sidebar to see a demo.
                 </p>
               </div>
             </div>

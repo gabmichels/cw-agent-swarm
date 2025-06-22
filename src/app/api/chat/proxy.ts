@@ -452,9 +452,6 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
   }
 }
 
-// Agent singleton
-let agent = null;
-
 // POST handler
 export async function POST(req: Request) {
   try {
@@ -635,29 +632,22 @@ export async function POST(req: Request) {
         });
         
         // Choose agent based on agentId parameter
-        let agent;
+        const agent = await getAgentInstance(effectiveAgentId);
         
-        try {
-          // Get the agent from the registry using our AgentService
-          agent = await getAgentInstance(effectiveAgentId);
-          
-          if (!agent) {
-            throw new Error(`Failed to load agent: ${effectiveAgentId}`);
-          }
-          
-          // Make sure agent is initialized
-          if (typeof agent.initialize === 'function') {
-            try {
-              const isInitialized = await agent.initialize();
-              if (!isInitialized) {
-                console.log(`Failed to initialize agent ${effectiveAgentId}`);
-              }
-            } catch (initError) {
-              console.log(`Error initializing agent ${effectiveAgentId}:`, initError);
+        if (!agent) {
+          throw new Error(`Failed to load agent: ${effectiveAgentId}`);
+        }
+        
+        // Make sure agent is initialized
+        if (typeof agent.initialize === 'function') {
+          try {
+            const isInitialized = await agent.initialize();
+            if (!isInitialized) {
+              console.log(`Failed to initialize agent ${effectiveAgentId}`);
             }
+          } catch (initError) {
+            console.log(`Error initializing agent ${effectiveAgentId}:`, initError);
           }
-        } catch (error: any) {
-          throw new Error(`Error loading agent ${effectiveAgentId}: ${error.message}`);
         }
         
         // Process the message with the selected agent - with timeout protection

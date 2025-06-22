@@ -180,7 +180,7 @@ export default function KnowledgeGapsPage() {
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Knowledge Gaps</h1>
-        <p className="text-gray-400 mt-2">Detect and manage knowledge gaps in Chloe's understanding</p>
+        <p className="text-gray-400 mt-2">Detect and manage knowledge gaps in Chloe&apos;s understanding</p>
       </div>
       
       <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-8">

@@ -227,7 +227,7 @@ export default function AgentsPage() {
               <div>
                 <h3 className="text-amber-400 font-medium">Draft Agent Found</h3>
                 <p className="text-amber-200 text-sm mt-1">
-                  You have an unsaved agent draft: <strong>"{draftData.formData.name || 'Unnamed Agent'}"</strong>
+                  You have an unsaved agent draft: <strong>&ldquo;{draftData.formData.name || 'Unnamed Agent'}&rdquo;</strong>
                 </p>
                 <p className="text-amber-300 text-xs mt-1 flex items-center">
                   <Clock className="h-3 w-3 mr-1" />
@@ -273,7 +273,7 @@ export default function AgentsPage() {
         <div className="bg-gray-800 rounded-lg p-8 text-center">
           <h2 className="text-xl font-semibold mb-2">No agents found</h2>
           <p className="text-gray-400 mb-6">
-            You don't have any agents yet. Create your first agent to get started.
+            You don&apos;t have any agents yet. Create your first agent to get started.
             {draftData && (
               <span className="block mt-2 text-amber-400 text-sm">
                 📝 Looks like you have an unfinished agent draft above!

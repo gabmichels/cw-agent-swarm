@@ -42,7 +42,7 @@ const RegisterAgentPage: React.FC = () => {
       <div className="max-w-4xl mx-auto mb-8">
         <h1 className="text-3xl font-bold mb-2">Register New Agent</h1>
         <p className="text-gray-300 text-lg">
-          Create a new agent profile in 4 simple steps. Define the agent's basic information, 
+          Create a new agent profile in 4 simple steps. Define the agent&apos;s basic information, 
           persona, knowledge, and capabilities.
         </p>
         <p className="text-gray-400 mt-2">

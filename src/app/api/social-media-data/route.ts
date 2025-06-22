@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     // Add timeframe filter
     if (timeframe !== 'all') {
       const now = new Date();
-      let since = new Date();
+      const since = new Date();
       
       switch (timeframe) {
         case 'day':

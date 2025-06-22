@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     let memoryContent = content;
     let memoryType = 'message';
     let memoryTags = [...tags];
-    let sourceId = messageId;
+    const sourceId = messageId;
     let recordTimestamp: string | number = new Date().toISOString();
 
     // If messageId is provided, fetch the memory

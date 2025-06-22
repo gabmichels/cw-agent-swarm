@@ -19,7 +19,7 @@ export default function DebugPage() {
                 <h2 className="text-xl font-semibold">Thinking Process Visualizations</h2>
               </div>
               <p className="text-gray-300 mb-4">
-                Debug and analyze the agent's thinking process, including retrieval, reasoning, tool selection, and response generation.
+                Debug and analyze the agent&apos;s thinking process, including retrieval, reasoning, tool selection, and response generation.
               </p>
               <span className="inline-block px-3 py-1 bg-blue-900 text-blue-200 rounded-full text-sm">
                 New Feature
@@ -35,7 +35,7 @@ export default function DebugPage() {
                 <h2 className="text-xl font-semibold">Memory Inspector</h2>
               </div>
               <p className="text-gray-300 mb-4">
-                Explore the agent's memory store, view memory items, and analyze memory retrieval patterns.
+                Explore the agent&apos;s memory store, view memory items, and analyze memory retrieval patterns.
               </p>
               <span className="inline-block px-3 py-1 bg-gray-700 text-gray-300 rounded-full text-sm">
                 Coming Soon
@@ -99,7 +99,7 @@ export default function DebugPage() {
             Use these tools during development to understand behavior, identify issues, and optimize performance.
           </p>
           <p className="text-gray-300">
-            To learn more about the agent's architecture and debugging capabilities, visit the{' '}
+            To learn more about the agent&apos;s architecture and debugging capabilities, visit the{' '}
             <a href="https://github.com/your-repo/cw-agent-swarm" className="text-blue-400 hover:underline">
               documentation
             </a>.

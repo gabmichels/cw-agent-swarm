@@ -32,7 +32,7 @@ export default function MemoryTestPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-4">🔍 Memory Content Inspector</h1>
         <p className="text-gray-600 mb-4">
-          This tool helps verify what personal information is actually stored in your agent's memory system.
+          This tool helps verify what personal information is actually stored in your agent&apos;s memory system.
         </p>
         
         <button
@@ -126,7 +126,7 @@ export default function MemoryTestPage() {
               {Object.entries(results.analysis.queryTests).map(([query, result]: [string, any]) => (
                 <div key={query} className="bg-white border border-gray-200 rounded p-3">
                   <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-medium">"{query}"</h3>
+                    <h3 className="font-medium">&quot;{query}&quot;</h3>
                     <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded">
                       {result.count} results
                     </span>

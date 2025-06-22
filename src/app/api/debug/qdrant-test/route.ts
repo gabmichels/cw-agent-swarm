@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     }
     
     // Get health information
-    let healthInfo: HealthInfo = {
+    const healthInfo: HealthInfo = {
       status: 'ok',
       collections: {},
       error: null
