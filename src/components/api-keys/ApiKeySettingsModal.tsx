@@ -12,7 +12,8 @@ export enum ApiKeyProvider {
   SENDGRID = 'SENDGRID',
   MAILCHIMP = 'MAILCHIMP',
   TYPEFORM = 'TYPEFORM',
-  CALENDLY = 'CALENDLY'
+  CALENDLY = 'CALENDLY',
+  TWILIO = 'TWILIO'
 }
 
 export enum ApiKeyStatus {
@@ -75,9 +76,18 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
     setError(null);
     
     try {
-      // TODO: Implement /api/api-keys/connections endpoint
-      // For now, return empty array
-      setConnections([]);
+      const params = new URLSearchParams();
+      if (userId) params.append('userId', userId);
+      if (organizationId) params.append('organizationId', organizationId);
+      
+      const response = await fetch(`/api/api-keys/connections?${params.toString()}`);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load API keys');
+      }
+      
+      setConnections(data.connections || []);
     } catch (error) {
       console.error('Error loading API keys:', error);
       setError(error instanceof Error ? error.message : 'Failed to load API keys');
@@ -102,10 +112,30 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
     setError(null);
 
     try {
-      // TODO: Implement API key save endpoint
-      console.log('Saving API key for', formData.provider, '(key hidden for security)');
-      
-      alert(`API key for ${getProviderDisplayName(formData.provider)} will be implemented in the API key management system`);
+      const requestBody = {
+        provider: formData.provider,
+        displayName: formData.displayName || getProviderDisplayName(formData.provider),
+        apiKey: formData.apiKey,
+        userId,
+        organizationId
+      };
+
+      const response = await fetch('/api/api-keys/connections', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save API key');
+      }
+
+      // Refresh the connections list
+      await loadApiKeys();
       
       setEditingProvider(null);
       setFormData({ provider: ApiKeyProvider.OPENAI, apiKey: '', displayName: '' });
@@ -131,6 +161,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
         return 'Typeform';
       case ApiKeyProvider.CALENDLY:
         return 'Calendly';
+      case ApiKeyProvider.TWILIO:
+        return 'Twilio';
       default:
         return provider;
     }
@@ -150,6 +182,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
         return '📝';
       case ApiKeyProvider.CALENDLY:
         return '📅';
+      case ApiKeyProvider.TWILIO:
+        return '📱';
       default:
         return '🔑';
     }
@@ -169,8 +203,31 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
         return 'Form and survey creation';
       case ApiKeyProvider.CALENDLY:
         return 'Meeting scheduling and calendar management';
+      case ApiKeyProvider.TWILIO:
+        return 'SMS, voice calls, and 2FA verification';
       default:
         return 'API integration';
+    }
+  };
+
+  const getProviderInstructions = (provider: ApiKeyProvider): string => {
+    switch (provider) {
+      case ApiKeyProvider.TWILIO:
+        return 'Enter your Account SID and Auth Token in the format: AccountSID:AuthToken (e.g., ACxxxxx:your_auth_token)';
+      case ApiKeyProvider.CODA:
+        return 'Get your API key from Coda Account Settings > API';
+      case ApiKeyProvider.STRIPE:
+        return 'Get your secret key from Stripe Dashboard > Developers > API Keys';
+      case ApiKeyProvider.SENDGRID:
+        return 'Get your API key from SendGrid Settings > API Keys';
+      case ApiKeyProvider.MAILCHIMP:
+        return 'Get your API key from Mailchimp Account > Extras > API Keys';
+      case ApiKeyProvider.TYPEFORM:
+        return 'Get your personal access token from Typeform Admin Panel';
+      case ApiKeyProvider.CALENDLY:
+        return 'Get your API key from Calendly Integrations > API & Webhooks';
+      default:
+        return 'Enter your API key from the service provider';
     }
   };
 
@@ -181,7 +238,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
     ApiKeyProvider.SENDGRID,
     ApiKeyProvider.MAILCHIMP,
     ApiKeyProvider.TYPEFORM,
-    ApiKeyProvider.CALENDLY
+    ApiKeyProvider.CALENDLY,
+    ApiKeyProvider.TWILIO
   ];
 
   // Service-provided APIs (shown as info only)
@@ -278,7 +336,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  {getProviderDescription(editingProvider)}
+                  {getProviderInstructions(editingProvider)}
                 </p>
               </div>
             </div>
