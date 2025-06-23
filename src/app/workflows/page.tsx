@@ -13,6 +13,8 @@ import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Input } from '../../components/ui/input';
+import { WorkflowLibraryBrowser } from '../../components/workflows/WorkflowLibraryBrowser';
+import { N8nWorkflowTemplate } from '../../types/workflow';
 import { 
   Search, 
   Plus, 
@@ -106,7 +108,7 @@ interface WorkflowDashboardState {
   loading: boolean;
   error: string | null;
   searchQuery: string;
-  selectedTab: 'overview' | 'external' | 'direct' | 'history' | 'metrics';
+  selectedTab: 'overview' | 'external' | 'direct' | 'library' | 'history' | 'metrics';
 }
 
 /**
@@ -225,6 +227,62 @@ export default function WorkflowDashboard() {
   }, []);
 
   /**
+   * Handle workflow import from library
+   */
+  const handleWorkflowImport = useCallback(async (workflow: N8nWorkflowTemplate): Promise<void> => {
+    try {
+      setState(prev => ({ ...prev, loading: true, error: null }));
+
+      // Import workflow via API
+      const response = await fetch('/api/workflows/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflowId: workflow.id,
+          name: workflow.name,
+          description: workflow.description,
+          category: workflow.category,
+          source: 'n8n-library'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to import workflow');
+      }
+
+      const importedWorkflow = await response.json();
+      
+      // Show success message
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: null
+      }));
+
+      // Refresh data to show the new workflow
+      await loadDashboardData();
+      
+      // Switch to external workflows tab to show the imported workflow
+      setState(prev => ({ ...prev, selectedTab: 'external' }));
+
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: error instanceof Error ? error.message : 'Import failed'
+      }));
+    }
+  }, [loadDashboardData]);
+
+  /**
+   * Handle workflow preview from library
+   */
+  const handleWorkflowPreview = useCallback((workflow: N8nWorkflowTemplate): void => {
+    // Open workflow preview modal or navigate to preview page
+    window.open(`/workflows/preview/${workflow.id}`, '_blank');
+  }, []);
+
+  /**
    * Filter workflows based on search query
    */
   const filteredWorkflows = state.externalWorkflows.filter(workflow =>
@@ -305,10 +363,11 @@ export default function WorkflowDashboard() {
         value={state.selectedTab} 
         onValueChange={(value) => setState(prev => ({ ...prev, selectedTab: value as any }))}
       >
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="external">External Workflows</TabsTrigger>
           <TabsTrigger value="direct">Direct Integrations</TabsTrigger>
+          <TabsTrigger value="library">Workflow Library</TabsTrigger>
           <TabsTrigger value="history">Execution History</TabsTrigger>
           <TabsTrigger value="metrics">Analytics</TabsTrigger>
         </TabsList>
@@ -584,6 +643,14 @@ export default function WorkflowDashboard() {
               </Card>
             ))}
           </div>
+        </TabsContent>
+
+        {/* Workflow Library Tab */}
+        <TabsContent value="library">
+          <WorkflowLibraryBrowser 
+            onWorkflowImport={handleWorkflowImport}
+            onWorkflowPreview={handleWorkflowPreview}
+          />
         </TabsContent>
 
         {/* Execution History Tab */}

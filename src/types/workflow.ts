@@ -226,4 +226,124 @@ export class RepositoryError extends WorkflowError {
     super(message, `REPOSITORY_${code}`, context);
     this.name = 'RepositoryError';
   }
-} 
+}
+
+// UI Component Types for Workflow Library
+export interface WorkflowLibraryState {
+  readonly workflows: ReadonlyArray<N8nWorkflowTemplate>;
+  readonly categories: ReadonlyArray<WorkflowCategory>;
+  readonly searchQuery: string;
+  readonly selectedCategories: ReadonlyArray<WorkflowCategory>;
+  readonly selectedComplexity: WorkflowComplexity | null;
+  readonly viewMode: 'grid' | 'list';
+  readonly sortBy: 'name' | 'popularity' | 'created' | 'updated';
+  readonly sortOrder: 'asc' | 'desc';
+  readonly isLoading: boolean;
+  readonly error: string | null;
+  readonly totalResults: number;
+  readonly currentPage: number;
+  readonly itemsPerPage: number;
+}
+
+export interface WorkflowLibraryFilters {
+  readonly categories: ReadonlyArray<WorkflowCategory>;
+  readonly complexity: WorkflowComplexity | null;
+  readonly integrations: ReadonlyArray<string>;
+  readonly nodeCountRange: readonly [number, number] | null;
+  readonly tags: ReadonlyArray<string>;
+}
+
+export interface WorkflowCardProps {
+  readonly workflow: N8nWorkflowTemplate;
+  readonly viewMode: 'grid' | 'list';
+  readonly onImport: (workflow: N8nWorkflowTemplate) => Promise<void>;
+  readonly onPreview: (workflow: N8nWorkflowTemplate) => void;
+  readonly onFavorite?: (workflow: N8nWorkflowTemplate) => void;
+  readonly isFavorited?: boolean;
+  readonly isImporting?: boolean;
+}
+
+export interface WorkflowLibraryBrowserProps {
+  readonly initialFilters?: Partial<WorkflowLibraryFilters>;
+  readonly onWorkflowImport?: (workflow: N8nWorkflowTemplate) => Promise<void>;
+  readonly onWorkflowPreview?: (workflow: N8nWorkflowTemplate) => void;
+  readonly className?: string;
+}
+
+export interface WorkflowSearchResults {
+  readonly workflows: ReadonlyArray<N8nWorkflowTemplate>;
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly searchTime: number;
+  readonly categories: ReadonlyArray<CategoryCount>;
+  readonly integrations: ReadonlyArray<IntegrationCount>;
+}
+
+export interface WorkflowImportOptions {
+  readonly customName?: string;
+  readonly assignToAgent?: string;
+  readonly enabledByDefault?: boolean;
+  readonly customTags?: ReadonlyArray<string>;
+  readonly triggerSettings?: Record<string, unknown>;
+}
+
+export interface WorkflowPreviewData {
+  readonly workflow: N8nWorkflowTemplate;
+  readonly nodePreview: ReadonlyArray<{
+    readonly id: string;
+    readonly type: string;
+    readonly name: string;
+    readonly position: readonly [number, number];
+  }>;
+  readonly connectionPreview: ReadonlyArray<{
+    readonly source: string;
+    readonly target: string;
+    readonly type: string;
+  }>;
+  readonly requirements: ReadonlyArray<{
+    readonly type: 'credential' | 'api_key' | 'configuration';
+    readonly name: string;
+    readonly description: string;
+    readonly required: boolean;
+  }>;
+}
+
+// Utility Types for Component State Management
+export type WorkflowLibraryAction =
+  | { readonly type: 'SET_LOADING'; readonly payload: boolean }
+  | { readonly type: 'SET_ERROR'; readonly payload: string | null }
+  | { readonly type: 'SET_WORKFLOWS'; readonly payload: WorkflowSearchResults }
+  | { readonly type: 'SET_SEARCH_QUERY'; readonly payload: string }
+  | { readonly type: 'SET_FILTERS'; readonly payload: Partial<WorkflowLibraryFilters> }
+  | { readonly type: 'SET_VIEW_MODE'; readonly payload: 'grid' | 'list' }
+  | { readonly type: 'SET_SORT'; readonly payload: { sortBy: WorkflowLibraryState['sortBy']; sortOrder: WorkflowLibraryState['sortOrder'] } }
+  | { readonly type: 'SET_PAGE'; readonly payload: number };
+
+// Constants for UI
+export const WORKFLOW_COMPLEXITY_LABELS: Record<WorkflowComplexity, string> = {
+  simple: 'Simple',
+  medium: 'Medium', 
+  complex: 'Complex'
+} as const;
+
+export const WORKFLOW_COMPLEXITY_COLORS: Record<WorkflowComplexity, string> = {
+  simple: 'bg-green-100 text-green-800',
+  medium: 'bg-blue-100 text-blue-800',
+  complex: 'bg-red-100 text-red-800'
+} as const;
+
+export const WORKFLOW_CATEGORY_ICONS: Record<WorkflowCategory, string> = {
+  messaging: '💬',
+  email: '📧',
+  productivity: '📋',
+  social_media: '📱',
+  ecommerce: '🛒',
+  analytics: '📊',
+  calendar: '📅',
+  forms: '📝',
+  development: '💻',
+  files: '📁',
+  crm: '👥',
+  general: '⚡'
+} as const; 
