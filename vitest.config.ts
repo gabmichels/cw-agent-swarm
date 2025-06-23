@@ -18,8 +18,9 @@ export default defineConfig({
     },
     includeSource: ['src/**/*.ts'],
     typecheck: {
-      // Disable strict type checking for test files
-      enabled: false
+      // Enable type checking for test files
+      enabled: true,
+      tsconfig: './tsconfig.test.json'
     }
   },
   resolve: {

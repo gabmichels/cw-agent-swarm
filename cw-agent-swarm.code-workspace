@@ -1,0 +1,22 @@
+{
+  "folders": [
+    {
+      "name": "Main Project",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "typescript.validate.enable": true,
+    "typescript.preferences.includePackageJsonAutoImports": "on",
+    "typescript.suggest.autoImports": true,
+    "typescript.format.enable": true,
+    "files.associations": {
+      "*.test.ts": "typescript",
+      "*.spec.ts": "typescript"
+    },
+    "problems.decorations.enabled": true,
+    "typescript.preferences.checkJsLocation": "open",
+    "typescript.implementationsCodeLens.enabled": false,
+    "typescript.referencesCodeLens.enabled": false
+  }
+}

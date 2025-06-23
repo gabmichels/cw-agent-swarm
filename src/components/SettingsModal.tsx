@@ -7,6 +7,7 @@ import { ThirdPartyToolsSettingsModal } from './third-party-tools/ThirdPartyTool
 import { ApiKeySettingsModal } from './api-keys/ApiKeySettingsModal';
 import { DepartmentManagementModal } from './organization/DepartmentManagementModal';
 import { NotificationSettingsPanel } from './notifications/NotificationSettingsPanel';
+import { WorkspaceSettingsModal } from './workspace/WorkspaceSettingsModal';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const [isWorkspaceSettingsOpen, setIsWorkspaceSettingsOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -51,7 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {
           title: 'Workspace Integrations',
           description: 'Connect to productivity tools and services',
-          action: () => console.log('Workspace integrations'),
+          action: () => setIsWorkspaceSettingsOpen(true),
           disabled: false
         }
       ]
@@ -296,6 +298,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Workspace Settings Modal */}
+      <WorkspaceSettingsModal
+        isOpen={isWorkspaceSettingsOpen}
+        onClose={() => setIsWorkspaceSettingsOpen(false)}
+        userId={userId}
+        organizationId={organizationId}
+      />
     </>
   );
 }; 
