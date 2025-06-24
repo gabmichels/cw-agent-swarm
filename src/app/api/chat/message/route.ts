@@ -83,8 +83,8 @@ export async function DELETE(request: NextRequest) {
       
       // Map results to simpler objects
       const memories = searchResults
-        .map(result => result.point)
-        .filter(point => {
+        .map((result: any) => result.point)
+        .filter((point: any) => {
           // Check if it's the message we're looking for by exact ISO string comparison
           const pointTimestamp = point.payload?.timestamp;
           if (!pointTimestamp) return false;

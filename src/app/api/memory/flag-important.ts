@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     if (searchResults.length > 0) {
       // If timestamp was provided, try to match it
       if (timestamp) {
-        targetMemory = searchResults.find(result => {
+        targetMemory = searchResults.find((result: any) => {
           const messageTimestamp = result.point.payload?.timestamp || 
                                 result.point.payload?.metadata?.timestamp;
           return messageTimestamp === timestamp || 

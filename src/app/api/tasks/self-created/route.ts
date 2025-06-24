@@ -170,7 +170,7 @@ export async function GET(request: NextRequest) {
     let filteredTasks = tasks;
     
     if (userId || chatId) {
-      filteredTasks = tasks.filter(task => {
+      filteredTasks = tasks.filter((task: any) => {
         const metadata = task.metadata as TaskMetadata | undefined;
         if (!metadata) return false;
         
@@ -185,7 +185,7 @@ export async function GET(request: NextRequest) {
     }
     
     // Convert tasks to frontend format
-    const formattedTasks: SelfCreatedTaskResponse[] = filteredTasks.map(task => {
+    const formattedTasks: SelfCreatedTaskResponse[] = filteredTasks.map((task: any) => {
       const metadata = task.metadata as TaskMetadata | undefined;
       
       return {
@@ -213,7 +213,7 @@ export async function GET(request: NextRequest) {
     });
     
     // Sort by created date (newest first)
-    formattedTasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    formattedTasks.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     console.log(`Returning ${formattedTasks.length} formatted tasks`);
     

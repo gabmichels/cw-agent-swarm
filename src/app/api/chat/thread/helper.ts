@@ -110,7 +110,7 @@ export async function getFormattedThreadMessages(threadId: string) {
     
     // Format and sort the messages by position
     const formattedMessages = memories
-      .map(memory => ({
+      .map((memory: any) => ({
         id: memory.id,
         content: memory.payload.text,
         role: (memory.payload.metadata as any).role,
@@ -118,7 +118,7 @@ export async function getFormattedThreadMessages(threadId: string) {
         timestamp: memory.payload.metadata.timestamp,
         attachments: (memory.payload.metadata as any).attachments
       }))
-      .sort((a, b) => {
+      .sort((a: any, b: any) => {
         // Sort by thread position
         const posA = a.threadInfo?.position || 0;
         const posB = b.threadInfo?.position || 0;

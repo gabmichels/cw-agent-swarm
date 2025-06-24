@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     });
     
     // Convert search results to a more usable format
-    const allMessages = messageResults.map(result => ({
+    const allMessages = messageResults.map((result: any) => ({
       id: result.point.id,
       text: result.point.payload?.text || '',
       timestamp: result.point.payload?.timestamp,
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     }));
     
     // Filter for this user's messages
-    const userMessages = allMessages.filter(msg => {
+    const userMessages = allMessages.filter((msg: any) => {
       // Cast to MessageMetadata to safely access userId
       const messageMetadata = msg.metadata as MessageMetadata;
       return messageMetadata?.userId && messageMetadata.userId.toString() === userId;

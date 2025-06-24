@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       tagResult: result,
-      extractedTags: result.tags.map(tag => tag.text),
+      extractedTags: result.tags.map((tag: any) => tag.text),
       content: body.content.substring(0, 100) + (body.content.length > 100 ? '...' : '')
     });
   } catch (error) {

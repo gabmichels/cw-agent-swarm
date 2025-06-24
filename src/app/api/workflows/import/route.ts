@@ -55,7 +55,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           limit: 1
         });
         
-        workflowDetails = searchResults.workflows.find(w => w.id.toString() === body.workflowId) || null;
+        workflowDetails = searchResults.workflows.find((w: any) => w.id.toString() === body.workflowId) || null;
         
         if (!workflowDetails) {
           return NextResponse.json(

@@ -83,10 +83,10 @@ export async function GET(request: NextRequest) {
     
     // Get memory entries from search service
     const searchResults = await searchService.search('', searchOptions);
-    const memoryEntries = searchResults.map(result => result.point);
+    const memoryEntries = searchResults.map((result: any) => result.point);
     
     // Format the response
-    const messages = memoryEntries.map(record => {
+    const messages = memoryEntries.map((record: any) => {
       // Cast the metadata to our enhanced type for proper type checking
       const metadata = record.payload?.metadata as FlaggedMetadata;
       
@@ -147,7 +147,7 @@ export async function DELETE(request: NextRequest) {
     
     // Process each ID - mark as deleted and remove flag
     const results = await Promise.allSettled(
-      ids.map(id => 
+      ids.map((id: any) => 
         memoryService.updateMemory({
           id,
           type: MemoryType.MESSAGE, // Default to MESSAGE type - we'll try to determine actual type in real implementation
@@ -161,7 +161,7 @@ export async function DELETE(request: NextRequest) {
     );
     
     // Count successful operations
-    const successCount = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+    const successCount = results.filter((r: any) => r.status === 'fulfilled' && r.value === true).length;
     
     return NextResponse.json({
       success: true,

@@ -117,12 +117,12 @@ async function checkEnvironmentVariables(): Promise<DiagnosticResult> {
     'LANGCHAIN_API_KEY'
   ];
   
-  const envStatus = requiredVars.map(varName => ({
+  const envStatus = requiredVars.map((varName: any) => ({
     name: varName,
     set: !!process.env[varName]
   }));
   
-  const missingVars = envStatus.filter(status => !status.set).map(status => status.name);
+  const missingVars = envStatus.filter((status: any) => !status.set).map((status: any) => status.name);
   
   return {
     success: missingVars.length === 0,

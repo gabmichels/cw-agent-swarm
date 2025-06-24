@@ -49,7 +49,7 @@ export async function GET(
     
     return NextResponse.json({ capabilities });
   } catch (error) {
-    console.error(`Error fetching capabilities for agent ${awaitedParams.agentId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -150,7 +150,7 @@ export async function POST(
       { status: 201 }
     );
   } catch (error) {
-    console.error(`Error adding capability to agent ${awaitedParams.agentId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -186,7 +186,7 @@ export async function PUT(
     }
     
     // Create properly typed capabilities array
-    const capabilities: AgentCapability[] = capabilitiesData.map(data => {
+    const capabilities: AgentCapability[] = capabilitiesData.map((data: any) => {
       if (!data.name || !data.description) {
         throw new Error('Each capability must have a name and description');
       }
@@ -241,7 +241,7 @@ export async function PUT(
       message: 'Agent capabilities updated successfully' 
     });
   } catch (error) {
-    console.error(`Error updating capabilities for agent ${awaitedParams.agentId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

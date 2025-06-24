@@ -14,12 +14,12 @@ export async function GET() {
     
     // Override console methods to capture logs
     console.log = (...args) => {
-      logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+      logs.push(args.map((a: any) => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
       originalConsoleLog(...args);
     };
     
     console.error = (...args) => {
-      logs.push(`ERROR: ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`);
+      logs.push(`ERROR: ${args.map((a: any) => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`);
       originalConsoleError(...args);
     };
     

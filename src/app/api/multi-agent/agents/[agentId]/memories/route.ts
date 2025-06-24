@@ -121,7 +121,7 @@ export async function POST(
             
             if (extractionResult.success && extractionResult.tags.length > 0) {
               // Get tag text from extraction result and combine with basic tags
-              const aiTags = extractionResult.tags.map(tag => tag.text);
+              const aiTags = extractionResult.tags.map((tag: any) => tag.text);
               console.log('DEBUG: AI-extracted tags:', aiTags);
               
               // Combine tags and remove duplicates
@@ -227,7 +227,7 @@ export async function POST(
       results,
       message: allSuccessful 
         ? `Successfully added ${results.length} memories`
-        : `Added ${results.filter(r => r.success).length} of ${results.length} memories`
+        : `Added ${results.filter((r: any) => r.success).length} of ${results.length} memories`
     }, { status: allSuccessful ? 200 : 207 });
     
   } catch (error) {

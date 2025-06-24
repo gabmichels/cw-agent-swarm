@@ -105,7 +105,7 @@ function generateAgentContentSummary(agent: AgentProfile): string {
   
   // Add capabilities
   if (agent.capabilities.length > 0) {
-    summary += ` | Capabilities: ${agent.capabilities.map(c => c.name).join(', ')}`;
+    summary += ` | Capabilities: ${agent.capabilities.map((c: any) => c.name).join(', ')}`;
   }
   
   // Add persona information if available - dynamically built from metadata.persona
@@ -137,8 +137,8 @@ function convertCapabilitiesToSchemaFormat(
     entity: any;
   }>
 ): AgentMemoryEntity['capabilities'] {
-  return capabilityMappings.map(mapping => {
-    const originalCapability = capabilities.find(cap => cap.id === mapping.capabilityId);
+  return capabilityMappings.map((mapping: any) => {
+    const originalCapability = capabilities.find((cap: any) => cap.id === mapping.capabilityId);
     const level = originalCapability?.parameters?.level || 'basic';
     const type = originalCapability?.parameters?.type || 'skill';
     
@@ -299,7 +299,7 @@ export async function POST(request: Request) {
     
     // WORKAROUND: Get all existing capabilities first as a fallback
     const allCapabilities = await capabilityService.getAllCapabilities();
-    const capabilityLookup = new Map(allCapabilities.map(cap => [cap.capabilityId, cap]));
+    const capabilityLookup = new Map(allCapabilities.map((cap: any) => [cap.capabilityId, cap]));
     
     for (const capability of agent.capabilities) {
       try {

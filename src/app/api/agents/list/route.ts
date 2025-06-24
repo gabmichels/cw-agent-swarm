@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     console.log(`Found ${response.points.length} agents in Qdrant`);
     
     // Transform Qdrant points to AgentMetadata
-    const agents: AgentMetadata[] = response.points.map(point => {
+    const agents: AgentMetadata[] = response.points.map((point: any) => {
       const payload = point.payload as any;
       
       // Handle different payload structures that might exist in Qdrant
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     });
     
     // Filter out any invalid agents
-    const validAgents = agents.filter(agent => agent.name && agent.name !== 'Unknown Agent');
+    const validAgents = agents.filter((agent: any) => agent.name && agent.name !== 'Unknown Agent');
     
     console.log(`Returning ${validAgents.length} valid agents`);
     

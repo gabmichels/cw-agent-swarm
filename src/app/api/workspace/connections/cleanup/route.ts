@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
         console.log(`Found ${connections.length} duplicate connections for ${key}`);
         
         // Sort by creation date (keep the newest)
-        connections.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        connections.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         
         // Keep the first (newest) connection, delete the rest
         const toKeep = connections[0];

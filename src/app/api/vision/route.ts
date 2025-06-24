@@ -19,7 +19,7 @@ async function processWithVisionModel(message: string, imageData: Array<{data: s
     console.log(`Processing ${imageData.length} images with GPT-4.1 vision model`);
     
     // Format the conversation history for context (limited to save tokens)
-    const formattedHistory = conversationHistory.slice(-3).map(msg => ({
+    const formattedHistory = conversationHistory.slice(-3).map((msg: any) => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content.length > 300 ? msg.content.substring(0, 300) + '...' : msg.content
     }));
@@ -35,7 +35,7 @@ async function processWithVisionModel(message: string, imageData: Array<{data: s
           + '\n- If you see text in the images, read and include it in your analysis when relevant'
           + '\n- Respond in a natural conversational style'
       },
-      ...formattedHistory.map(msg => ({
+      ...formattedHistory.map((msg: any) => ({
         role: msg.role as 'user' | 'assistant',
         content: msg.content
       })),
@@ -43,7 +43,7 @@ async function processWithVisionModel(message: string, imageData: Array<{data: s
         role: 'user' as const,
         content: [
           { type: 'text' as const, text: message },
-          ...imageData.map(img => ({
+          ...imageData.map((img: any) => ({
             type: 'image_url' as const,
             image_url: {
               url: `data:${img.mimeType};base64,${img.data}`,

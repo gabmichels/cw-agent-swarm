@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     // Get available connections for this agent
     const capabilities = await selector['permissionService'].getAgentWorkspaceCapabilities(agentId);
     
-    const availableConnections = capabilities.map(cap => ({
+    const availableConnections = capabilities.map((cap: any) => ({
       connectionId: cap.connectionId,
       provider: cap.provider,
       connectionName: cap.connectionName,

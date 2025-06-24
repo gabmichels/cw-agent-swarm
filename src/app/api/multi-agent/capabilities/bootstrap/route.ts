@@ -59,10 +59,10 @@ export async function GET() {
     
     // Group by type for easier viewing
     const grouped = {
-      skill: standardCapabilities.filter(cap => cap.type === 'skill'),
-      domain: standardCapabilities.filter(cap => cap.type === 'domain'),
-      role: standardCapabilities.filter(cap => cap.type === 'role'),
-      tag: standardCapabilities.filter(cap => cap.type === 'tag')
+      skill: standardCapabilities.filter((cap: any) => cap.type === 'skill'),
+      domain: standardCapabilities.filter((cap: any) => cap.type === 'domain'),
+      role: standardCapabilities.filter((cap: any) => cap.type === 'role'),
+      tag: standardCapabilities.filter((cap: any) => cap.type === 'tag')
     };
     
     return NextResponse.json({
@@ -71,7 +71,7 @@ export async function GET() {
       capabilities: {
         total: standardCapabilities.length,
         grouped,
-        list: standardCapabilities.map(cap => ({
+        list: standardCapabilities.map((cap: any) => ({
           id: cap.id,
           name: cap.name,
           type: cap.type,

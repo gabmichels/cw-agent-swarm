@@ -109,12 +109,12 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string, specifi
     });
     
     const searchResults = await Promise.race([fetchPromise, timeoutPromise]);
-    const allMessages = searchResults.map(result => result.point);
+    const allMessages = searchResults.map((result: any) => result.point);
     console.log(`Retrieved ${allMessages.length} total messages from memory service`);
     
     // Debug log all messages before grouping
     console.log(`DEBUG - All messages before filtering in loadChatHistoryFromQdrant:`, 
-      allMessages.map(message => {
+      allMessages.map((message: any) => {
         const payload = message.payload as any;
         const metadata = payload.metadata || {};
         return {
@@ -181,12 +181,12 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string, specifi
     }
     
     // Log how many messages were found for the target chat
-    messagesByUser.forEach((messages, userId) => {
+    messagesByUser.forEach((messages: any, userId: any) => {
       console.log(`Found ${messages.length} messages for user ${userId} in chat ${targetChatId}`);
     });
     
     // Sort each user's messages by timestamp
-    messagesByUser.forEach((messages, userId) => {
+    messagesByUser.forEach((messages: any, userId: any) => {
       // Sort by timestamp
       messages.sort((a: any, b: any) => {
         const aTime = (a.payload as any).timestamp || '0';
@@ -222,7 +222,7 @@ export async function loadChatHistoryFromQdrant(specificUserId?: string, specifi
 
 // Function to extract cleaned messages
 function extractCleanedMessages(messages: any[]): string[] {
-  return messages.map(message => {
+  return messages.map((message: any) => {
     const payload = message.payload as any;
     const role = (payload.metadata || {}).role || 'unknown';
     return `${role}: ${payload.text || ''}`;
@@ -278,7 +278,7 @@ async function saveToHistory(userId: string, role: 'user' | 'assistant', content
           console.log(`Message has ${attachments.length} attachments`);
           
           // For each attachment, ensure preview URLs aren't too long
-          processedAttachments = attachments.map(attachment => {
+          processedAttachments = attachments.map((attachment: any) => {
             // If it has a data URL preview that's too long, truncate it or remove it
             if (attachment.preview && attachment.preview.length > 1000 && attachment.preview.startsWith('data:')) {
               // For image attachments, keep a token part of the data URL to indicate it exists

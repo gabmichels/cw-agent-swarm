@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
           // Use scrollPoints instead of getPoints to get all documents with pagination
           const points = await client.scrollPoints('documents', undefined, limit);
           
-          documents = points.map(point => {
+          documents = points.map((point: any) => {
             // Create document data with the correct structure
             const documentData: DocumentData = {
               id: point.id,

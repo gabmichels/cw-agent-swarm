@@ -26,12 +26,12 @@ export async function GET(request: Request) {
 
     // Filter for bookmarked messages
     const bookmarkedMessages = searchResults
-      .filter(memory => {
+      .filter((memory: any) => {
         const metadata = memory.payload?.metadata as MessageMetadata;
         const isBookmarked = (metadata as any)?.[MetadataField.IS_BOOKMARK] === true;
         return isBookmarked;
       })
-      .sort((a, b) => {
+      .sort((a: any, b: any) => {
         // Sort by bookmarked date (most recent first)
         const aMetadata = a.payload?.metadata as MessageMetadata;
         const bMetadata = b.payload?.metadata as MessageMetadata;
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
         return 0;
       })
       .slice(offset, offset + limit)
-      .map(memory => {
+      .map((memory: any) => {
         const metadata = memory.payload?.metadata as MessageMetadata;
         return {
           id: memory.id,
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
         };
       });
 
-    const totalBookmarked = searchResults.filter(memory => {
+    const totalBookmarked = searchResults.filter((memory: any) => {
       const metadata = memory.payload?.metadata as MessageMetadata;
       return (metadata as any)?.[MetadataField.IS_BOOKMARK] === true;
     }).length;

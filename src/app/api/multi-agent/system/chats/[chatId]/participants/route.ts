@@ -9,10 +9,9 @@ export async function GET(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    console.log(`API DEBUG: GET multi-agent/system/chats/${awaitedParams.chatId}/participants`);
-    
-    const { chatId  } = await params;
+    const awaitedParams = await params;const { chatId  } = await params;
+
+    console.log(`API DEBUG: GET multi-agent/system/chats/${chatId}/participants`);
     
     if (!chatId) {
       return NextResponse.json(
@@ -33,7 +32,7 @@ export async function GET(
     
     return NextResponse.json({ participants: chat.participants || [] });
   } catch (error) {
-    console.error(`Error getting chat participants for ${awaitedParams.chatId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -49,10 +48,9 @@ export async function POST(
   request: Request,
   { params }: { params: { chatId: string } }
 ) {
-  try {
-    console.log(`API DEBUG: POST multi-agent/system/chats/${awaitedParams.chatId}/participants`);
-    
-    const { chatId  } = await params;
+  try {const { chatId  } = await params;
+
+    console.log(`API DEBUG: POST multi-agent/system/chats/${chatId}/participants`);
     const data = await request.json();
     
     if (!chatId) {
@@ -89,7 +87,7 @@ export async function POST(
     }
     
     // Check if participant already exists in the chat
-    const existingParticipant = chat.participants?.find(p => p.id === data.id);
+    const existingParticipant = chat.participants?.find((p: any) => p.id === data.id);
     
     if (existingParticipant) {
       return NextResponse.json(
@@ -130,7 +128,7 @@ export async function POST(
       message: 'Participant added successfully'
     });
   } catch (error) {
-    console.error(`Error adding participant to chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -146,10 +144,9 @@ export async function DELETE(
   request: Request,
   { params }: { params: { chatId: string } }
 ) {
-  try {
-    console.log(`API DEBUG: DELETE multi-agent/system/chats/${awaitedParams.chatId}/participants`);
-    
-    const { chatId  } = await params;
+  try {const { chatId  } = await params;
+
+    console.log(`API DEBUG: DELETE multi-agent/system/chats/${chatId}/participants`);
     
     if (!chatId) {
       return NextResponse.json(
@@ -194,7 +191,7 @@ export async function DELETE(
       remainingParticipants: originalParticipants.length
     });
   } catch (error) {
-    console.error(`Error removing participants from chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

@@ -33,7 +33,7 @@ export async function GET(request: Request) {
       
       // Deduplicate capabilities by ID
       const seenIds = new Set<string>();
-      const deduplicatedCapabilities = rawCapabilities.filter(cap => {
+      const deduplicatedCapabilities = rawCapabilities.filter((cap: any) => {
         if (!cap || !cap.name || !cap.type || !cap.id) {
           return false;
         }
@@ -53,7 +53,7 @@ export async function GET(request: Request) {
       
       // Deduplicate capabilities by ID
       const seenIds = new Set<string>();
-      const deduplicatedCapabilities = rawCapabilities.filter(cap => {
+      const deduplicatedCapabilities = rawCapabilities.filter((cap: any) => {
         if (!cap || !cap.name || !cap.type || !cap.id) {
           return false;
         }
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
       
       // Deduplicate capabilities by ID - this is crucial to avoid React key errors
       const seenIds = new Set<string>();
-      capabilities = allCapabilities.filter(cap => {
+      capabilities = allCapabilities.filter((cap: any) => {
         // Skip if capability is malformed
         if (!cap || !cap.name || !cap.type || !cap.id) {
           return false;
@@ -98,7 +98,7 @@ export async function GET(request: Request) {
       });
       
       // Sort by name for consistent ordering (with null safety)
-      capabilities.sort((a, b) => {
+      capabilities.sort((a: any, b: any) => {
         const nameA = a.name || '';
         const nameB = b.name || '';
         return nameA.localeCompare(nameB);

@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
           
           case 'remove':
             // Remove specified tags
-            updatedTags = existingTags.filter(tag => !tags.includes(tag));
+            updatedTags = existingTags.filter((tag: any) => !tags.includes(tag));
             break;
           
           case 'replace':

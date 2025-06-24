@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     });
     
     // Map to a simplified memory structure with properly typed metadata
-    const sourceMemories = searchResults.map(result => ({
+    const sourceMemories = searchResults.map((result: any) => ({
       id: result.point.id,
       text: result.point.payload.text,
       type: result.type,
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       console.log('[memory/transfer] Dry run - no memories were actually transferred');
       
       // In dry run mode, just return the memories that would be transferred
-      results.push(...sourceMemories.map(memory => ({
+      results.push(...sourceMemories.map((memory: any) => ({
         originalId: memory.id,
         type: memory.type,
         timestamp: memory.timestamp,

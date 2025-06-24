@@ -149,7 +149,7 @@ export async function GET(
     }
     
     // Filter to only message types (client-side validation)
-    const messageResults = searchResults.filter(result => {
+    const messageResults = searchResults.filter((result: any) => {
       const payloadType = result.point?.payload?.type;
       const metadataType = (result.point?.payload?.metadata as any)?.type;
       const actualType = payloadType || metadataType;
@@ -160,7 +160,7 @@ export async function GET(
       console.debug(`✅ Filtered to ${messageResults.length} message items (removed ${searchResults.length - messageResults.length} non-message items)`);
     }
     
-    const nonMessageResults = searchResults.filter(result => {
+    const nonMessageResults = searchResults.filter((result: any) => {
       const payloadType = result.point?.payload?.type;
       const metadataType = (result.point?.payload?.metadata as any)?.type;
       const actualType = payloadType || metadataType;
@@ -170,7 +170,7 @@ export async function GET(
     const validatedResults = messageResults; // Use filtered message results
 
     // Format the messages with additional type checking
-    const messages = validatedResults.map(result => {
+    const messages = validatedResults.map((result: any) => {
       const point = result.point;
       const payload = point.payload;
       // Properly type the metadata
@@ -266,7 +266,7 @@ export async function GET(
       }
     });
   } catch (error) {
-    console.error(`Error retrieving messages for chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error retrieving messages for chat ${chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -434,7 +434,7 @@ export async function POST(
       });
       
       if (extractionResult.success && extractionResult.tags.length > 0) {
-        userMessageTags = extractionResult.tags.map(tag => tag.text);
+        userMessageTags = extractionResult.tags.map((tag: any) => tag.text);
         console.log(`Extracted ${userMessageTags.length} tags from user message:`, userMessageTags);
       }
     } catch (extractionError) {
@@ -740,7 +740,7 @@ export async function POST(
       
       if (extractionResult.success && extractionResult.tags.length > 0) {
         // Get the extracted tags and add to existing agent_response tag
-        const extractedTags = extractionResult.tags.map(tag => tag.text);
+        const extractedTags = extractionResult.tags.map((tag: any) => tag.text);
         responseMessageTags = [...responseMessageTags, ...extractedTags];
         console.log(`Extracted ${extractedTags.length} tags from agent response:`, extractedTags);
       }

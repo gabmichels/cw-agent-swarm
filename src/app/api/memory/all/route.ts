@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       diagnosticResults.health = {
         status: status.initialized ? 'ok' : 'not_initialized',
         messageCount: recentMessages.length,
-        recentMessages: recentMessages.map(r => ({
+        recentMessages: recentMessages.map((r: any) => ({
           id: r.point.id,
           // Use the memory type from the actual record
           memoryType: (r.point as any).type || MemoryType.MESSAGE,
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       console.log(`[memory/all/route] Recent messages count: ${recentMessages.length}`);
       
       // Sample of memory types in the health check - handle as any to access type
-      const messageTypes = new Set(recentMessages.map(msg => (msg.point as any).type || MemoryType.MESSAGE));
+      const messageTypes = new Set(recentMessages.map((msg: any) => (msg.point as any).type || MemoryType.MESSAGE));
       console.log(`[memory/all/route] Message types in health check: ${Array.from(messageTypes).join(', ')}`);
     } catch (healthError) {
       console.error('[memory/all/route] Error checking database health:', healthError);
@@ -199,7 +199,7 @@ export async function GET(request: NextRequest) {
       }
       
       const searchResults = await searchService.search('', searchOptions);
-      memoryEntries = searchResults.map(result => result.point);
+      memoryEntries = searchResults.map((result: any) => result.point);
     } else {
       // For all types, combine results from different memory types
       console.log('[memory/all/route] Fetching memories from all types');
@@ -225,7 +225,7 @@ export async function GET(request: NextRequest) {
             }
             
             const typeResults = await searchService.search('', searchOptions);
-            const typeMemories = typeResults.map(result => result.point);
+            const typeMemories = typeResults.map((result: any) => result.point);
             
             console.log(`[memory/all/route] Found ${typeMemories.length} memories of type ${memoryType}`);
             memoryEntries.push(...typeMemories);
@@ -235,7 +235,7 @@ export async function GET(request: NextRequest) {
         }
         
         // Sort all memories by timestamp (newest first)
-        memoryEntries.sort((a, b) => {
+        memoryEntries.sort((a: any, b: any) => {
           const timeA = a.payload?.timestamp ? new Date(a.payload.timestamp).getTime() : 0;
           const timeB = b.payload?.timestamp ? new Date(b.payload.timestamp).getTime() : 0;
           return timeB - timeA;
@@ -268,7 +268,7 @@ export async function GET(request: NextRequest) {
     
     // Format the response
     const items = memoryEntries && Array.isArray(memoryEntries) 
-      ? memoryEntries.map(record => formatMemory(record)).filter(Boolean)
+      ? memoryEntries.map((record: any) => formatMemory(record)).filter(Boolean)
       : [];
     
     console.log(`[memory/all/route] Returning ${items.length} formatted items`);

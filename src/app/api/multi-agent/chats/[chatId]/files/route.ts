@@ -308,12 +308,12 @@ export async function POST(
     // Define message content - include description of files if needed
     let messageContent = message;
     if (!messageContent) {
-      const fileDescriptions = storedFiles.map(f => `- ${f.originalName} (${f.type})`).join('\n');
+      const fileDescriptions = storedFiles.map((f: any) => `- ${f.originalName} (${f.type})`).join('\n');
       messageContent = `[Shared files without additional context:\n${fileDescriptions}]`;
     }
     
     // Create message attachments in the format expected by memory service
-    const messageAttachments: MetadataMessageAttachment[] = storedFiles.map(file => ({
+    const messageAttachments: MetadataMessageAttachment[] = storedFiles.map((file: any) => ({
       type: file.type,
       url: file.url,
       filename: file.originalName,
@@ -329,7 +329,7 @@ export async function POST(
       });
       
       if (extractionResult.success && extractionResult.tags.length > 0) {
-        userMessageTags = extractionResult.tags.map(tag => tag.text);
+        userMessageTags = extractionResult.tags.map((tag: any) => tag.text);
         console.log(`Extracted ${userMessageTags.length} tags from user message with files:`, userMessageTags);
       } else {
         // Fallback to basic tag extraction if AI extraction produces no results
@@ -342,7 +342,7 @@ export async function POST(
     }
     
     // Add file type tags to extracted message tags
-    const fileTypeTags = storedFiles.map(file => file.type.toLowerCase());
+    const fileTypeTags = storedFiles.map((file: any) => file.type.toLowerCase());
     const allTags = Array.from(new Set([...userMessageTags, 'file_upload', ...fileTypeTags]));
     console.log(`Final tags for file message: ${allTags.join(', ')}`);
     
@@ -368,7 +368,7 @@ export async function POST(
           conversationContext: {
             purpose: 'file_sharing',
             sharedContext: {
-              uploadedFiles: storedFiles.map(file => ({
+              uploadedFiles: storedFiles.map((file: any) => ({
                 name: file.originalName,
                 type: file.type,
                 id: file.id,
@@ -477,7 +477,7 @@ export async function POST(
       
       // Add information about vision processing to the message content if needed
       let enhancedMessage = messageContent;
-      const imageAttachments = processedAttachments.filter(att => att.is_image_for_vision);
+      const imageAttachments = processedAttachments.filter((att: any) => att.is_image_for_vision);
       
       if (imageAttachments.length > 0) {
         // If no explicit message was provided, create one that instructs the model to analyze the images
@@ -488,7 +488,7 @@ export async function POST(
         // Log that we're using vision processing
         console.log(`Processing ${imageAttachments.length} images with vision capabilities`);
         // Log whether we have base64 data for any images
-        const imagesWithBase64 = imageAttachments.filter(att => att.vision_data?.base64Data).length;
+        const imagesWithBase64 = imageAttachments.filter((att: any) => att.vision_data?.base64Data).length;
         console.log(`${imagesWithBase64} of ${imageAttachments.length} images have base64 data available`);
       }
       
@@ -598,13 +598,13 @@ export async function POST(
       {
         messageType: 'assistant_response_to_file',
         metadata: {
-          tags: ['file_response', ...storedFiles.map(file => file.type)],
+          tags: ['file_response', ...storedFiles.map((file: any) => file.type)],
           category: 'file_response',
           conversationContext: {
             purpose: 'file_analysis',
             sharedContext: {
-              processedFiles: storedFiles.map(file => file.originalName),
-              fileTypes: storedFiles.map(file => file.type),
+              processedFiles: storedFiles.map((file: any) => file.originalName),
+              fileTypes: storedFiles.map((file: any) => file.type),
               thoughts,
               memories
             }

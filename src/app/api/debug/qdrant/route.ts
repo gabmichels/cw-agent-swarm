@@ -60,7 +60,7 @@ export async function GET() {
           limit: 3 
         });
         
-        searchResults = results.map(result => ({
+        searchResults = results.map((result: any) => ({
           id: result.point.id,
           text: result.point.payload.text,
           score: result.score,

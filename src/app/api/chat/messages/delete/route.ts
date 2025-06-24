@@ -91,7 +91,7 @@ export async function DELETE(request: NextRequest) {
         }
       });
       
-      memories = searchResults.map(result => ({
+      memories = searchResults.map((result: any) => ({
         id: result.point.id,
         timestamp: result.point.payload?.timestamp,
         metadata: (result.point.payload?.metadata || {}) as MessageMetadata
@@ -101,7 +101,7 @@ export async function DELETE(request: NextRequest) {
     console.log(`Retrieved ${memories.length} messages`);
     
     // Find the specific message, filtering by userId if provided
-    const targetMessage = memories.find(m => 
+    const targetMessage = memories.find((m: any) => 
       (!m.metadata?.userId || !userId || m.metadata.userId === userId)
     );
     

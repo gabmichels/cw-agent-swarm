@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     console.log(`Found ${prismaDeparts.length} departments in database`);
     
     // Transform Prisma departments to our Department interface
-    const departments: Department[] = prismaDeparts.map(dept => ({
+    const departments: Department[] = prismaDeparts.map((dept: any) => ({
       id: dept.id,
       name: dept.name,
       description: dept.description || undefined,

@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     }
     
     if (status) {
-      gaps = gaps.filter(gap => gap.status === status);
+      gaps = gaps.filter((gap: any) => gap.status === status);
     }
     
     // Apply limit
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     const gaps = await service.analyzeConversation(conversation, options);
     
     // Get learning priorities for these gaps
-    const priorities = gaps.map(gap => 
+    const priorities = gaps.map((gap: any) => 
       service.getLearningPrioritiesForGap(gap.id)
     ).flat();
     

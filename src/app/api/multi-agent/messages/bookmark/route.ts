@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     }
 
     // Find the exact message by ID using multiple strategies
-    let targetMemory = searchResults.find(memory => {
+    let targetMemory = searchResults.find((memory: any) => {
       const metadata = memory.payload?.metadata as MessageMetadata;
       const memoryMessageId = (metadata as any)?.[MetadataField.MESSAGE_ID] ||
         (memory.payload as any)?.messageId ||
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     // If not found by messageId, try to find by timestamp and content similarity
     if (!targetMemory && timestamp && content) {
       const searchTimestamp = new Date(timestamp).toISOString();
-      targetMemory = searchResults.find(memory => {
+      targetMemory = searchResults.find((memory: any) => {
         const metadata = memory.payload?.metadata as MessageMetadata;
         const memoryTimestamp = (metadata as any)?.[MetadataField.TIMESTAMP] ||
           (memory.payload as any)?.timestamp;
@@ -200,7 +200,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const targetMemory = searchResults.find(memory => {
+    const targetMemory = searchResults.find((memory: any) => {
       const metadata = memory.payload?.metadata as MessageMetadata;
       const memoryMessageId = (metadata as any)?.[MetadataField.MESSAGE_ID] ||
         (memory.payload as any)?.messageId;

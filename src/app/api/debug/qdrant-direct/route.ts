@@ -107,7 +107,7 @@ async function listCollections(client: QdrantClient) {
     return NextResponse.json({
       success: true,
       result: {
-        collections: collections.map(c => c.name),
+        collections: collections.map((c: any) => c.name),
         count: collections.length
       }
     });
@@ -125,7 +125,7 @@ async function listCollections(client: QdrantClient) {
 async function deleteAllCollections(client: QdrantClient) {
   try {
     const { collections } = await client.getCollections();
-    const collectionNames = collections.map(c => c.name);
+    const collectionNames = collections.map((c: any) => c.name);
     
     // Group by collection name prefix (like memory_, documents_, etc.)
     const groupedByType: Record<string, { count: number; deleted: boolean }> = {};
@@ -254,7 +254,7 @@ async function scrollPoints(client: QdrantClient, collectionName: string, limit:
       success: true,
       result: {
         collection: collectionName,
-        points: result.points.map(p => ({
+        points: result.points.map((p: any) => ({
           id: p.id,
           vector: p.vector,
           payload: p.payload
@@ -342,7 +342,7 @@ async function createCollections(client: QdrantClient, collections: Array<{name:
           name: collection.name,
           created: true,
           dimensions: collection.dimensions,
-          indices: indices.map(i => i.field_name)
+          indices: indices.map((i: any) => i.field_name)
         });
       } catch (error) {
         results.push({
@@ -358,7 +358,7 @@ async function createCollections(client: QdrantClient, collections: Array<{name:
       result: {
         collections: results,
         totalRequested: collections.length,
-        totalCreated: results.filter(r => r.created).length
+        totalCreated: results.filter((r: any) => r.created).length
       }
     });
   } catch (error) {

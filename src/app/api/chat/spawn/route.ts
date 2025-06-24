@@ -61,7 +61,7 @@ export async function POST(request: Request) {
         id: chatSession.id,
         title: chatSession.metadata?.title,
         createdAt: chatSession.createdAt,
-        participants: chatSession.participants.map(p => ({
+        participants: chatSession.participants.map((p: any) => ({
           id: p.id,
           type: p.type
         }))

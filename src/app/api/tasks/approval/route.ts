@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     try {
       const realApprovals = await approvalSchedulerIntegration.getPendingApprovals(chatId);
       if (realApprovals.length > 0) {
-        pendingApprovals = realApprovals.map(approval => ({
+        pendingApprovals = realApprovals.map((approval: any) => ({
           id: approval.id,
           taskId: approval.taskId,
           type: approval.taskType,

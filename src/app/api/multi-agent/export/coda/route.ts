@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
     // Create enhanced Coda tools
     const enhancedCodaTools = createAllEnhancedCodaTools();
-    const createTool = enhancedCodaTools.find(tool => tool.id === 'enhanced_coda_create');
+    const createTool = enhancedCodaTools.find((tool: any) => tool.id === 'enhanced_coda_create');
 
     if (!createTool) {
       throw new Error('Enhanced Coda create tool not available');
@@ -97,7 +97,7 @@ function generateTitleFromContent(content: string): string | null {
   }
 
   // Use first meaningful line
-  const lines = content.split('\n').filter(line => line.trim().length > 0);
+  const lines = content.split('\n').filter((line: any) => line.trim().length > 0);
   if (lines.length > 0) {
     const firstLine = lines[0].trim();
     // Remove markdown formatting and limit length

@@ -18,7 +18,7 @@ export async function GET() {
     console.log(`✅ Found ${capabilities.length} capabilities in collection`);
     
     // Transform to UI-friendly format
-    const uiCapabilities = capabilities.map(cap => ({
+    const uiCapabilities = capabilities.map((cap: any) => ({
       id: cap.capabilityId, // Use the string ID for UI selection
       pointId: cap.pointId, // Include UUID for reference
       name: cap.entity.name,
@@ -35,10 +35,10 @@ export async function GET() {
     
     // Group by type for easier UI consumption
     const groupedCapabilities = {
-      skill: uiCapabilities.filter(cap => cap.type === 'skill'),
-      domain: uiCapabilities.filter(cap => cap.type === 'domain'),
-      role: uiCapabilities.filter(cap => cap.type === 'role'),
-      tag: uiCapabilities.filter(cap => cap.type === 'tag')
+      skill: uiCapabilities.filter((cap: any) => cap.type === 'skill'),
+      domain: uiCapabilities.filter((cap: any) => cap.type === 'domain'),
+      role: uiCapabilities.filter((cap: any) => cap.type === 'role'),
+      tag: uiCapabilities.filter((cap: any) => cap.type === 'tag')
     };
     
     return NextResponse.json({

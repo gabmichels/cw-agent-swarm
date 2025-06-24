@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       // If neither userId nor organizationId is provided, return all connections
       // This is useful for development and testing
       const allConnections = await prisma.socialMediaConnection.findMany();
-              connections = allConnections.map(conn => ({
+              connections = allConnections.map((conn: any) => ({
           id: conn.id,
           userId: conn.userId || '',
           organizationId: conn.organizationId || '',
@@ -65,11 +65,11 @@ export async function GET(request: NextRequest) {
     
     // Filter based on additional query parameters
     if (validatedQuery.provider) {
-      connections = connections.filter(conn => conn.provider === validatedQuery.provider);
+      connections = connections.filter((conn: any) => conn.provider === validatedQuery.provider);
     }
     
     if (validatedQuery.status) {
-      connections = connections.filter(conn => conn.connectionStatus === validatedQuery.status);
+      connections = connections.filter((conn: any) => conn.connectionStatus === validatedQuery.status);
     }
 
     // Apply pagination
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     );
 
     // Remove sensitive data before sending to client
-    const sanitizedConnections = paginatedConnections.map(conn => ({
+    const sanitizedConnections = paginatedConnections.map((conn: any) => ({
       id: conn.id,
       userId: conn.userId,
       organizationId: conn.organizationId,

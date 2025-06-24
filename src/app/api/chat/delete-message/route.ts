@@ -77,7 +77,7 @@ export async function DELETE(request: NextRequest) {
       }
     });
     
-    const memories = searchResults.map(result => ({
+    const memories = searchResults.map((result: any) => ({
       id: result.point.id,
       timestamp: result.point.payload?.timestamp,
       metadata: (result.point.payload?.metadata || {}) as MessageMetadata
@@ -87,7 +87,7 @@ export async function DELETE(request: NextRequest) {
     
     // Debug log to inspect message timestamps
     console.log('Available message timestamps:', 
-      memories.map(m => ({ 
+      memories.map((m: any) => ({ 
         timestamp: m.timestamp, 
         userId: m.metadata?.userId 
       }))
@@ -95,7 +95,7 @@ export async function DELETE(request: NextRequest) {
     
     // Compare the timestamp while being more flexible with userId
     // Some messages may not have userId set in metadata
-    const targetMessage = memories.find(m => 
+    const targetMessage = memories.find((m: any) => 
       m.timestamp === timestamp && 
       (!m.metadata?.userId || !userId || m.metadata.userId === userId)
     );

@@ -126,7 +126,7 @@ async function getConversationHistory(userId: string) {
     
     // Convert to a more usable format
     const userMessages = recentMessages
-      .map(result => {
+      .map((result: any) => {
         const payload = result.point.payload as unknown as MemoryPayload;
         return {
           role: payload.role || 'user',
@@ -135,11 +135,11 @@ async function getConversationHistory(userId: string) {
           importance: payload.importance || ImportanceLevel.MEDIUM
         };
       })
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     
     // Prioritize important messages and keep more context
     // Get all high importance messages regardless of recency
-    const highImportanceMessages = userMessages.filter(m => m.importance === ImportanceLevel.HIGH);
+    const highImportanceMessages = userMessages.filter((m: any) => m.importance === ImportanceLevel.HIGH);
     
     // Get the most recent messages (up to 10)
     const recentContextMessages = userMessages.slice(-10);
@@ -147,7 +147,7 @@ async function getConversationHistory(userId: string) {
     // Combine and deduplicate
     const allContextMessages = [...highImportanceMessages, ...recentContextMessages];
     const seenIds = new Set();
-    const dedupedMessages = allContextMessages.filter(m => {
+    const dedupedMessages = allContextMessages.filter((m: any) => {
       const messageId = `${m.role}-${m.timestamp}`;
       if (seenIds.has(messageId)) return false;
       seenIds.add(messageId);
@@ -231,7 +231,7 @@ async function processWithVisionModel(message: string, images: Array<{fileId: st
     if (processedImages.length === 0) {
       return {
         success: false,
-        error: `Failed to process any images. Errors: ${failedImages.map(f => `${f.id}: ${f.reason}`).join(', ')}`
+        error: `Failed to process any images. Errors: ${failedImages.map((f: any) => `${f.id}: ${f.reason}`).join(', ')}`
       };
     }
     
@@ -292,7 +292,7 @@ export async function POST(request: NextRequest) {
       await fileProcessor.initialize();
     }
     
-    const fileKeys = Array.from(formData.keys()).filter(key => key.startsWith('file_'));
+    const fileKeys = Array.from(formData.keys()).filter((key: any) => key.startsWith('file_'));
     const processedFilesData: Array<{ metadata: any, fullText: string | null }> = []; // To store results
     const imageFiles = []; // For vision model
 
@@ -371,16 +371,16 @@ export async function POST(request: NextRequest) {
         // Note: We aren't flagging image content in this flow yet.
          return NextResponse.json({
             ...visionResponse,
-            files: processedFilesData.map(p => p.metadata), // Return only metadata to client
+            files: processedFilesData.map((p: any) => p.metadata), // Return only metadata to client
             containsImageRequest
          });
     }
     
     // --- Standard File Processing & Chat Response --- 
     let fileContext = '';
-    const successfulFiles = processedFilesData.filter(p => p.metadata.processingStatus === 'completed');
+    const successfulFiles = processedFilesData.filter((p: any) => p.metadata.processingStatus === 'completed');
     if (successfulFiles.length > 0) {
-      const fileInfos = successfulFiles.map(fileData => {
+      const fileInfos = successfulFiles.map((fileData: any) => {
         const summary = fileData.metadata.summary && fileData.metadata.summary.length > 200 
           ? fileData.metadata.summary.substring(0, 200) + "..." 
           : fileData.metadata.summary;
@@ -389,7 +389,7 @@ export async function POST(request: NextRequest) {
       fileContext = `\n\n[SYSTEM: Files processed: ${successfulFiles.length}. Files: \n${fileInfos}]`;
     }
     
-    const attachmentsForChat = successfulFiles.map(p => ({
+    const attachmentsForChat = successfulFiles.map((p: any) => ({
         filename: p.metadata.filename,
         type: p.metadata.mimeType.startsWith('image/') ? 'image' : 'document',
         fileId: p.metadata.fileId,
@@ -425,7 +425,7 @@ export async function POST(request: NextRequest) {
     // Return response with file processing metadata (not full text)
     return NextResponse.json({
       ...responseData,
-      files: processedFilesData.map(p => p.metadata) // Send only metadata back
+      files: processedFilesData.map((p: any) => p.metadata) // Send only metadata back
     });
 
   } catch (error: any) {

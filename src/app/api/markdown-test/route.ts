@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
     console.log(`[markdown-test] Retrieved ${allDocuments.length} document memories`);
     
     // Identify markdown documents using multiple criteria
-    const markdownDocs = allDocuments.filter(memory => {
+    const markdownDocs = allDocuments.filter((memory: any) => {
       const metadata = memory.point?.metadata || {};
       const payload = memory.point?.payload || {};
       const payloadMetadata = payload.metadata || {};
@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
     let documentsWithTags = 0;
     
     // Process each document
-    const processedDocs = markdownDocs.map(doc => {
+    const processedDocs = markdownDocs.map((doc: any) => {
       const metadata = doc.point?.metadata || {};
       const payload = doc.point?.payload || {};
       const payloadMetadata = payload.metadata || {};

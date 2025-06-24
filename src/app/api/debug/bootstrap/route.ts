@@ -26,7 +26,7 @@ export async function POST() {
       message: `Successfully bootstrapped ${agentCount} agents`,
       agentCount,
       registryStats: stats,
-      agents: agents.map(agent => ({
+      agents: agents.map((agent: any) => ({
         id: agent.getAgentId(),
         type: agent.constructor.name,
         hasProcessUserInput: typeof (agent as any).processUserInput === 'function'
@@ -59,7 +59,7 @@ export async function GET() {
       success: true,
       currentAgentCount: agents.length,
       registryStats: stats,
-      agents: agents.map(agent => ({
+      agents: agents.map((agent: any) => ({
         id: agent.getAgentId(),
         type: agent.constructor.name,
         hasProcessUserInput: typeof (agent as any).processUserInput === 'function'

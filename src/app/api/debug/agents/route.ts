@@ -21,7 +21,7 @@ export async function GET() {
       agentCount: agents.length,
       registryStats: stats,
       debugInfo,
-      agents: agents.map(agent => {
+      agents: agents.map((agent: any) => {
         try {
           return {
             id: agent.getId ? agent.getId() : agent.getAgentId(),

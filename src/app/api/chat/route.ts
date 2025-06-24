@@ -14,7 +14,7 @@ function deduplicateThoughts(thoughts: string[]): string[] {
   if (!thoughts || !Array.isArray(thoughts)) return [];
   
   const seen = new Set<string>();
-  return thoughts.filter(thought => {
+  return thoughts.filter((thought: any) => {
     // Normalize the thought by removing timestamps and trimming
     const normalizedThought = thought.replace(/^\[\d{2}:\d{2}:\d{2}\]/i, '').trim();
     

@@ -50,7 +50,7 @@ export async function POST() {
     
     // Verify registration
     const updatedAgents = getAllAgents();
-    const registered = updatedAgents.find(a => {
+    const registered = updatedAgents.find((a: any) => {
       try {
         return a.getId() === 'manual-test-agent';
       } catch (e) {

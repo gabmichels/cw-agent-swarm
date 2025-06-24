@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       });
       
       // Convert search results to a more usable format
-      const allMessages = messageResults.map(result => ({
+      const allMessages = messageResults.map((result: any) => ({
         id: result.point.id,
         text: result.point.payload?.text || '',
         timestamp: result.point.payload?.timestamp,
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       }));
       
       // Cast metadata to ExtendedMessageMetadata to access its fields properly
-      const userMessages = allMessages.filter(msg => {
+      const userMessages = allMessages.filter((msg: any) => {
         const messageMetadata = msg.metadata as ExtendedMessageMetadata;
         return messageMetadata?.userId && messageMetadata.userId.toString() === userId;
       });
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
       console.log(`Found ${userMessages.length} messages for user ${userId}`);
 
       // Count messages with attachments
-      const messagesWithAttachments = userMessages.filter(msg => {
+      const messagesWithAttachments = userMessages.filter((msg: any) => {
         const messageMetadata = msg.metadata as ExtendedMessageMetadata;
         return messageMetadata?.attachments && 
                Array.isArray(messageMetadata.attachments) && 

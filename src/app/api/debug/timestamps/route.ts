@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     });
     
     // Get raw messages and analyze timestamps
-    const messageAnalysis = searchResults.map(result => {
+    const messageAnalysis = searchResults.map((result: any) => {
       const point = result.point;
       const payload = point.payload;
       const timestamp = payload.timestamp;

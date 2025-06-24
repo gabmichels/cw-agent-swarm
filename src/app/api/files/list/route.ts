@@ -15,7 +15,7 @@ export async function GET() {
     const files = fileProcessor.getAllFiles();
     
     // Sort by upload date (newest first)
-    files.sort((a, b) => {
+    files.sort((a: any, b: any) => {
       const dateA = new Date(a.uploadDate);
       const dateB = new Date(b.uploadDate);
       return dateB.getTime() - dateA.getTime();
@@ -24,7 +24,7 @@ export async function GET() {
     // Return file list
     return NextResponse.json({
       success: true,
-      files: files.map(file => ({
+      files: files.map((file: any) => ({
         fileId: file.fileId,
         filename: file.filename,
         mimeType: file.mimeType,

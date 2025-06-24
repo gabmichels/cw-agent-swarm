@@ -35,7 +35,7 @@ export async function POST(
     
     // Create participant records
     const timestamp = new Date();
-    const participants: ChatParticipant[] = requestData.participants.map(participant => ({
+    const participants: ChatParticipant[] = requestData.participants.map((participant: any) => ({
       id: `participant_${ulid()}`,
       chatId,
       participantId: participant.participantId,

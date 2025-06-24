@@ -169,7 +169,7 @@ export async function GET(request: Request) {
     console.log(`Returning ${chats.length} chats`);
     
     // Map to the expected response format
-    const chatProfiles = chats.map(chat => ({
+    const chatProfiles = chats.map((chat: any) => ({
       id: chat.id,
       name: chat.metadata?.title || 'Untitled Chat',
       description: chat.metadata?.description || '',
@@ -181,7 +181,7 @@ export async function GET(request: Request) {
       },
       metadata: {
         ...chat.metadata,
-        participants: chat.participants.map(p => ({
+        participants: chat.participants.map((p: any) => ({
           id: p.id,
           type: p.type
         }))

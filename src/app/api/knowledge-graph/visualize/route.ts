@@ -31,27 +31,27 @@ export async function GET(request: NextRequest) {
     
     // Filter by node type
     if (nodeTypes.length > 0) {
-      filteredNodes = filteredNodes.filter(node => nodeTypes.includes(node.type as KnowledgeNodeType));
+      filteredNodes = filteredNodes.filter((node: any) => nodeTypes.includes(node.type as KnowledgeNodeType));
     }
     
     // Filter by tag
     if (tags.length > 0) {
-      filteredNodes = filteredNodes.filter(node => 
+      filteredNodes = filteredNodes.filter((node: any) => 
         node.tags && node.tags.some((tag: string) => tags.includes(tag))
       );
     }
     
     // Get the IDs of all filtered nodes
-    const filteredNodeIds = new Set(filteredNodes.map(node => node.id));
+    const filteredNodeIds = new Set(filteredNodes.map((node: any) => node.id));
     
     // Filter edges to only include those connecting filtered nodes
-    let filteredEdges = allEdges.filter(edge => 
+    let filteredEdges = allEdges.filter((edge: any) => 
       filteredNodeIds.has(edge.from) && filteredNodeIds.has(edge.to)
     );
     
     // Filter by edge type
     if (edgeTypes.length > 0) {
-      filteredEdges = filteredEdges.filter(edge => edgeTypes.includes(edge.type as KnowledgeEdgeType));
+      filteredEdges = filteredEdges.filter((edge: any) => edgeTypes.includes(edge.type as KnowledgeEdgeType));
     }
     
     // Format for visualization (compatible with common graph visualization libraries)

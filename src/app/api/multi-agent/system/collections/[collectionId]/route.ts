@@ -17,10 +17,9 @@ export async function GET(
   { params }: { params: { collectionId: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    console.log(`API DEBUG: GET multi-agent/system/collections/${awaitedParams.collectionId}`);
-    
-    const { collectionId  } = await params;
+    const awaitedParams = await params;const { collectionId  } = await params;
+
+    console.log(`API DEBUG: GET multi-agent/system/collections/${collectionId}`);
     
     if (!collectionId) {
       return NextResponse.json(
@@ -53,7 +52,7 @@ export async function GET(
     
     return NextResponse.json({ collection: collectionInfo });
   } catch (error) {
-    console.error(`Error getting collection ${awaitedParams.collectionId}:`, error);
+    console.error(`Error getting collection:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -69,10 +68,9 @@ export async function PUT(
   request: Request,
   { params }: { params: { collectionId: string } }
 ) {
-  try {
-    console.log(`API DEBUG: PUT multi-agent/system/collections/${awaitedParams.collectionId}`);
-    
-    const { collectionId  } = await params;
+  try {const { collectionId  } = await params;
+
+    console.log(`API DEBUG: PUT multi-agent/system/collections/${collectionId}`);
     const updateData = await request.json();
     
     if (!collectionId) {
@@ -118,7 +116,7 @@ export async function PUT(
       message: 'Collection metadata updated successfully'
     });
   } catch (error) {
-    console.error(`Error updating collection ${awaitedParams.collectionId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -134,10 +132,9 @@ export async function DELETE(
   request: Request,
   { params }: { params: { collectionId: string } }
 ) {
-  try {
-    console.log(`API DEBUG: DELETE multi-agent/system/collections/${awaitedParams.collectionId}`);
-    
-    const { collectionId  } = await params;
+  try {const { collectionId  } = await params;
+
+    console.log(`API DEBUG: DELETE multi-agent/system/collections/${collectionId}`);
     
     if (!collectionId) {
       return NextResponse.json(
@@ -167,7 +164,7 @@ export async function DELETE(
       message: 'Collection deleted successfully'
     });
   } catch (error) {
-    console.error(`Error deleting collection ${awaitedParams.collectionId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     if (searchResults.length > 0) {
       // If messageId was provided, try to match by ID first
       if (messageId) {
-        targetMemory = searchResults.find(result => {
+        targetMemory = searchResults.find((result: any) => {
           const metadata = result.point.payload?.metadata as ExtendedMessageMetadata;
           return result.point.id === messageId || 
                 (metadata && metadata.messageId === messageId);
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       
       // If no match by ID or ID wasn't provided, try to match by timestamp
       if (!targetMemory && timestamp) {
-        targetMemory = searchResults.find(result => {
+        targetMemory = searchResults.find((result: any) => {
           const messageTimestamp = result.point.payload?.timestamp || 
                                 result.point.payload?.metadata?.timestamp;
           return messageTimestamp === timestamp || 

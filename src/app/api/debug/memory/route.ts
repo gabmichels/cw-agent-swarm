@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     console.log(`Debug: Found ${results.length} memory items`);
     
     // Extract basic information from each memory
-    const memoryItems = results.map(result => {
+    const memoryItems = results.map((result: any) => {
       const point = result.point;
       try {
         const payload = point.payload || {};

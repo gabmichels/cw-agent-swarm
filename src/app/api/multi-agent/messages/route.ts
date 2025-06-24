@@ -137,7 +137,7 @@ export async function POST(request: Request) {
           await agent.initialize();
           
           // Convert MessageAttachment to the format expected by MessageProcessingOptions
-          const convertedAttachments = requestData.attachments?.map(attachment => ({
+          const convertedAttachments = requestData.attachments?.map((attachment: any) => ({
             filename: attachment.filename || 'untitled',
             type: attachment.type,
             size: attachment.size,
@@ -233,7 +233,7 @@ export async function GET(request: Request) {
       });
       
       // Convert search results back to message format
-      const messages = results.map(point => {
+      const messages = results.map((point: any) => {
         const metadata = point.payload.metadata as any;
         return {
           id: metadata.id,
@@ -256,25 +256,25 @@ export async function GET(request: Request) {
       let filteredMessages = messages;
       
       if (senderId) {
-        filteredMessages = filteredMessages.filter(msg => msg.senderId === senderId);
+        filteredMessages = filteredMessages.filter((msg: any) => msg.senderId === senderId);
       }
       
       if (senderType) {
-        filteredMessages = filteredMessages.filter(msg => msg.senderType === senderType);
+        filteredMessages = filteredMessages.filter((msg: any) => msg.senderType === senderType);
       }
       
       if (fromDate) {
         const from = new Date(fromDate);
-        filteredMessages = filteredMessages.filter(msg => new Date(msg.createdAt) >= from);
+        filteredMessages = filteredMessages.filter((msg: any) => new Date(msg.createdAt) >= from);
       }
       
       if (toDate) {
         const to = new Date(toDate);
-        filteredMessages = filteredMessages.filter(msg => new Date(msg.createdAt) <= to);
+        filteredMessages = filteredMessages.filter((msg: any) => new Date(msg.createdAt) <= to);
       }
       
       // Sort by creation date (newest first)
-      filteredMessages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      filteredMessages.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       
       console.log(`Found ${filteredMessages.length} messages for chat ${chatId}`);
       

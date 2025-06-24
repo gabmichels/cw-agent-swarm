@@ -9,10 +9,9 @@ export async function GET(
   { params }: { params: { chatId: string, participantId: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    console.log(`API DEBUG: GET multi-agent/system/chats/${awaitedParams.chatId}/participants/${awaitedParams.participantId}`);
-    
-    const { chatId, participantId  } = await params;
+    const awaitedParams = await params;const { chatId, participantId  } = await params;
+
+    console.log(`API DEBUG: GET multi-agent/system/chats/${chatId}/participants/${participantId}`);
     
     if (!chatId) {
       return NextResponse.json(
@@ -39,7 +38,7 @@ export async function GET(
     }
     
     // Find the specific participant
-    const participant = chat.participants?.find(p => p.id === participantId);
+    const participant = chat.participants?.find((p: any) => p.id === participantId);
     
     if (!participant) {
       return NextResponse.json(
@@ -50,7 +49,7 @@ export async function GET(
     
     return NextResponse.json({ participant });
   } catch (error) {
-    console.error(`Error getting participant ${awaitedParams.participantId} from chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -66,10 +65,9 @@ export async function PATCH(
   request: Request,
   { params }: { params: { chatId: string, participantId: string } }
 ) {
-  try {
-    console.log(`API DEBUG: PATCH multi-agent/system/chats/${awaitedParams.chatId}/participants/${awaitedParams.participantId}`);
-    
-    const { chatId, participantId  } = await params;
+  try {const { chatId, participantId  } = await params;
+
+    console.log(`API DEBUG: PATCH multi-agent/system/chats/${chatId}/participants/${participantId}`);
     const updateData = await request.json();
     
     if (!chatId) {
@@ -148,7 +146,7 @@ export async function PATCH(
       message: 'Participant updated successfully'
     });
   } catch (error) {
-    console.error(`Error updating participant ${awaitedParams.participantId} in chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -164,10 +162,9 @@ export async function DELETE(
   request: Request,
   { params }: { params: { chatId: string, participantId: string } }
 ) {
-  try {
-    console.log(`API DEBUG: DELETE multi-agent/system/chats/${awaitedParams.chatId}/participants/${awaitedParams.participantId}`);
-    
-    const { chatId, participantId  } = await params;
+  try {const { chatId, participantId  } = await params;
+
+    console.log(`API DEBUG: DELETE multi-agent/system/chats/${chatId}/participants/${participantId}`);
     
     if (!chatId) {
       return NextResponse.json(
@@ -196,7 +193,7 @@ export async function DELETE(
     // Make sure we're not removing the original participants (usually user or primary agent)
     // Assume the first two participants are the original ones that must remain
     if (chat.participants && chat.participants.length >= 2) {
-      const originalParticipantIds = chat.participants.slice(0, 2).map(p => p.id);
+      const originalParticipantIds = chat.participants.slice(0, 2).map((p: any) => p.id);
       
       if (originalParticipantIds.includes(participantId)) {
         return NextResponse.json(
@@ -207,7 +204,7 @@ export async function DELETE(
     }
     
     // Filter out the participant to remove
-    const updatedParticipants = chat.participants?.filter(p => p.id !== participantId) || [];
+    const updatedParticipants = chat.participants?.filter((p: any) => p.id !== participantId) || [];
     
     // Update chat with new participants array
     const updatedChat = await chatService.updateChat(chatId, {
@@ -229,7 +226,7 @@ export async function DELETE(
       message: 'Participant removed successfully'
     });
   } catch (error) {
-    console.error(`Error removing participant ${awaitedParams.participantId} from chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error in API operation:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

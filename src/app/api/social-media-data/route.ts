@@ -87,11 +87,11 @@ export async function GET(req: NextRequest) {
     
     // Process and format the results
     const socialMediaData = searchResults
-      .filter(result => {
+      .filter((result: any) => {
         const metadata = result.point.payload?.metadata as SocialMediaMetadata | undefined;
         return metadata?.memoryType === 'social_media';
       })
-      .map(result => {
+      .map((result: any) => {
         const memory = result.point;
         const metadata = memory.payload?.metadata as SocialMediaMetadata || {} as SocialMediaMetadata;
         
@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
       });
     
     // Sort by timestamp (newest first)
-    socialMediaData.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    socialMediaData.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     
     return NextResponse.json({
       success: true,

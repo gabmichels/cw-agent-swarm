@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getChatService } from '../../../../../server/memory/services/chat-service';
-import { ChatStatus } from '../../../../../server/memory/models/chat-collection';
 
 /**
  * GET handler - get chat by ID
@@ -31,7 +30,7 @@ export async function GET(
 
     return NextResponse.json({ chat });
   } catch (error) {
-    console.error(`Error fetching chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error fetching chat:`, error);
 
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -76,7 +75,7 @@ export async function PUT(
 
     return NextResponse.json({ chat });
   } catch (error) {
-    console.error(`Error updating chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error updating chat:`, error);
 
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -126,7 +125,7 @@ export async function DELETE(
       message: archiveOnly ? 'Chat archived successfully' : 'Chat deleted successfully'
     });
   } catch (error) {
-    console.error(`Error deleting chat ${awaitedParams.chatId}:`, error);
+    console.error(`Error deleting chat:`, error);
 
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

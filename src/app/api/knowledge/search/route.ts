@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       augmentationInfo = {
         originalQuery: query,
         augmentedQuery: finalQuery,
-        usedItems: usedItems.map(item => ({
+        usedItems: usedItems.map((item: any) => ({
           id: item.id,
           label: item.label,
           type: item.type,
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       query: finalQuery,
       augmentation: augmentationInfo,
-      results: results.map(result => ({
+      results: results.map((result: any) => ({
         id: result.item.id,
         label: result.item.label,
         type: result.item.type,
