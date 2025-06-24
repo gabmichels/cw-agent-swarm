@@ -141,6 +141,21 @@ const WelcomeScreen = () => {
   );
 };
 
+// Loading component for initial message fetching
+const InitialLoadingScreen = () => {
+  return (
+    <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
+      <div className="flex items-center space-x-2 mb-4">
+        <div className="w-4 h-4 rounded-full bg-blue-500 animate-bounce"></div>
+        <div className="w-4 h-4 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+        <div className="w-4 h-4 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+      </div>
+      <h2 className="text-xl font-semibold mb-2">Loading Messages</h2>
+      <p className="text-gray-400">Please wait while we fetch your conversation...</p>
+    </div>
+  );
+};
+
 export default function ChatPage({ params }: { params: { id?: string } }) {
   // Use nextjs navigation hook for route params
   const routeParams = useParams();
@@ -150,7 +165,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   const [chat, setChat] = useState<Chat | null>(null);
   const [agentId, setAgentId] = useState<string>('');
   const [messages, setMessages] = useState<MessageWithId[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false); // For AI response generation
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true); // For initial message fetching
   const [error, setError] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<string>('chat');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
@@ -263,7 +279,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   // Modify the existing useEffect for fetchOrCreateChat
   useEffect(() => {
     const fetchOrCreateChat = async () => {
-      setIsLoading(true);
+      setIsInitialLoading(true);
       setError(null);
       try {
         // Interpret routeId as a chatId only
@@ -272,7 +288,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         
         if (!chatRes.ok || !chatData.success || !chatData.chats || chatData.chats.length === 0) {
           setError('Chat not found. Please select a valid chat from the sidebar.');
-          setIsLoading(false);
+          setIsInitialLoading(false);
           return;
         }
         
@@ -290,12 +306,12 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
           await fetchMessages(chatObj.id);
         }
         
-        // Set loading to false
-        setIsLoading(false);
+        // Set initial loading to false
+        setIsInitialLoading(false);
       } catch (error) {
         console.error('Error setting up chat:', error);
         setError('Failed to load chat');
-        setIsLoading(false);
+        setIsInitialLoading(false);
       }
     };
 
@@ -355,10 +371,11 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       pendingNavigateToMessage,
       selectedTab,
       messagesLength: messages.length,
-      isLoading
+      isLoading,
+      isInitialLoading
     });
     
-    if (pendingNavigateToMessage && selectedTab === 'chat' && messages.length > 0 && !isLoading) {
+    if (pendingNavigateToMessage && selectedTab === 'chat' && messages.length > 0 && !isLoading && !isInitialLoading) {
       console.log('All conditions met, navigating to message:', pendingNavigateToMessage);
       // Increase delay to ensure ChatMessages component is fully rendered
       setTimeout(() => {
@@ -367,7 +384,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         setPendingNavigateToMessage('');
       }, 500); // Increased from 200ms to 500ms
     }
-  }, [pendingNavigateToMessage, selectedTab, messages.length, isLoading]);
+  }, [pendingNavigateToMessage, selectedTab, messages.length, isLoading, isInitialLoading]);
 
   // Convert MessageAttachment to UIFileAttachment
   const convertMessageToUIAttachment = (att: MessageAttachment): UIFileAttachment => {
@@ -653,7 +670,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         const errorText = await msgRes.text();
         console.error(`Failed to fetch messages: ${msgRes.status} ${msgRes.statusText}`, errorText);
         setError(`Failed to load messages: ${msgRes.status}`);
-        if (shouldClearLoading) setIsLoading(false);
+        if (shouldClearLoading) {
+          setIsLoading(false);
+          setIsInitialLoading(false);
+        }
         return;
       }
       
@@ -662,7 +682,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       if (msgData.error) {
         console.error('API returned error:', msgData.error);
         setError(msgData.error);
-        if (shouldClearLoading) setIsLoading(false);
+        if (shouldClearLoading) {
+          setIsLoading(false);
+          setIsInitialLoading(false);
+        }
         return;
       }
       
@@ -670,7 +693,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       if (msgData.messages && Array.isArray(msgData.messages)) {
         if (msgData.messages.length === 0) {
           setMessages([]);
-          if (shouldClearLoading) setIsLoading(false);
+          if (shouldClearLoading) {
+            setIsLoading(false);
+            setIsInitialLoading(false);
+          }
           return;
         }
         
@@ -767,8 +793,11 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         
         setMessages(allMessages);
         
-        // For polling: only clear loading if we detect an agent response
+        // Clear initial loading state - this is the initial message fetch
         if (shouldClearLoading) {
+          setIsInitialLoading(false);
+          
+          // For polling: only clear AI thinking loading if we detect an agent response
           const hasAgentResponse = formattedMessages.some(msg => 
             msg.sender.role === 'assistant' && 
             !messages.find(existingMsg => existingMsg.id === msg.id)
@@ -783,21 +812,27 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             lastFormattedMessage: formattedMessages[formattedMessages.length - 1]?.sender?.role
           });
           
-          // Clear loading if we have agent response - temp messages are handled separately
+          // Clear AI thinking loading if we have agent response - temp messages are handled separately
           if (hasAgentResponse) {
-            console.log('Clearing loading state due to agent response');
+            console.log('Clearing AI thinking loading state due to agent response');
             setIsLoading(false);
           }
         }
       } else {
         console.warn('API response missing messages array:', msgData);
         setMessages([]);
-        if (shouldClearLoading) setIsLoading(false);
+        if (shouldClearLoading) {
+          setIsLoading(false);
+          setIsInitialLoading(false);
+        }
       }
     } catch (error) {
       console.error('Error fetching messages:', error);
       setError('Failed to load messages');
-      if (shouldClearLoading) setIsLoading(false);
+      if (shouldClearLoading) {
+        setIsLoading(false);
+        setIsInitialLoading(false);
+      }
     }
   };
 
@@ -906,12 +941,31 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       case 'chat':
         return (
           <div className="flex flex-col h-full">
-            {(!agentId || agentId.includes('Soon') || messages.length === 0) ? (
+            {isInitialLoading ? (
+              <InitialLoadingScreen />
+            ) : error ? (
+              <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
+                <h2 className="text-xl font-semibold mb-2 text-red-400">Error</h2>
+                <p className="text-gray-400 mb-4">{error}</p>
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : !agentId || agentId.includes('Soon') ? (
               <WelcomeScreen />
+            ) : messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
+                <h2 className="text-xl font-semibold mb-2">No Messages Yet</h2>
+                <p className="text-gray-400 mb-8">Start a conversation with your AI assistant below.</p>
+              </div>
             ) : (
               <ChatMessages
                 messages={transformedMessages}
                 isLoading={isLoading}
+                isInitialLoading={isInitialLoading}
                 onImageClick={memoizedFilePreviewClick}
                 onReplyToMessage={memoizedReplyToMessage}
                 onNavigateToMessage={memoizedNavigateToMessage}

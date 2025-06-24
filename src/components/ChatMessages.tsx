@@ -10,6 +10,7 @@ type MessageWithSortTime = Message & {
 interface ChatMessagesProps {
   messages: Message[];
   isLoading?: boolean;
+  isInitialLoading?: boolean; // New prop for initial message loading
   onImageClick: (attachment: FileAttachment, e: React.MouseEvent) => void;
   onDeleteMessage?: (messageId: string) => Promise<boolean>;
   onReplyToMessage?: (message: Message) => void;
@@ -25,6 +26,7 @@ interface ChatMessagesProps {
 const ChatMessages: React.FC<ChatMessagesProps> = React.memo(({ 
   messages, 
   isLoading = false, 
+  isInitialLoading = false,
   onImageClick,
   onDeleteMessage,
   onReplyToMessage,
@@ -243,7 +245,19 @@ const ChatMessages: React.FC<ChatMessagesProps> = React.memo(({
         </div>
       ))}
       
-      {/* Loading indicator */}
+      {/* Initial loading indicator when no messages yet */}
+      {isInitialLoading && sortedMessages.length === 0 && (
+        <div className="flex justify-center items-center py-8">
+          <div className="flex items-center space-x-2 text-gray-400">
+            <div className="w-3 h-3 rounded-full bg-blue-500 animate-bounce"></div>
+            <div className="w-3 h-3 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+            <div className="w-3 h-3 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            <span className="ml-2 text-sm">Loading messages...</span>
+          </div>
+        </div>
+      )}
+      
+      {/* AI thinking loading indicator */}
       {isLoading && (
         <div className="flex justify-start mb-4">
           <div className="min-w-[75%] max-w-[80%] rounded-lg p-3 shadow bg-gray-700">
