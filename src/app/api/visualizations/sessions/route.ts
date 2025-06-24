@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { ThinkingVisualizer } from '@/services/thinking/visualization/ThinkingVisualizer';
+import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * GET /api/visualizations/sessions
@@ -20,11 +20,11 @@ export async function GET(request: NextRequest) {
     const visualizations = await visualizer.getVisualizations(chatId || '');
 
     // Transform visualizations into session format
-    const sessions = visualizations.map(viz => {
+    const sessions = visualizations.map((viz: any) => {
       // Calculate processing steps from visualization nodes
       const steps = viz.nodes
-        .filter(node => node.type !== 'start' && node.type !== 'end')
-        .map(node => ({
+        .filter((node: any) => node.type !== 'start' && node.type !== 'end')
+        .map((node: any) => ({
           id: node.id,
           type: mapNodeTypeToStepType(node.type),
           label: node.label,
@@ -42,12 +42,12 @@ export async function GET(request: NextRequest) {
         processingTime: viz.metrics.totalDuration,
         steps,
         response: viz.response,
-        success: !viz.nodes.some(node => node.status === 'error')
+        success: !viz.nodes.some((node: any) => node.status === 'error')
       };
     });
 
     // Apply filters
-    const filteredSessions = sessions.filter(session => {
+    const filteredSessions = sessions.filter((session: any) => {
       // Time range filter
       const now = Date.now();
       const ranges = {
@@ -60,32 +60,32 @@ export async function GET(request: NextRequest) {
       const matchesTimeRange = (now - session.timestamp) <= timeRangeMs;
 
       // Search filter
-      const matchesSearch = searchQuery === '' || 
+      const matchesSearch = searchQuery === '' ||
         session.userMessage.toLowerCase().includes(searchQuery.toLowerCase()) ||
         session.response?.toLowerCase().includes(searchQuery.toLowerCase());
 
       // Type filter
-      const matchesFilter = filterType === 'all' || 
-        session.steps.some(step => step.type === filterType);
+      const matchesFilter = filterType === 'all' ||
+        session.steps.some((step: any) => step.type === filterType);
 
       return matchesTimeRange && matchesSearch && matchesFilter;
     });
 
     // Calculate metrics
-    const validSessions = filteredSessions.filter(s => s.success);
+    const validSessions = filteredSessions.filter((s: any) => s.success);
     const metrics = {
       totalRequests: filteredSessions.length,
-      averageProcessingTime: validSessions.length > 0 
-        ? validSessions.reduce((sum, s) => sum + s.processingTime, 0) / validSessions.length 
+      averageProcessingTime: validSessions.length > 0
+        ? validSessions.reduce((sum, s) => sum + s.processingTime, 0) / validSessions.length
         : 0,
-      memoryRetrievalCount: validSessions.reduce((sum, s) => 
-        sum + s.steps.filter(step => step.type === 'memory_retrieval').length, 0),
-      llmInteractionCount: validSessions.reduce((sum, s) => 
-        sum + s.steps.filter(step => step.type === 'llm_interaction').length, 0),
-      toolExecutionCount: validSessions.reduce((sum, s) => 
-        sum + s.steps.filter(step => step.type === 'tool_execution').length, 0),
-      successRate: filteredSessions.length > 0 
-        ? (validSessions.length / filteredSessions.length) * 100 
+      memoryRetrievalCount: validSessions.reduce((sum, s) =>
+        sum + s.steps.filter((step: any) => step.type === 'memory_retrieval').length, 0),
+      llmInteractionCount: validSessions.reduce((sum, s) =>
+        sum + s.steps.filter((step: any) => step.type === 'llm_interaction').length, 0),
+      toolExecutionCount: validSessions.reduce((sum, s) =>
+        sum + s.steps.filter((step: any) => step.type === 'tool_execution').length, 0),
+      successRate: filteredSessions.length > 0
+        ? (validSessions.length / filteredSessions.length) * 100
         : 0
     };
 
@@ -100,8 +100,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error fetching visualization sessions:', error);
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: 'Failed to fetch visualization sessions',
         details: error instanceof Error ? error.message : String(error)
       },

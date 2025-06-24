@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { MultiTenantTwitterProvider } from '@/services/social-media/providers/MultiTenantTwitterProvider';
-import { MultiTenantLinkedInProvider } from '@/services/social-media/providers/MultiTenantLinkedInProvider';
-import { MultiTenantTikTokProvider } from '@/services/social-media/providers/MultiTenantTikTokProvider';
+import { SocialMediaConnectionStatus } from '@/services/social-media/database/ISocialMediaDatabase';
+// import { providers } from '@/services/social-media/providers';
+import { IMultiTenantSocialMediaProvider } from '@/services/social-media/providers/base/MultiTenantProviderBase';
 import { MultiTenantFacebookProvider } from '@/services/social-media/providers/MultiTenantFacebookProvider';
 import { MultiTenantInstagramProvider } from '@/services/social-media/providers/MultiTenantInstagramProvider';
-import { SocialMediaProvider, SocialMediaConnectionStatus } from '@/services/social-media/database/ISocialMediaDatabase';
-import { IMultiTenantSocialMediaProvider } from '@/services/social-media/providers/base/MultiTenantProviderBase';
+import { MultiTenantLinkedInProvider } from '@/services/social-media/providers/MultiTenantLinkedInProvider';
+import { MultiTenantTikTokProvider } from '@/services/social-media/providers/MultiTenantTikTokProvider';
+import { MultiTenantTwitterProvider } from '@/services/social-media/providers/MultiTenantTwitterProvider';
+import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * Multi-Platform OAuth Callback Handler
@@ -30,10 +31,9 @@ export async function GET(
   { params }: { params: { platform: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    const { platform  } = await params;
+    const { platform } = await params;
     const { searchParams } = new URL(request.url);
-    
+
     // Extract OAuth parameters
     const code = searchParams.get('code');
     const state = searchParams.get('state');
@@ -69,20 +69,20 @@ export async function GET(
     // The state parameter contains the original tenant/user info
     let tenantId: string;
     let userId: string;
-    
+
     try {
       // Access the state storage to get the original tenant/user IDs
       // This is a temporary solution - in production you'd handle this more elegantly
       const stateStorage = (provider as any).stateStorage;
       const stateData = await stateStorage.get(state);
-      
+
       if (!stateData) {
         throw new Error('State data not found - OAuth session may have expired');
       }
-      
+
       tenantId = stateData.tenantId;
       userId = stateData.userId;
-      
+
       console.log('Retrieved OAuth state data:', { tenantId, userId, platform });
     } catch (stateError) {
       console.error('Failed to retrieve state data:', stateError);
@@ -111,30 +111,30 @@ export async function GET(
       const { PrismaSocialMediaDatabase } = await import('@/services/social-media/database/PrismaSocialMediaDatabase');
       const { PrismaClient } = await import('@prisma/client');
       const { TokenEncryption } = await import('@/services/security/TokenEncryption');
-      
+
       const prisma = new PrismaClient();
       const database = new PrismaSocialMediaDatabase(prisma);
       const tokenEncryption = new TokenEncryption();
-      
+
       // Convert TenantSocialToken to SocialMediaConnection format
       // Map account types correctly
-      const accountType = tokenData.accountType === 'company' ? 'business' : 
-                         tokenData.accountType === 'product' ? 'creator' : 
-                         'personal';
+      const accountType = tokenData.accountType === 'company' ? 'business' :
+        tokenData.accountType === 'product' ? 'creator' :
+          'personal';
 
       // The tokens from multi-tenant provider are encrypted and need to be decrypted
       // then re-encrypted in the format expected by the regular providers
       console.log('🔧 Processing tokens for storage...');
-      
+
       let credentials;
       try {
         const decryptedAccessToken = tokenEncryption.decrypt(tokenData.accessToken);
         const decryptedRefreshToken = tokenData.refreshToken ? tokenEncryption.decrypt(tokenData.refreshToken) : undefined;
-        
+
         console.log('✅ Tokens decrypted successfully');
         console.log('🔑 Access token present:', !!decryptedAccessToken);
         console.log('🔄 Refresh token present:', !!decryptedRefreshToken);
-        
+
         credentials = {
           access_token: decryptedAccessToken,
           refresh_token: decryptedRefreshToken,
@@ -176,10 +176,10 @@ export async function GET(
     );
 
   } catch (error) {
-    console.error(`OAuth callback error for ${awaitedParams.platform}:`, error);
-    
+    console.error(`OAuth callback error:`, error);
+
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL}/?error=callback_failed&platform=${awaitedParams.platform}&details=${encodeURIComponent((error as Error).message)}&source=oauth_callback`
+      `${process.env.NEXT_PUBLIC_APP_URL}/?error=callback_failed&details=${encodeURIComponent((error as Error).message)}&source=oauth_callback`
     );
   }
 }

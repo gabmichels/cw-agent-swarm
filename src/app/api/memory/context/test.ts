@@ -13,7 +13,7 @@ export async function testMemoryContexts() {
   try {
     // Initialize services
     const { searchService } = await getMemoryServices();
-    
+
     // Test 1: Topic-based grouping with a query
     console.log('Testing topic-based grouping...');
     const topicResults = await searchService.getMemoryContext({
@@ -24,55 +24,34 @@ export async function testMemoryContexts() {
       includeSummary: true,
       groupingStrategy: 'topic'
     });
-    
-    console.log(`Retrieved ${topicResults.groups.length} topic groups with ${
-      topicResults.groups.reduce((sum, g) => sum + g.memories.length, 0)
-    } total memories`);
-    
+
+    console.log(`Retrieved ${topicResults.groups.length} topic groups with ${topicResults.groups.reduce((sum: any, g: any) => sum + g.memories.length, 0)} total memories`);
+
     if (topicResults.summary) {
       console.log(`Summary: ${topicResults.summary}`);
     }
-    
+
     // Test 2: Type-based grouping
     console.log('\nTesting type-based grouping...');
-    const typeResults = await searchService.getMemoryContext({
-      query: 'agent capabilities',
-      types: [MemoryType.THOUGHT, MemoryType.REFLECTION, MemoryType.MESSAGE, MemoryType.DOCUMENT],
-      groupingStrategy: 'type'
+    const typeResults = await searchService.groupMemoriesByType();
+    typeResults.groups.forEach((group: any) => {
+      console.log(`Type: ${group.type}, Count: ${group.memories.length}`);
     });
-    
-    console.log(`Retrieved ${typeResults.groups.length} type groups:`);
-    typeResults.groups.forEach(group => {
-      console.log(`- ${group.name}: ${group.memories.length} memories`);
-    });
-    
+
     // Test 3: Time-based grouping with time weighting
     console.log('\nTesting time-based grouping with time weighting...');
-    const timeResults = await searchService.getMemoryContext({
-      query: 'user interaction',
-      timeWeighted: true,
-      groupingStrategy: 'time',
-      includeSummary: true
+    const timeResults = await searchService.groupMemoriesByTimeframe('week');
+    timeResults.groups.forEach((group: any) => {
+      console.log(`Timeframe: ${group.timeframe}, Count: ${group.memories.length}`);
     });
-    
-    console.log(`Retrieved ${timeResults.groups.length} time-based groups:`);
-    timeResults.groups.forEach(group => {
-      console.log(`- ${group.name}: ${group.memories.length} memories (relevance: ${group.relevance.toFixed(2)})`);
-    });
-    
+
     // Test 4: Custom categories grouping
     console.log('\nTesting custom categories grouping...');
-    const customResults = await searchService.getMemoryContext({
-      query: 'system architecture',
-      groupingStrategy: 'custom',
-      includedGroups: ['design', 'implementation', 'testing', 'documentation']
+    const customResults = await searchService.groupMemoriesByCustomFilter({ limit: 50 });
+    customResults.groups.forEach((group: any) => {
+      console.log(`Custom group: ${group.key}, Count: ${group.memories.length}`);
     });
-    
-    console.log(`Retrieved ${customResults.groups.length} custom groups:`);
-    customResults.groups.forEach(group => {
-      console.log(`- ${group.name}: ${group.memories.length} memories`);
-    });
-    
+
     return {
       success: true,
       results: {

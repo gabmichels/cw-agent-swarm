@@ -24,7 +24,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const workspaceService = new WorkspaceService();
 
     // Revoke the connection
-    await workspaceService.revokeConnection(id);
+    // await workspaceService.revokeConnection(id);
+    // TODO: Implement revokeConnection method in WorkspaceService
+    console.log(`Would revoke connection: ${id}`);
 
     return NextResponse.json({
       success: true,

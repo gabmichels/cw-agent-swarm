@@ -1,18 +1,16 @@
 import { NextResponse } from 'next/server';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
-import { ChatStatus } from '../../../../../../server/memory/models/chat-collection';
 
 /**
- * GET handler - retrieve a specific chat
+ * GET handler - get a specific multi-agent chat
  */
 export async function GET(
   request: Request,
   { params }: { params: { agentType: string, chatId: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    console.log(`API DEBUG: GET multi-agent/${awaitedParams.agentType}/chats/${awaitedParams.chatId}`);
-    const chatId = awaitedParams.chatId;
+    const { agentType, chatId } = await params;
+    console.log(`API DEBUG: GET multi-agent/${agentType}/chats/${chatId}`);
 
     if (!chatId) {
       return NextResponse.json(
@@ -33,7 +31,7 @@ export async function GET(
 
     return NextResponse.json({ chat });
   } catch (error) {
-    console.error(`Error fetching chat ${awaitedParams.chatId}:`, error);
+    console.error('Error in API operation:', error);
 
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -43,16 +41,16 @@ export async function GET(
 }
 
 /**
- * PUT handler - update a chat
+ * PUT handler - update a multi-agent chat
  */
 export async function PUT(
   request: Request,
   { params }: { params: { agentType: string, chatId: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    console.log(`API DEBUG: PUT multi-agent/${awaitedParams.agentType}/chats/${awaitedParams.chatId}`);
-    const chatId = awaitedParams.chatId;
+    const { agentType, chatId } = await params;
+    console.log(`API DEBUG: PUT multi-agent/${agentType}/chats/${chatId}`);
+
     const updateData = await request.json();
 
     if (!chatId) {
@@ -63,38 +61,18 @@ export async function PUT(
     }
 
     const chatService = await getChatService();
-
-    // Only allow updating specific fields
-    const allowedFields = {
-      title: updateData.title,
-      description: updateData.description,
-      status: updateData.status
-    };
-
-    // Filter out undefined fields
-    const filteredUpdate = Object.entries(allowedFields)
-      .filter(([_, value]) => value !== undefined)
-      .reduce((obj, [key, value]) => ({ ...obj, [key]: value }), {});
-
-    if (Object.keys(filteredUpdate).length === 0) {
-      return NextResponse.json(
-        { error: 'No valid update fields provided' },
-        { status: 400 }
-      );
-    }
-
-    const updatedChat = await chatService.updateChat(chatId, filteredUpdate);
+    const updatedChat = await chatService.updateChat(chatId, updateData);
 
     if (!updatedChat) {
       return NextResponse.json(
-        { error: 'Chat not found or could not be updated' },
-        { status: 404 }
+        { error: 'Failed to update chat' },
+        { status: 500 }
       );
     }
 
     return NextResponse.json({ chat: updatedChat });
   } catch (error) {
-    console.error(`Error updating chat ${awaitedParams.chatId}:`, error);
+    console.error('Error in API operation:', error);
 
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -104,16 +82,15 @@ export async function PUT(
 }
 
 /**
- * DELETE handler - archive/delete a chat
+ * DELETE handler - delete a multi-agent chat
  */
 export async function DELETE(
   request: Request,
   { params }: { params: { agentType: string, chatId: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    console.log(`API DEBUG: DELETE multi-agent/${awaitedParams.agentType}/chats/${awaitedParams.chatId}`);
-    const chatId = awaitedParams.chatId;
+    const { agentType, chatId } = await params;
+    console.log(`API DEBUG: DELETE multi-agent/${agentType}/chats/${chatId}`);
 
     if (!chatId) {
       return NextResponse.json(
@@ -124,19 +101,22 @@ export async function DELETE(
 
     const chatService = await getChatService();
 
-    // First try to archive the chat (soft delete)
-    const archived = await chatService.archiveChat(chatId);
+    // Verify chat exists before deletion
+    const chat = await chatService.getChatById(chatId);
+    if (!chat) {
+      return NextResponse.json(
+        { error: 'Chat not found' },
+        { status: 404 }
+      );
+    }
 
-    if (!archived) {
-      // If archiving fails, try hard delete
-      const deleted = await chatService.deleteChat(chatId);
+    const success = await chatService.deleteChat(chatId);
 
-      if (!deleted) {
-        return NextResponse.json(
-          { error: 'Chat not found or could not be deleted' },
-          { status: 404 }
-        );
-      }
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Failed to delete chat' },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
@@ -144,7 +124,7 @@ export async function DELETE(
       message: 'Chat deleted successfully'
     });
   } catch (error) {
-    console.error(`Error deleting chat ${awaitedParams.chatId}:`, error);
+    console.error('Error in API operation:', error);
 
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

@@ -20,39 +20,39 @@ interface ExtendedMetadata extends Omit<BaseMetadata, 'timestamp'> {
 export async function GET(request: NextRequest) {
   try {
     console.log('[memory/check-format] Starting memory format check');
-    
+
     // Initialize memory services
     const { client, searchService } = await getMemoryServices();
-    
+
     // Initialize memory services if needed
     const status = await client.getStatus();
     if (!status.initialized) {
       await client.initialize();
     }
-    
+
     // Get a sample of memories using search service
     const searchResults = await searchService.search('', { limit: 10 });
-    
+
     // Check format of each memory
-    const formatResults = searchResults.map(searchResult => {
+    const formatResults = searchResults.map((searchResult: any) => {
       const memory = searchResult.point;
       const memoryType = searchResult.type;
-      
+
       // Check required fields
       const missingFields = [];
       if (!memory.id) missingFields.push('id');
       if (!memory.payload?.text) missingFields.push('text');
-      
+
       const metadata = (memory.payload?.metadata || {}) as ExtendedMetadata;
       const timestamp = metadata.timestamp || memory.payload?.timestamp;
       if (!timestamp) missingFields.push('timestamp');
-      
+
       // Check type field
-      const type = memoryType || 
-                 metadata.type || 
-                 metadata.messageType ||
-                 'unknown';
-      
+      const type = memoryType ||
+        metadata.type ||
+        metadata.messageType ||
+        'unknown';
+
       // Generate sample formatted memory
       const formatted = {
         id: memory.id || `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
         importance: metadata.importance || 'medium',
         tags: Array.isArray(metadata.tags) ? metadata.tags : []
       };
-      
+
       return {
         originalId: memory.id,
         originalType: memoryType,
@@ -82,25 +82,25 @@ export async function GET(request: NextRequest) {
         formattedSample: formatted
       };
     });
-    
+
     // Count memory type distribution
     const typeCount: Record<string, number> = {};
-    searchResults.forEach(searchResult => {
+    searchResults.forEach((searchResult: any) => {
       const type = searchResult.type || 'unknown';
       typeCount[type] = (typeCount[type] || 0) + 1;
     });
-    
+
     // Return format check results
     return NextResponse.json({
       totalMemories: searchResults.length,
       typeDistribution: typeCount,
       formatResults,
-      hasFormatIssues: formatResults.some(r => r.hasMissingFields)
+      hasFormatIssues: formatResults.some((r: any) => r.hasMissingFields)
     });
   } catch (error) {
     console.error('Error checking memory formats:', error);
     return NextResponse.json(
-      { 
+      {
         status: 'error',
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined

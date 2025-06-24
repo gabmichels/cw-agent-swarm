@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getMemoryServices } from '../../../../../../server/memory/services';
 import { MemoryType } from '../../../../../../server/memory/config';
+import { getMemoryServices } from '../../../../../../server/memory/services';
 import { getChatService } from '../../../../../../server/memory/services/chat-service';
 import { MessageMetadata } from '../../../../../../types/metadata';
 
@@ -20,27 +20,27 @@ export async function GET(
         { status: 400 }
       );
     }
-    
+
     // Get query parameters
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
     const includeInternal = searchParams.get('includeInternal') === 'true';
-    
+
     // First verify the chat exists
     const chatService = await getChatService();
     const chat = await chatService.getChatById(chatId);
-    
+
     if (!chat) {
       return NextResponse.json(
         { error: 'Chat not found' },
         { status: 404 }
       );
     }
-    
+
     // Get memory services
     const { searchService } = await getMemoryServices();
-    
+
     // Search for messages with this chat ID
     const searchResults = await searchService.search("", {
       filter: {
@@ -56,14 +56,14 @@ export async function GET(
       offset,
       sort: { field: "timestamp", direction: "asc" }
     });
-    
+
     // Format the messages
-    const messages = searchResults.map(result => {
+    const messages = searchResults.map((result: any) => {
       const point = result.point;
       const payload = point.payload;
       // Properly type the metadata
       const metadata = (payload.metadata || {}) as MessageMetadata;
-      
+
       // Log the raw data from Qdrant
       console.log('-------------------------');
       console.log('RAW QDRANT MESSAGE DATA:');
@@ -74,7 +74,7 @@ export async function GET(
       console.log('Timestamp value (if number):', typeof payload.timestamp === 'number' ? new Date(payload.timestamp).toISOString() : 'N/A');
       console.log('Timestamp value (if string):', typeof payload.timestamp === 'string' ? new Date(payload.timestamp).toISOString() : 'N/A');
       console.log('-------------------------');
-      
+
       return {
         id: point.id,
         content: payload.text,
@@ -83,10 +83,10 @@ export async function GET(
         metadata: metadata
       };
     });
-    
+
     // Log the final messages being returned
     console.log('FINAL MESSAGES BEING RETURNED TO CLIENT:');
-    messages.forEach((msg, idx) => {
+    messages.forEach((msg: any, idx: any) => {
       console.log(`Message ${idx + 1}:`, {
         id: msg.id,
         sender: msg.sender,
@@ -95,7 +95,7 @@ export async function GET(
         localTime: new Date(msg.timestamp).toLocaleTimeString()
       });
     });
-    
+
     return NextResponse.json({
       chatId,
       messages,
@@ -103,8 +103,8 @@ export async function GET(
       hasMore: messages.length === limit
     });
   } catch (error) {
-    console.error(`Error retrieving messages for chat ${awaitedParams.chatId}:`, error);
-    
+    console.error(`Error retrieving messages for chat:`, error);
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

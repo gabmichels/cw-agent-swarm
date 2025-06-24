@@ -1,41 +1,35 @@
 import { NextResponse } from 'next/server';
 import { getChatService } from '../../../../../../../server/memory/services/chat-service';
-import { ChatParticipant } from '../../../../../../../server/memory/models/chat-collection';
 
 /**
- * GET handler - get all participants in a chat
+ * GET handler - get participants for a multi-agent chat
  */
 export async function GET(
   request: Request,
   { params }: { params: { agentType: string, chatId: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    console.log(`API DEBUG: GET multi-agent/${awaitedParams.agentType}/chats/${awaitedParams.chatId}/participants`);
-    const chatId = (await params).chatId;
-    
+    const { agentType, chatId } = await params;
+    console.log(`API DEBUG: GET multi-agent/${agentType}/chats/${chatId}/participants`);
+
     if (!chatId) {
       return NextResponse.json(
         { error: 'Chat ID is required' },
         { status: 400 }
       );
     }
-    
+
     const chatService = await getChatService();
     const chat = await chatService.getChatById(chatId);
-    
+
     if (!chat) {
-      return NextResponse.json(
-        { error: 'Chat not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ participants: [] });
     }
-    
-    // Return the participants
+
     return NextResponse.json({ participants: chat.participants || [] });
   } catch (error) {
-    console.error(`Error fetching participants for chat ${awaitedParams.chatId}:`, error);
-    
+    console.error(`Error in API operation:`, error);
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -44,82 +38,77 @@ export async function GET(
 }
 
 /**
- * POST handler - add a participant to a chat
+ * POST handler - add a participant to a multi-agent chat
  */
 export async function POST(
   request: Request,
   { params }: { params: { agentType: string, chatId: string } }
 ) {
   try {
-    console.log(`API DEBUG: POST multi-agent/${awaitedParams.agentType}/chats/${awaitedParams.chatId}/participants`);
-    const chatId = (await params).chatId;
-    const { id, type = 'agent' } = await request.json();
-    
-    if (!chatId) {
+    const { agentType, chatId } = await params;
+    console.log(`API DEBUG: POST multi-agent/${agentType}/chats/${chatId}/participants`);
+
+    const body = await request.json();
+    const { participantId, participantType = 'user', metadata = {} } = body;
+
+    if (!chatId || !participantId) {
       return NextResponse.json(
-        { error: 'Chat ID is required' },
+        { error: 'Chat ID and Participant ID are required' },
         { status: 400 }
       );
     }
-    
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Participant ID is required' },
-        { status: 400 }
-      );
-    }
-    
+
     const chatService = await getChatService();
     const chat = await chatService.getChatById(chatId);
-    
+
     if (!chat) {
       return NextResponse.json(
         { error: 'Chat not found' },
         { status: 404 }
       );
     }
-    
+
     // Check if participant already exists
-    const existingParticipant = chat.participants.find(p => p.id === id);
+    const existingParticipant = chat.participants?.find((p: any) => p.id === participantId);
     if (existingParticipant) {
       return NextResponse.json(
         { error: 'Participant already exists in this chat' },
         { status: 409 }
       );
     }
-    
-    // Add the new participant
-    const timestamp = new Date().toISOString();
-    const newParticipant: ChatParticipant = {
-      id,
-      type: type as 'user' | 'agent',
-      joinedAt: timestamp
+
+    // Create new participant
+    const newParticipant = {
+      id: participantId,
+      type: participantType,
+      joinedAt: new Date().toISOString(),
+      metadata
     };
-    
-    const updatedParticipants = [...chat.participants, newParticipant];
-    
-    // Update the chat
+
+    // Add participant to chat
+    const updatedParticipants = [...(chat.participants || []), newParticipant];
+
     const updatedChat = await chatService.updateChat(chatId, {
       metadata: {
         ...chat.metadata,
         participants: updatedParticipants
       }
     });
-    
+
     if (!updatedChat) {
       return NextResponse.json(
         { error: 'Failed to add participant' },
         { status: 500 }
       );
     }
-    
+
     return NextResponse.json({
       participant: newParticipant,
       message: 'Participant added successfully'
     });
   } catch (error) {
-    console.error(`Error adding participant to chat ${awaitedParams.chatId}:`, error);
-    
+    console.error(`Error in API operation:`, error);
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -128,59 +117,68 @@ export async function POST(
 }
 
 /**
- * DELETE handler - remove all participants from a chat
+ * DELETE handler - remove all participants from a chat (or specific ones)
  */
 export async function DELETE(
   request: Request,
   { params }: { params: { agentType: string, chatId: string } }
 ) {
   try {
-    console.log(`API DEBUG: DELETE multi-agent/${awaitedParams.agentType}/chats/${awaitedParams.chatId}/participants`);
-    const chatId = (await params).chatId;
-    
+    const { agentType, chatId } = await params;
+    console.log(`API DEBUG: DELETE multi-agent/${agentType}/chats/${chatId}/participants`);
+
+    const { participantIds } = await request.json();
+
     if (!chatId) {
       return NextResponse.json(
         { error: 'Chat ID is required' },
         { status: 400 }
       );
     }
-    
+
     const chatService = await getChatService();
     const chat = await chatService.getChatById(chatId);
-    
+
     if (!chat) {
       return NextResponse.json(
         { error: 'Chat not found' },
         { status: 404 }
       );
     }
-    
-    // Keep only the first two participants (usually the original user and agent)
-    // in a real implementation, you might want to be more selective
-    const originalParticipants = chat.participants.slice(0, 2);
-    
-    // Update the chat
+
+    let updatedParticipants;
+
+    if (participantIds && Array.isArray(participantIds)) {
+      // Remove specific participants
+      updatedParticipants = chat.participants?.filter(
+        (p: any) => !participantIds.includes(p.id)
+      ) || [];
+    } else {
+      // Remove all participants except the first two (original user and agent)
+      updatedParticipants = chat.participants?.slice(0, 2) || [];
+    }
+
     const updatedChat = await chatService.updateChat(chatId, {
       metadata: {
         ...chat.metadata,
-        participants: originalParticipants
+        participants: updatedParticipants
       }
     });
-    
+
     if (!updatedChat) {
       return NextResponse.json(
         { error: 'Failed to remove participants' },
         { status: 500 }
       );
     }
-    
+
     return NextResponse.json({
-      message: 'Additional participants removed successfully',
-      remainingParticipants: originalParticipants.length
+      success: true,
+      message: 'Participants removed successfully'
     });
   } catch (error) {
-    console.error(`Error removing participants from chat ${awaitedParams.chatId}:`, error);
-    
+    console.error(`Error in API operation:`, error);
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

@@ -10,51 +10,37 @@ interface Collection {
 }
 
 /**
- * GET handler - get collection details
+ * GET handler - get a specific collection
  */
 export async function GET(
   request: Request,
   { params }: { params: { agentType: string, collectionId: string } }
 ) {
   try {
-    const awaitedParams = await params;
-    console.log(`API DEBUG: GET multi-agent/${awaitedParams.agentType}/collections/${awaitedParams.collectionId}`);
-    
-    const { collectionId  } = await params;
-    
+    const { agentType, collectionId } = await params;
+    console.log(`API DEBUG: GET multi-agent/${agentType}/collections/${collectionId}`);
+
     if (!collectionId) {
       return NextResponse.json(
         { error: 'Collection ID is required' },
         { status: 400 }
       );
     }
-    
-    const { memoryService } = await getMemoryServices();
-    
-    // Check if collection exists
-    const collections = await (memoryService as any).listCollections() as Collection[];
-    const collection = collections.find((c: Collection) => c.name === collectionId);
-    
+
+    const collectionService = await getMemoryServices();
+    const collection = await collectionService.getCollectionById(collectionId);
+
     if (!collection) {
       return NextResponse.json(
         { error: 'Collection not found' },
         { status: 404 }
       );
     }
-    
-    // Get collection info and stats
-    const collectionInfo = {
-      id: collection.name,
-      name: collection.name,
-      vectorSize: collection.vectorSize,
-      metadata: collection.metadata || {},
-      pointCount: await (memoryService as any).countPoints(collection.name)
-    };
-    
-    return NextResponse.json({ collection: collectionInfo });
+
+    return NextResponse.json({ collection });
   } catch (error) {
-    console.error(`Error getting collection ${awaitedParams.collectionId}:`, error);
-    
+    console.error(`Error in API operation:`, error);
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -63,63 +49,39 @@ export async function GET(
 }
 
 /**
- * PUT handler - update collection metadata
+ * PUT handler - update a collection
  */
 export async function PUT(
   request: Request,
   { params }: { params: { agentType: string, collectionId: string } }
 ) {
   try {
-    console.log(`API DEBUG: PUT multi-agent/${awaitedParams.agentType}/collections/${awaitedParams.collectionId}`);
-    
-    const { collectionId  } = await params;
+    const { agentType, collectionId } = await params;
+    console.log(`API DEBUG: PUT multi-agent/${agentType}/collections/${collectionId}`);
+
     const updateData = await request.json();
-    
+
     if (!collectionId) {
       return NextResponse.json(
         { error: 'Collection ID is required' },
         { status: 400 }
       );
     }
-    
-    const { memoryService } = await getMemoryServices();
-    
-    // Check if collection exists
-    const collections = await (memoryService as any).listCollections() as Collection[];
-    const collection = collections.find((c: Collection) => c.name === collectionId);
-    
-    if (!collection) {
+
+    const collectionService = await getMemoryServices();
+    const updatedCollection = await collectionService.updateCollection(collectionId, updateData);
+
+    if (!updatedCollection) {
       return NextResponse.json(
-        { error: 'Collection not found' },
-        { status: 404 }
+        { error: 'Failed to update collection' },
+        { status: 500 }
       );
     }
-    
-    // Update collection metadata
-    // Note: We can only update the metadata fields, not the collection name or vector size
-    const updatedMetadata = {
-      ...collection.metadata,
-      ...updateData.metadata,
-      updatedAt: new Date().toISOString()
-    };
-    
-    // For most memory services, there's no direct updateCollectionMetadata method,
-    // so we implement a workaround here. In a production system, this would
-    // be implemented directly in the memory service.
-    
-    // Resulting collection with updated metadata
-    const updatedCollection = {
-      ...collection,
-      metadata: updatedMetadata
-    };
-    
-    return NextResponse.json({
-      collection: updatedCollection,
-      message: 'Collection metadata updated successfully'
-    });
+
+    return NextResponse.json({ collection: updatedCollection });
   } catch (error) {
-    console.error(`Error updating collection ${awaitedParams.collectionId}:`, error);
-    
+    console.error(`Error in API operation:`, error);
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -128,47 +90,50 @@ export async function PUT(
 }
 
 /**
- * DELETE handler - delete collection
+ * DELETE handler - delete a collection
  */
 export async function DELETE(
   request: Request,
   { params }: { params: { agentType: string, collectionId: string } }
 ) {
   try {
-    console.log(`API DEBUG: DELETE multi-agent/${awaitedParams.agentType}/collections/${awaitedParams.collectionId}`);
-    
-    const { collectionId  } = await params;
-    
+    const { agentType, collectionId } = await params;
+    console.log(`API DEBUG: DELETE multi-agent/${agentType}/collections/${collectionId}`);
+
     if (!collectionId) {
       return NextResponse.json(
         { error: 'Collection ID is required' },
         { status: 400 }
       );
     }
-    
-    const { memoryService } = await getMemoryServices();
-    
-    // Check if collection exists
-    const collections = await (memoryService as any).listCollections() as Collection[];
-    const collectionExists = collections.some((c: Collection) => c.name === collectionId);
-    
-    if (!collectionExists) {
+
+    const collectionService = await getMemoryServices();
+
+    // Verify collection exists before deletion
+    const collection = await collectionService.getCollectionById(collectionId);
+    if (!collection) {
       return NextResponse.json(
         { error: 'Collection not found' },
         { status: 404 }
       );
     }
-    
-    // Delete the collection
-    await (memoryService as any).deleteCollection(collectionId);
-    
+
+    const success = await collectionService.deleteCollection(collectionId);
+
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Failed to delete collection' },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Collection deleted successfully'
     });
   } catch (error) {
-    console.error(`Error deleting collection ${awaitedParams.collectionId}:`, error);
-    
+    console.error(`Error in API operation:`, error);
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

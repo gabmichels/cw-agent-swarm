@@ -138,7 +138,7 @@ function searchWorkflows(workflows: Workflow[], params: WorkflowSearchParams): W
   // Apply category filter
   if (params.category && params.category !== 'all') {
     filtered = filtered.filter(workflow =>
-      workflow.category.toLowerCase() === params.category.toLowerCase()
+      workflow.category.toLowerCase() === params.category?.toLowerCase()
     );
   }
 

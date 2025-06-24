@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
+import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
 export async function GET(request: NextRequest) {
@@ -11,13 +11,13 @@ export async function GET(request: NextRequest) {
     console.log('Workflows directory:', workflowsDir);
     console.log('Directory exists:', fs.existsSync(workflowsDir));
 
-    let directoryContents = [];
+    let directoryContents: any[] = [];
     let firstFileContent = null;
 
     if (fs.existsSync(workflowsDir)) {
       directoryContents = fs.readdirSync(workflowsDir, { withFileTypes: true })
         .slice(0, 5) // First 5 items only
-        .map(item => ({
+        .map((item: any) => ({
           name: item.name,
           isDirectory: item.isDirectory(),
           isFile: item.isFile()
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 
       // Try to read the first JSON file
       const firstJsonFile = fs.readdirSync(workflowsDir)
-        .find(file => file.endsWith('.json'));
+        .find((file: any) => file.endsWith('.json'));
 
       if (firstJsonFile) {
         try {
