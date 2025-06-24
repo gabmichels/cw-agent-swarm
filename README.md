@@ -46,14 +46,30 @@ cp .env.example .env
 # Edit the .env file with your API keys and settings
 ```
 
-4. Start the development server
+4. **Setup N8N Workflows Repository** (Required for workflow functionality)
+```bash
+# Option 1: Use setup script (Recommended)
+# Windows PowerShell:
+.\scripts\setup-n8n-workflows.ps1
+# Unix/Linux/Mac:
+bash scripts/setup-n8n-workflows.sh
+
+# Option 2: Manual setup
+cd data
+git clone https://github.com/Zie619/n8n-workflows.git n8n-workflows-repo
+cd n8n-workflows-repo
+pip install -r requirements.txt  # or: py -m pip install -r requirements.txt
+python workflow_db.py --index    # or: py workflow_db.py --index
+```
+
+5. Start the development server
 ```bash
 npm run dev
 # or
 pnpm dev
 ```
 
-5. Open [http://localhost:3000](http://localhost:3000) in your browser
+6. Open [http://localhost:3000](http://localhost:3000) in your browser
 
 ### Using the Setup Script (Windows)
 

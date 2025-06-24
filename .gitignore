@@ -208,3 +208,4 @@ backups/
 *.sqlite3
 /prisma/dev.db*
 /backups/
+data/n8n-workflows-repo/

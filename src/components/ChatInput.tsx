@@ -467,13 +467,6 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
         </button>
       </form>
 
-      {/* Debug Indicator */}
-      {showWorkflowSelector && (
-        <div className="fixed top-4 right-4 bg-green-500 text-white px-2 py-1 rounded z-[10000] text-sm">
-          Workflow Selector Active: {workflowSearchQuery}
-        </div>
-      )}
-
       {/* Workflow Selector */}
       <WorkflowSelector
         isOpen={showWorkflowSelector}
