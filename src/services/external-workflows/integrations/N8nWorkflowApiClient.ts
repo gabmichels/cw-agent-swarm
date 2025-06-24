@@ -1,17 +1,20 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance } from 'axios';
+import { logger } from '../../../lib/logging';
 import {
-  WorkflowSearchQuery,
-  WorkflowSearchResult,
   N8nWorkflowTemplate,
-  WorkflowDetails,
   WorkflowCategory,
   WorkflowComplexity,
+  WorkflowDetails,
+  WorkflowDownloadError,
+  WorkflowExecutionError,
+  WorkflowExecutionHistory,
+  WorkflowExecutionResult,
   WorkflowId,
   WorkflowIdGenerator,
   WorkflowSearchError,
-  WorkflowDownloadError
+  WorkflowSearchQuery,
+  WorkflowSearchResult
 } from '../../../types/workflow';
-import { logger } from '../../../lib/logging';
 
 // === Workflow JSON Definition ===
 
@@ -44,20 +47,26 @@ export interface IN8nWorkflowApiClient {
   searchWorkflows(query: WorkflowSearchQuery): Promise<WorkflowSearchResult>;
   getWorkflowsByCategory(category: WorkflowCategory): Promise<readonly N8nWorkflowTemplate[]>;
   getWorkflowDetails(filename: string): Promise<WorkflowDetails>;
-  
+
   // Browse Operations
   getAllCategories(): Promise<readonly WorkflowCategory[]>;
   getPopularWorkflows(limit?: number): Promise<readonly N8nWorkflowTemplate[]>;
   getRecentWorkflows(limit?: number): Promise<readonly N8nWorkflowTemplate[]>;
-  
+
   // Advanced Discovery
   findSimilarWorkflows(workflowId: WorkflowId): Promise<readonly N8nWorkflowTemplate[]>;
   getWorkflowsByIntegration(service: string): Promise<readonly N8nWorkflowTemplate[]>;
   getWorkflowsByComplexity(complexity: WorkflowComplexity): Promise<readonly N8nWorkflowTemplate[]>;
-  
+
   // Repository Access
   downloadWorkflowJson(filename: string): Promise<N8nWorkflowJson>;
   getRepositoryStats(): Promise<{ totalWorkflows: number; lastUpdated: Date }>;
+
+  // Execution Operations (NEW)
+  executeWorkflow(workflowId: string, parameters?: Record<string, unknown>): Promise<WorkflowExecutionResult>;
+  getExecution(executionId: string): Promise<WorkflowExecutionResult>;
+  cancelExecution(executionId: string): Promise<boolean>;
+  getExecutionHistory(workflowId?: string, limit?: number): Promise<WorkflowExecutionHistory>;
 }
 
 // === Implementation ===
@@ -68,7 +77,7 @@ export class N8nWorkflowApiClient implements IN8nWorkflowApiClient {
   private readonly logger = logger;
   private readonly baseUrl: string;
 
-  constructor(port = 8001) {
+  constructor(port = 8080) {
     this.baseUrl = `http://localhost:${port}`;
     this.httpClient = axios.create({
       baseURL: this.baseUrl,
@@ -448,6 +457,151 @@ export class N8nWorkflowApiClient implements IN8nWorkflowApiClient {
       diagramUrl: data.diagramUrl,
       documentation: data.documentation,
       prerequisites: data.prerequisites || []
+    };
+  }
+
+  // === Execution Operations (NEW) ===
+
+  async executeWorkflow(workflowId: string, parameters?: Record<string, unknown>): Promise<WorkflowExecutionResult> {
+    this.logger.debug(`[${this.serviceName}] Executing workflow`, { workflowId, parameters });
+
+    try {
+      const response = await this.httpClient.post(`/api/workflows/${workflowId}/execute`, {
+        parameters: parameters || {}
+      });
+
+      const result = this.transformExecutionResult(response.data);
+      this.logger.info(`[${this.serviceName}] Workflow execution started`, {
+        workflowId,
+        executionId: result.executionId,
+        status: result.status
+      });
+
+      return result;
+
+    } catch (error) {
+      this.logger.error(`[${this.serviceName}] Failed to execute workflow`, {
+        workflowId,
+        parameters,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw new WorkflowExecutionError(
+        `Failed to execute workflow: ${workflowId}`,
+        undefined,
+        { workflowId, parameters, originalError: error }
+      );
+    }
+  }
+
+  async getExecution(executionId: string): Promise<WorkflowExecutionResult> {
+    this.logger.debug(`[${this.serviceName}] Getting execution status`, { executionId });
+
+    try {
+      const response = await this.httpClient.get(`/api/executions/${executionId}`);
+      const result = this.transformExecutionResult(response.data);
+
+      this.logger.debug(`[${this.serviceName}] Execution status retrieved`, {
+        executionId,
+        status: result.status
+      });
+
+      return result;
+
+    } catch (error) {
+      this.logger.error(`[${this.serviceName}] Failed to get execution status`, {
+        executionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw new WorkflowExecutionError(
+        `Failed to get execution status: ${executionId}`,
+        executionId,
+        { originalError: error }
+      );
+    }
+  }
+
+  async cancelExecution(executionId: string): Promise<boolean> {
+    this.logger.debug(`[${this.serviceName}] Cancelling execution`, { executionId });
+
+    try {
+      const response = await this.httpClient.post(`/api/executions/${executionId}/cancel`);
+      const success = response.data.success || response.status === 200;
+
+      this.logger.info(`[${this.serviceName}] Execution cancellation requested`, {
+        executionId,
+        success
+      });
+
+      return success;
+
+    } catch (error) {
+      this.logger.error(`[${this.serviceName}] Failed to cancel execution`, {
+        executionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw new WorkflowExecutionError(
+        `Failed to cancel execution: ${executionId}`,
+        executionId,
+        { originalError: error }
+      );
+    }
+  }
+
+  async getExecutionHistory(workflowId?: string, limit = 50): Promise<WorkflowExecutionHistory> {
+    this.logger.debug(`[${this.serviceName}] Getting execution history`, { workflowId, limit });
+
+    try {
+      const params: Record<string, string | number> = { limit };
+      if (workflowId) params.workflowId = workflowId;
+
+      const response = await this.httpClient.get('/api/executions', { params });
+      const history = this.transformExecutionHistory(response.data);
+
+      this.logger.debug(`[${this.serviceName}] Execution history retrieved`, {
+        workflowId,
+        count: history.executions.length,
+        total: history.total
+      });
+
+      return history;
+
+    } catch (error) {
+      this.logger.error(`[${this.serviceName}] Failed to get execution history`, {
+        workflowId,
+        limit,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw new WorkflowExecutionError(
+        'Failed to get execution history',
+        undefined,
+        { workflowId, limit, originalError: error }
+      );
+    }
+  }
+
+  // === Private Execution Utility Methods ===
+
+  private transformExecutionResult(data: any): WorkflowExecutionResult {
+    return {
+      executionId: data.executionId || data.id,
+      workflowId: data.workflowId,
+      status: data.status,
+      startedAt: new Date(data.startedAt),
+      completedAt: data.completedAt ? new Date(data.completedAt) : undefined,
+      duration: data.duration,
+      result: data.result,
+      error: data.error,
+      outputData: data.outputData,
+      metadata: data.metadata
+    };
+  }
+
+  private transformExecutionHistory(data: any): WorkflowExecutionHistory {
+    return {
+      executions: data.executions.map((item: any) => this.transformExecutionResult(item)),
+      total: data.total,
+      page: data.page || 1,
+      pageSize: data.pageSize || 50
     };
   }
 } 

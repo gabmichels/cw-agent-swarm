@@ -3,23 +3,117 @@ import { ulid } from 'ulid';
 
 // === Core Type Definitions ===
 
-export type WorkflowCategory = 
-  | 'messaging' 
-  | 'productivity' 
-  | 'email' 
-  | 'social_media' 
-  | 'ecommerce' 
-  | 'analytics' 
-  | 'calendar' 
-  | 'forms' 
-  | 'development' 
-  | 'files' 
-  | 'crm' 
+export type WorkflowCategory =
+  | 'messaging'
+  | 'productivity'
+  | 'email'
+  | 'social_media'
+  | 'ecommerce'
+  | 'analytics'
+  | 'calendar'
+  | 'forms'
+  | 'development'
+  | 'files'
+  | 'crm'
   | 'general';
 
 export type WorkflowComplexity = 'simple' | 'medium' | 'complex';
 
 export type TriggerType = 'webhook' | 'schedule' | 'manual' | 'email' | 'form' | 'api';
+
+// === N8N Execution Types ===
+
+export type N8nInstanceType = 'n8n-cloud' | 'n8n-self-hosted';
+
+export type N8nAuthMethod = 'api-key' | 'oauth';
+
+export type ExecutionStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled' | 'waiting';
+
+export interface N8nCredentials {
+  readonly instanceUrl: string;
+  readonly authMethod: N8nAuthMethod;
+  readonly apiKey?: string;
+  readonly accessToken?: string;
+  readonly refreshToken?: string;
+  readonly tokenExpiresAt?: Date;
+  readonly accountEmail?: string;
+  readonly accountName?: string;
+}
+
+export interface N8nConnectionConfig {
+  readonly instanceUrl: string;
+  readonly authMethod: N8nAuthMethod;
+  readonly displayName: string;
+  readonly accountEmail?: string;
+  readonly accountName?: string;
+  readonly lastHealthCheck?: Date;
+  readonly isEnabled: boolean;
+}
+
+export interface WorkflowExecutionRequest {
+  readonly workflowId: string;
+  readonly parameters?: Record<string, unknown>;
+  readonly triggerData?: Record<string, unknown>;
+  readonly waitForCompletion?: boolean;
+  readonly timeoutMs?: number;
+}
+
+export interface WorkflowExecutionResult {
+  readonly executionId: string;
+  readonly workflowId: string;
+  readonly status: ExecutionStatus;
+  readonly startedAt: Date;
+  readonly completedAt?: Date;
+  readonly duration?: number;
+  readonly result?: Record<string, unknown>;
+  readonly error?: string;
+  readonly outputData?: Record<string, unknown>[];
+  readonly metadata?: Record<string, unknown>;
+}
+
+export interface WorkflowExecutionHistory {
+  readonly executions: readonly WorkflowExecutionResult[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+export interface ExecutionId {
+  readonly id: string; // ULID
+  readonly prefix: 'exec';
+  readonly timestamp: Date;
+  toString(): string;
+}
+
+export class ExecutionIdGenerator {
+  static generate(): ExecutionId {
+    const timestamp = new Date();
+    const id = ulid(timestamp.getTime());
+    return {
+      id,
+      prefix: 'exec',
+      timestamp,
+      toString: () => `exec_${id}`
+    };
+  }
+
+  static parse(structuredId: string): ExecutionId {
+    if (!structuredId.startsWith('exec_')) {
+      throw new Error(`Invalid execution ID format: ${structuredId}`);
+    }
+
+    const id = structuredId.substring(5);
+    // Extract timestamp from ULID
+    const timestamp = new Date(parseInt(id.substring(0, 10), 32) * Math.pow(2, 16));
+
+    return {
+      id,
+      prefix: 'exec',
+      timestamp,
+      toString: () => structuredId
+    };
+  }
+}
 
 // === ULID-based Entity ID ===
 
@@ -41,16 +135,16 @@ export class WorkflowIdGenerator {
       toString: () => `wf_${id}`
     };
   }
-  
+
   static parse(structuredId: string): WorkflowId {
     if (!structuredId.startsWith('wf_')) {
       throw new Error(`Invalid workflow ID format: ${structuredId}`);
     }
-    
+
     const id = structuredId.substring(3);
     // Extract timestamp from ULID
     const timestamp = new Date(parseInt(id.substring(0, 10), 32) * Math.pow(2, 16));
-    
+
     return {
       id,
       prefix: 'wf',
@@ -217,18 +311,38 @@ export class WorkflowDownloadError extends WorkflowError {
   }
 }
 
+export class WorkflowExecutionError extends WorkflowError {
+  constructor(
+    message: string,
+    public readonly executionId?: string,
+    context: Record<string, unknown> = {}
+  ) {
+    super(message, 'EXECUTION_FAILED', context);
+  }
+}
+
+export class N8nConnectionError extends WorkflowError {
+  constructor(
+    message: string,
+    public readonly instanceUrl?: string,
+    context: Record<string, unknown> = {}
+  ) {
+    super(message, 'CONNECTION_FAILED', context);
+  }
+}
+
 export class RepositoryError extends WorkflowError {
   constructor(
     message: string,
     code: string,
     context: Record<string, unknown> = {}
   ) {
-    super(message, `REPOSITORY_${code}`, context);
-    this.name = 'RepositoryError';
+    super(message, code, context);
   }
 }
 
-// UI Component Types for Workflow Library
+// === UI State Types ===
+
 export interface WorkflowLibraryState {
   readonly workflows: ReadonlyArray<N8nWorkflowTemplate>;
   readonly categories: ReadonlyArray<WorkflowCategory>;
@@ -309,7 +423,6 @@ export interface WorkflowPreviewData {
   }>;
 }
 
-// Utility Types for Component State Management
 export type WorkflowLibraryAction =
   | { readonly type: 'SET_LOADING'; readonly payload: boolean }
   | { readonly type: 'SET_ERROR'; readonly payload: string | null }
@@ -323,7 +436,7 @@ export type WorkflowLibraryAction =
 // Constants for UI
 export const WORKFLOW_COMPLEXITY_LABELS: Record<WorkflowComplexity, string> = {
   simple: 'Simple',
-  medium: 'Medium', 
+  medium: 'Medium',
   complex: 'Complex'
 } as const;
 

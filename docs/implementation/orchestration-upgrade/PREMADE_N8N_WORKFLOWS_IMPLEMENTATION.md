@@ -1100,3 +1100,28 @@ Day 27-28: Go Live & Monitoring
 - **Scalable Support**: AI handles common requests, freeing experts for complex cases
 
 This transforms the n8n workflow library from a **static repository** into an **intelligent workflow consultant** that understands user needs and guides them to success! 🚀🧠
+
+---
+
+## 🔗 **Related Implementation Plans**
+
+### **N8N Workflow Execution** 
+📄 **[N8N_EXECUTION_IMPLEMENTATION.md](./N8N_EXECUTION_IMPLEMENTATION.md)**
+
+**Scope**: Enable agents to execute user's existing n8n workflows via chat commands
+
+**Goal**: Complete the automation loop from workflow discovery to actual execution
+
+**Success Criteria**: 
+```
+User: "@agent send email to gab@crowd-wisdom.com saying 'Test from Agent'"
+Agent: "✅ Email sent successfully to gab@crowd-wisdom.com"
+```
+
+**Implementation Phases**:
+- **Phase 1**: N8N connection & authentication (Week 1)
+- **Phase 2**: Workflow execution engine (Week 2) 
+- **Phase 3**: Chat integration & command processing (Week 3)
+- **Phase 4**: Advanced features & production (Week 4)
+
+This execution layer complements the premade workflow library by providing the ability to actually run workflows, not just discover and import them.
