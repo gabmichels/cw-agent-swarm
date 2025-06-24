@@ -146,7 +146,7 @@ export async function POST(
   try {
     // Properly await the params object
     const params = await context.params;
-    const chatId = params.chatId;
+    const chatId = (await params).chatId;
     
     // Make sure the storage directory exists
     ensureStorageDirectoryExists();

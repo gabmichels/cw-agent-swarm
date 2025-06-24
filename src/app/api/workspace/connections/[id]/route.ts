@@ -12,7 +12,7 @@ interface RouteParams {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json(
@@ -33,7 +33,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   } catch (error) {
     console.error('Error revoking workspace connection:', error);
-    
+
     if (error instanceof Error && error.message === 'Connection not found') {
       return NextResponse.json(
         { error: 'Connection not found' },
@@ -50,7 +50,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json(

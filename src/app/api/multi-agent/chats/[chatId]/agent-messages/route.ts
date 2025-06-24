@@ -16,7 +16,7 @@ export async function POST(
 ) {
   try {
     const params = await context.params;
-    const chatId = params.chatId;
+    const chatId = (await params).chatId;
     
     if (!chatId) {
       return NextResponse.json(

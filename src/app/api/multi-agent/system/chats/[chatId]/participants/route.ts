@@ -9,9 +9,10 @@ export async function GET(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    console.log(`API DEBUG: GET multi-agent/system/chats/${params.chatId}/participants`);
+    const awaitedParams = await params;
+    console.log(`API DEBUG: GET multi-agent/system/chats/${awaitedParams.chatId}/participants`);
     
-    const { chatId } = params;
+    const { chatId  } = await params;
     
     if (!chatId) {
       return NextResponse.json(
@@ -32,7 +33,7 @@ export async function GET(
     
     return NextResponse.json({ participants: chat.participants || [] });
   } catch (error) {
-    console.error(`Error getting chat participants for ${params.chatId}:`, error);
+    console.error(`Error getting chat participants for ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -49,9 +50,9 @@ export async function POST(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    console.log(`API DEBUG: POST multi-agent/system/chats/${params.chatId}/participants`);
+    console.log(`API DEBUG: POST multi-agent/system/chats/${awaitedParams.chatId}/participants`);
     
-    const { chatId } = params;
+    const { chatId  } = await params;
     const data = await request.json();
     
     if (!chatId) {
@@ -129,7 +130,7 @@ export async function POST(
       message: 'Participant added successfully'
     });
   } catch (error) {
-    console.error(`Error adding participant to chat ${params.chatId}:`, error);
+    console.error(`Error adding participant to chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -146,9 +147,9 @@ export async function DELETE(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    console.log(`API DEBUG: DELETE multi-agent/system/chats/${params.chatId}/participants`);
+    console.log(`API DEBUG: DELETE multi-agent/system/chats/${awaitedParams.chatId}/participants`);
     
-    const { chatId } = params;
+    const { chatId  } = await params;
     
     if (!chatId) {
       return NextResponse.json(
@@ -193,7 +194,7 @@ export async function DELETE(
       remainingParticipants: originalParticipants.length
     });
   } catch (error) {
-    console.error(`Error removing participants from chat ${params.chatId}:`, error);
+    console.error(`Error removing participants from chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

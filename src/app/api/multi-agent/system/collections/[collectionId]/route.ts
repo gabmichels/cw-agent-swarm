@@ -17,9 +17,10 @@ export async function GET(
   { params }: { params: { collectionId: string } }
 ) {
   try {
-    console.log(`API DEBUG: GET multi-agent/system/collections/${params.collectionId}`);
+    const awaitedParams = await params;
+    console.log(`API DEBUG: GET multi-agent/system/collections/${awaitedParams.collectionId}`);
     
-    const { collectionId } = params;
+    const { collectionId  } = await params;
     
     if (!collectionId) {
       return NextResponse.json(
@@ -52,7 +53,7 @@ export async function GET(
     
     return NextResponse.json({ collection: collectionInfo });
   } catch (error) {
-    console.error(`Error getting collection ${params.collectionId}:`, error);
+    console.error(`Error getting collection ${awaitedParams.collectionId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -69,9 +70,9 @@ export async function PUT(
   { params }: { params: { collectionId: string } }
 ) {
   try {
-    console.log(`API DEBUG: PUT multi-agent/system/collections/${params.collectionId}`);
+    console.log(`API DEBUG: PUT multi-agent/system/collections/${awaitedParams.collectionId}`);
     
-    const { collectionId } = params;
+    const { collectionId  } = await params;
     const updateData = await request.json();
     
     if (!collectionId) {
@@ -117,7 +118,7 @@ export async function PUT(
       message: 'Collection metadata updated successfully'
     });
   } catch (error) {
-    console.error(`Error updating collection ${params.collectionId}:`, error);
+    console.error(`Error updating collection ${awaitedParams.collectionId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -134,9 +135,9 @@ export async function DELETE(
   { params }: { params: { collectionId: string } }
 ) {
   try {
-    console.log(`API DEBUG: DELETE multi-agent/system/collections/${params.collectionId}`);
+    console.log(`API DEBUG: DELETE multi-agent/system/collections/${awaitedParams.collectionId}`);
     
-    const { collectionId } = params;
+    const { collectionId  } = await params;
     
     if (!collectionId) {
       return NextResponse.json(
@@ -166,7 +167,7 @@ export async function DELETE(
       message: 'Collection deleted successfully'
     });
   } catch (error) {
-    console.error(`Error deleting collection ${params.collectionId}:`, error);
+    console.error(`Error deleting collection ${awaitedParams.collectionId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

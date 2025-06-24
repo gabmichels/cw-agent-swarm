@@ -11,7 +11,7 @@ export async function POST(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    const chatId = params.chatId;
+    const chatId = (await params).chatId;
     
     if (!chatId) {
       return NextResponse.json(
@@ -75,7 +75,7 @@ export async function GET(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    const chatId = params.chatId;
+    const chatId = (await params).chatId;
     
     if (!chatId) {
       return NextResponse.json(

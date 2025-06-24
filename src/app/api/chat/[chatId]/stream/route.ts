@@ -46,25 +46,25 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { chatId: string } }
 ): Promise<Response> {
-  const { chatId } = params;
-  
+  const { chatId } = await params;
+
   // Extract user ID from headers or auth (simplified for now)
   const userId = request.headers.get('x-user-id') || 'anonymous';
-  
+
   // Validate chat access
   const hasAccess = await validateChatAccess(chatId, userId);
   if (!hasAccess) {
     return NextResponse.json(
-      { error: 'Unauthorized access to chat' }, 
+      { error: 'Unauthorized access to chat' },
       { status: 403 }
     );
   }
 
   // Generate unique connection ID
   const connectionId = ulid();
-  
+
   const encoder = new TextEncoder();
-  
+
   // Create readable stream for SSE
   const stream = new ReadableStream({
     start(controller) {
@@ -154,22 +154,22 @@ export async function GET(
       // Cleanup function for when connection closes
       const cleanup = () => {
         console.log(`SSE connection closed: ${connectionId}`);
-        
+
         // Unsubscribe from events
         messageUnsubscribe();
         typingUnsubscribe();
-        
+
         // Clear intervals
         clearInterval(keepaliveInterval);
         clearInterval(timeoutInterval);
-        
+
         // Remove from connection tracking
         connections.delete(connectionId);
       };
 
       // Handle client disconnect
       request.signal.addEventListener('abort', cleanup);
-      
+
       // Handle stream errors
       controller.error = cleanup;
     },
@@ -227,7 +227,7 @@ export function getConnectionStats() {
 
   for (const connection of connections.values()) {
     // Count by chat
-    stats.connectionsByChat[connection.chatId] = 
+    stats.connectionsByChat[connection.chatId] =
       (stats.connectionsByChat[connection.chatId] || 0) + 1;
 
     // Track oldest connection

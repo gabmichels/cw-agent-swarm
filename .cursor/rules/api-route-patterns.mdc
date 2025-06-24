@@ -1,0 +1,118 @@
+---
+description: API route patterns and params handling rules
+globs:
+  - "src/app/api/**/route.ts"
+alwaysApply: true
+---
+
+# API Route Patterns and Dynamic Parameters
+
+## Critical: Always Await Params in Dynamic Routes
+
+In Next.js 15+, `params` must be awaited in dynamic API routes. This prevents runtime errors and ensures compatibility.
+
+**❌ NEVER do this:**
+```typescript
+export async function GET(request: Request, { params }: { params: { id: string } }) {
+  const { id } = params; // ERROR: params must be awaited
+  const chatId = params.chatId; // ERROR: params must be awaited
+}
+```
+
+**✅ ALWAYS do this:**
+```typescript
+export async function GET(request: Request, { params }: { params: { id: string } }) {
+  const { id } = await params; // ✅ Correct
+  const chatId = (await params).chatId; // ✅ Correct
+  
+  // Or for multiple uses:
+  const awaitedParams = await params;
+  const { id, chatId } = awaitedParams; // ✅ Correct
+}
+```
+
+## Recommended API Route Patterns
+
+Based on testing, use these proven patterns:
+
+### ✅ Reliable Route Patterns
+- `/api/resource/[id]/action` - Dynamic parameter in middle
+- `/api/resource/[id]/nested/action` - Multiple levels with dynamic param
+- `/api/category/[param]/subcategory/[subparam]` - Multiple dynamic params
+
+### ❌ Avoid These Patterns
+- `/api/simple-action` - Simple flat routes (often 404 in our setup)
+- `/api/action/[param]` - Dynamic param at end of short path
+- `/api/resource-action` - Kebab-case flat routes
+
+## Error Handling Standards
+
+Always include proper error handling and CORS headers:
+
+```typescript
+export async function GET(request: Request, { params }: { params: { id: string } }) {
+  try {
+    const { id } = await params;
+    
+    if (!id) {
+      return NextResponse.json(
+        { error: "ID is required" },
+        { status: 400 }
+      );
+    }
+    
+    // Your logic here
+    
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
+}
+```
+
+## Alternative Strategies
+
+If API routes continue to have issues:
+
+1. **Client-Side Processing** - Move simple logic to the client when appropriate
+2. **Use Existing Endpoints** - Leverage proven working endpoints rather than creating new ones
+3. **Consolidate Operations** - Implement multiple operations in single endpoints
+
+## Testing New Routes
+
+When creating new API routes:
+
+1. Test the endpoint immediately after creation
+2. If 404 errors occur, try the alternative patterns above
+3. Consider client-side alternatives for simple operations
+4. Always restart the dev server completely when creating new routes
+
+Remember: Some route patterns work reliably in our codebase while others consistently fail. Stick to the proven patterns above.
+
+## Important: Fixing Params Issues
+
+When fixing multiple files at once for params awaiting:
+1. Fix the core functionality first (await params)
+2. Don
+'
+t try to fix all console.log references at the same time
+3. Some console.log statements in catch blocks may reference variables that are out of scope
+4. It
+'
+s better to have working routes with some TypeScript warnings than broken routes
+
+The core issue (runtime params errors) should be resolved even if some compilation warnings remain.

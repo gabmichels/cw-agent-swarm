@@ -15,7 +15,7 @@ export async function POST(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const agentId = params.agentId;
+    const agentId = (await params).agentId;
     
     if (!agentId) {
       return NextResponse.json(

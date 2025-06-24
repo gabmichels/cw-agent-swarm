@@ -9,9 +9,10 @@ export async function GET(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    console.log(`API DEBUG: GET multi-agent/system/chats/${params.chatId}`);
+    const awaitedParams = await params;
+    console.log(`API DEBUG: GET multi-agent/system/chats/${awaitedParams.chatId}`);
     
-    const { chatId } = params;
+    const { chatId  } = await params;
     
     if (!chatId) {
       return NextResponse.json(
@@ -32,7 +33,7 @@ export async function GET(
     
     return NextResponse.json({ chat });
   } catch (error) {
-    console.error(`Error getting chat ${params.chatId}:`, error);
+    console.error(`Error getting chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -49,9 +50,9 @@ export async function PUT(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    console.log(`API DEBUG: PUT multi-agent/system/chats/${params.chatId}`);
+    console.log(`API DEBUG: PUT multi-agent/system/chats/${awaitedParams.chatId}`);
     
-    const { chatId } = params;
+    const { chatId  } = await params;
     const updateData = await request.json();
     
     if (!chatId) {
@@ -92,7 +93,7 @@ export async function PUT(
     
     return NextResponse.json({ chat: updatedChat });
   } catch (error) {
-    console.error(`Error updating chat ${params.chatId}:`, error);
+    console.error(`Error updating chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -109,9 +110,9 @@ export async function DELETE(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    console.log(`API DEBUG: DELETE multi-agent/system/chats/${params.chatId}`);
+    console.log(`API DEBUG: DELETE multi-agent/system/chats/${awaitedParams.chatId}`);
     
-    const { chatId } = params;
+    const { chatId  } = await params;
     
     if (!chatId) {
       return NextResponse.json(
@@ -147,7 +148,7 @@ export async function DELETE(
       message: 'Chat deleted successfully'
     });
   } catch (error) {
-    console.error(`Error deleting chat ${params.chatId}:`, error);
+    console.error(`Error deleting chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

@@ -12,7 +12,7 @@ export async function GET(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const { agentId } = params;
+    const { agentId  } = await params;
 
     if (!agentId) {
       return NextResponse.json({
@@ -42,7 +42,7 @@ export async function POST(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const { agentId } = params;
+    const { agentId  } = await params;
     const body = await request.json();
     const { permissions, grantedBy } = body;
 

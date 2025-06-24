@@ -30,7 +30,8 @@ export async function GET(
   { params }: { params: { platform: string } }
 ) {
   try {
-    const { platform } = params;
+    const awaitedParams = await params;
+    const { platform  } = await params;
     const { searchParams } = new URL(request.url);
     
     // Extract OAuth parameters
@@ -175,10 +176,10 @@ export async function GET(
     );
 
   } catch (error) {
-    console.error(`OAuth callback error for ${params.platform}:`, error);
+    console.error(`OAuth callback error for ${awaitedParams.platform}:`, error);
     
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL}/?error=callback_failed&platform=${params.platform}&details=${encodeURIComponent((error as Error).message)}&source=oauth_callback`
+      `${process.env.NEXT_PUBLIC_APP_URL}/?error=callback_failed&platform=${awaitedParams.platform}&details=${encodeURIComponent((error as Error).message)}&source=oauth_callback`
     );
   }
 }

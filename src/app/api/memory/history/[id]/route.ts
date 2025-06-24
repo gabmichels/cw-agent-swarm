@@ -26,7 +26,7 @@ export async function GET(
     const { memoryService } = await getMemoryServices();
     
     // Get memory ID from path params
-    const memoryId = params.id;
+    const memoryId = (await params).id;
     if (!memoryId) {
       return NextResponse.json({ 
         error: 'Memory ID is required' 

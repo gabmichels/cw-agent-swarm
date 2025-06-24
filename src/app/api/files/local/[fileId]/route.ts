@@ -222,7 +222,7 @@ export async function GET(
   try {
     // Properly await the params object
     const params = await context.params;
-    const fileId = params.fileId;
+    const fileId = (await params).fileId;
     
     // Check if the request wants base64 data (for direct vision API usage)
     const url = new URL(request.url);

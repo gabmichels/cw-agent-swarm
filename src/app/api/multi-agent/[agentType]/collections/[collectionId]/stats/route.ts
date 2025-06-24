@@ -30,9 +30,10 @@ export async function GET(
   { params }: { params: { agentType: string, collectionId: string } }
 ) {
   try {
-    console.log(`API DEBUG: GET multi-agent/${params.agentType}/collections/${params.collectionId}/stats`);
+    const awaitedParams = await params;
+    console.log(`API DEBUG: GET multi-agent/${awaitedParams.agentType}/collections/${awaitedParams.collectionId}/stats`);
     
-    const { collectionId } = params;
+    const { collectionId  } = await params;
     
     if (!collectionId) {
       return NextResponse.json(
@@ -167,7 +168,7 @@ export async function GET(
     
     return NextResponse.json({ stats });
   } catch (error) {
-    console.error(`Error getting collection stats for ${params.collectionId}:`, error);
+    console.error(`Error getting collection stats for ${awaitedParams.collectionId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

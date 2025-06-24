@@ -12,7 +12,8 @@ export async function GET(
   { params }: { params: { chatId: string } }
 ) {
   try {
-    const chatId = params.chatId;
+    const awaitedParams = await params;
+    const chatId = (await params).chatId;
     if (!chatId) {
       return NextResponse.json(
         { error: 'Chat ID is required' },
@@ -102,7 +103,7 @@ export async function GET(
       hasMore: messages.length === limit
     });
   } catch (error) {
-    console.error(`Error retrieving messages for chat ${params.chatId}:`, error);
+    console.error(`Error retrieving messages for chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

@@ -15,29 +15,29 @@ export async function POST(
     const params = await context.params;
     const agentId = params.agentId;
     const { enabled } = await request.json();
-    
+
     if (!agentId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Agent ID is required' 
+      return NextResponse.json({
+        success: false,
+        error: 'Agent ID is required'
       }, { status: 400 });
     }
-    
+
     // Get the agent
     const { memoryService } = await getMemoryServices();
     const agentService = await createAgentMemoryService(memoryService);
-    
+
     const getResult = await agentService.getAgent(agentId);
-    
+
     if (getResult.isError || !getResult.value) {
-      return NextResponse.json({ 
-        success: false, 
-        error: getResult.error?.message || 'Agent not found' 
+      return NextResponse.json({
+        success: false,
+        error: getResult.error?.message || 'Agent not found'
       }, { status: 404 });
     }
-    
+
     const agent = getResult.value;
-    
+
     // Update the agent with autonomous setting
     const updatedAgent = {
       ...agent,
@@ -47,26 +47,26 @@ export async function POST(
       },
       updatedAt: new Date()
     };
-    
+
     const updateResult = await agentService.updateAgent(updatedAgent);
-    
+
     if (updateResult.isError) {
-      return NextResponse.json({ 
-        success: false, 
-        error: updateResult.error?.message || 'Failed to update agent' 
+      return NextResponse.json({
+        success: false,
+        error: updateResult.error?.message || 'Failed to update agent'
       }, { status: 500 });
     }
-    
+
     // Flag to track if runtime update succeeded
     let runtimeUpdateSucceeded = false;
     let runtimeWarning: string | null = null;
-    
+
     // Trigger the autonomy system if needed
     try {
       // Use the current request URL to build the absolute URL for the system API
       const requestUrl = new URL(request.url);
       const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
-      
+
       // Make a request to the agent system to set autonomy mode
       const agentSystemResponse = await fetch(`${baseUrl}/api/agents/${agentId}/system/autonomy`, {
         method: 'POST',
@@ -75,12 +75,12 @@ export async function POST(
         },
         body: JSON.stringify({ enabled })
       });
-      
+
       // Check response
       if (agentSystemResponse.ok) {
         // Parse the response body
         const systemResponseData = await agentSystemResponse.json();
-        
+
         // Check if there was a warning
         if (systemResponseData.warning) {
           runtimeWarning = systemResponseData.warning;
@@ -97,7 +97,7 @@ export async function POST(
       console.warn(runtimeWarning);
       // Don't fail the entire request if just the agent system call fails
     }
-    
+
     return NextResponse.json({
       success: true,
       agent: updateResult.value,
@@ -105,10 +105,10 @@ export async function POST(
       runtimeUpdateSucceeded,
       ...(runtimeWarning ? { warning: runtimeWarning } : {})
     });
-    
+
   } catch (error) {
-    console.error(`Error setting autonomy mode for agent ${await context.params.agentId}:`, error);
-    
+    console.error(`Error setting autonomy mode for agent:`, error);
+
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

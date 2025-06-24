@@ -15,7 +15,7 @@ export async function POST(
   context: { params: { agentId: string } }
 ) {
   const params = await context.params;
-  const agentId = params.agentId;
+  const agentId = (await params).agentId;
   
   try {
     if (!agentId) {

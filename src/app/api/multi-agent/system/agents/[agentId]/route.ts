@@ -10,9 +10,10 @@ export async function GET(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    console.log(`API DEBUG: GET multi-agent/system/agents/${params.agentId}`);
+    const awaitedParams = await params;
+    console.log(`API DEBUG: GET multi-agent/system/agents/${awaitedParams.agentId}`);
     
-    const { agentId } = params;
+    const { agentId  } = await params;
     
     if (!agentId) {
       return NextResponse.json(
@@ -33,7 +34,7 @@ export async function GET(
     
     return NextResponse.json({ agent: response.data });
   } catch (error) {
-    console.error(`Error getting agent ${params.agentId}:`, error);
+    console.error(`Error getting agent ${awaitedParams.agentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -50,9 +51,9 @@ export async function PUT(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    console.log(`API DEBUG: PUT multi-agent/system/agents/${params.agentId}`);
+    console.log(`API DEBUG: PUT multi-agent/system/agents/${awaitedParams.agentId}`);
     
-    const { agentId } = params;
+    const { agentId  } = await params;
     const updateData = await request.json();
     
     if (!agentId) {
@@ -94,7 +95,7 @@ export async function PUT(
     
     return NextResponse.json({ agent: response.data });
   } catch (error) {
-    console.error(`Error updating agent ${params.agentId}:`, error);
+    console.error(`Error updating agent ${awaitedParams.agentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -111,9 +112,9 @@ export async function PATCH(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    console.log(`API DEBUG: PATCH multi-agent/system/agents/${params.agentId}`);
+    console.log(`API DEBUG: PATCH multi-agent/system/agents/${awaitedParams.agentId}`);
     
-    const { agentId } = params;
+    const { agentId  } = await params;
     const updateData = await request.json();
     
     if (!agentId) {
@@ -174,7 +175,7 @@ export async function PATCH(
     
     return NextResponse.json({ agent: response.data });
   } catch (error) {
-    console.error(`Error patching agent ${params.agentId}:`, error);
+    console.error(`Error patching agent ${awaitedParams.agentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -191,9 +192,9 @@ export async function DELETE(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    console.log(`API DEBUG: DELETE multi-agent/system/agents/${params.agentId}`);
+    console.log(`API DEBUG: DELETE multi-agent/system/agents/${awaitedParams.agentId}`);
     
-    const { agentId } = params;
+    const { agentId  } = await params;
     
     if (!agentId) {
       return NextResponse.json(
@@ -239,7 +240,7 @@ export async function DELETE(
       message: 'Agent deleted successfully'
     });
   } catch (error) {
-    console.error(`Error deleting agent ${params.agentId}:`, error);
+    console.error(`Error deleting agent ${awaitedParams.agentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

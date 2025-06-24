@@ -12,7 +12,7 @@ export async function PUT(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const { agentId } = params;
+    const { agentId  } = await params;
     const { departmentId } = await request.json();
 
     if (!agentId || !departmentId) {
@@ -77,7 +77,7 @@ export async function DELETE(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const { agentId } = params;
+    const { agentId  } = await params;
 
     if (!agentId) {
       return NextResponse.json(

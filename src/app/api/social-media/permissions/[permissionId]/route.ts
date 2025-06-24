@@ -11,7 +11,7 @@ export async function DELETE(
   { params }: { params: { permissionId: string } }
 ) {
   try {
-    const { permissionId } = params;
+    const { permissionId  } = await params;
 
     if (!permissionId) {
       return NextResponse.json({

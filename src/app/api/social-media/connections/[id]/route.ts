@@ -10,8 +10,8 @@ export async function DELETE(
   const database = new PrismaSocialMediaDatabase(prisma);
 
   try {
-    const connectionId = params.id;
-    
+    const connectionId = (await params).id;
+
     if (!connectionId) {
       return NextResponse.json({
         success: false,
@@ -32,7 +32,7 @@ export async function DELETE(
 
     // Delete the connection
     await database.deleteConnection(connectionId);
-    
+
     console.log('Successfully deleted connection:', connectionId);
     return NextResponse.json({
       success: true,
@@ -41,7 +41,7 @@ export async function DELETE(
 
   } catch (error) {
     console.error('Error deleting social media connection:', error);
-    
+
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to delete connection'
@@ -60,8 +60,8 @@ export async function GET(
   const database = new PrismaSocialMediaDatabase(prisma);
 
   try {
-    const connectionId = params.id;
-    
+    const connectionId = (await params).id;
+
     if (!connectionId) {
       return NextResponse.json({
         success: false,
@@ -70,7 +70,7 @@ export async function GET(
     }
 
     const connection = await database.getConnection(connectionId);
-    
+
     if (!connection) {
       return NextResponse.json({
         success: false,
@@ -104,7 +104,7 @@ export async function GET(
 
   } catch (error) {
     console.error('Error fetching social media connection:', error);
-    
+
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch connection'

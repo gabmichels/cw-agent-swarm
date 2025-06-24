@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ulid } from 'ulid';
-import { 
-  chatEventEmitter, 
-  SSEEvent, 
-  TaskCompletedEvent, 
-  AgentStatusChangedEvent, 
-  SystemNotificationEvent, 
+import {
+  chatEventEmitter,
+  SSEEvent,
+  TaskCompletedEvent,
+  AgentStatusChangedEvent,
+  SystemNotificationEvent,
   FileProcessedEvent,
   ChatEventType
 } from '../../../../../lib/events/ChatEventEmitter';
@@ -54,11 +54,11 @@ function shouldSendEventToUser(event: SSEEvent, userId: string): boolean {
     case 'TASK_COMPLETED':
     case 'FILE_PROCESSED':
       return event.userId === userId;
-    
+
     case 'AGENT_STATUS_CHANGED':
     case 'SYSTEM_NOTIFICATION':
       return true; // Global events for all users
-    
+
     default:
       return false;
   }
@@ -72,25 +72,25 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { userId: string } }
 ): Promise<Response> {
-  const { userId } = params;
-  
+  const { userId } = await params;
+
   // Extract requesting user ID from headers or auth (simplified for now)
   const requestingUserId = request.headers.get('x-user-id') || userId;
-  
+
   // Validate user access
   const hasAccess = await validateUserAccess(userId, requestingUserId);
   if (!hasAccess) {
     return NextResponse.json(
-      { error: 'Unauthorized access to user notifications' }, 
+      { error: 'Unauthorized access to user notifications' },
       { status: 403 }
     );
   }
 
   // Generate unique connection ID
   const connectionId = ulid();
-  
+
   const encoder = new TextEncoder();
-  
+
   // Create readable stream for SSE
   const stream = new ReadableStream({
     start(controller) {
@@ -219,24 +219,24 @@ export async function GET(
       // Cleanup function for when connection closes
       const cleanup = () => {
         console.log(`User notification SSE connection closed: ${connectionId}`);
-        
+
         // Unsubscribe from events
         taskUnsubscribe();
         agentStatusUnsubscribe();
         systemNotificationUnsubscribe();
         fileProcessedUnsubscribe();
-        
+
         // Clear intervals
         clearInterval(keepaliveInterval);
         clearInterval(timeoutInterval);
-        
+
         // Remove from connection tracking
         userConnections.delete(connectionId);
       };
 
       // Handle client disconnect
       request.signal.addEventListener('abort', cleanup);
-      
+
       // Handle stream errors
       controller.error = cleanup;
     },
@@ -293,7 +293,7 @@ export function getUserNotificationStats() {
 
   for (const connection of userConnections.values()) {
     // Count by user
-    stats.connectionsByUser[connection.userId] = 
+    stats.connectionsByUser[connection.userId] =
       (stats.connectionsByUser[connection.userId] || 0) + 1;
 
     // Track oldest connection

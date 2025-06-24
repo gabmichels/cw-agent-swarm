@@ -14,7 +14,8 @@ export async function GET(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const agentId = params.agentId;
+    const awaitedParams = await params;
+    const agentId = (await params).agentId;
     
     if (!agentId) {
       return NextResponse.json(
@@ -48,7 +49,7 @@ export async function GET(
     
     return NextResponse.json({ capabilities });
   } catch (error) {
-    console.error(`Error fetching capabilities for agent ${params.agentId}:`, error);
+    console.error(`Error fetching capabilities for agent ${awaitedParams.agentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -65,7 +66,7 @@ export async function POST(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const agentId = params.agentId;
+    const agentId = (await params).agentId;
     const capabilityData = await request.json();
     
     if (!agentId) {
@@ -149,7 +150,7 @@ export async function POST(
       { status: 201 }
     );
   } catch (error) {
-    console.error(`Error adding capability to agent ${params.agentId}:`, error);
+    console.error(`Error adding capability to agent ${awaitedParams.agentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -166,7 +167,7 @@ export async function PUT(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const agentId = params.agentId;
+    const agentId = (await params).agentId;
     const capabilitiesData = await request.json();
     
     if (!agentId) {
@@ -240,7 +241,7 @@ export async function PUT(
       message: 'Agent capabilities updated successfully' 
     });
   } catch (error) {
-    console.error(`Error updating capabilities for agent ${params.agentId}:`, error);
+    console.error(`Error updating capabilities for agent ${awaitedParams.agentId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

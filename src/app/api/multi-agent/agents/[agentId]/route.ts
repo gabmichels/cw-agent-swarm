@@ -12,7 +12,7 @@ export async function GET(
   context: { params: { agentId: string } }
 ) {
   const params = await context.params;
-  const agentId = params.agentId;
+  const agentId = (await params).agentId;
   try {
     if (!agentId) {
       return NextResponse.json({ 
@@ -64,7 +64,7 @@ export async function PUT(
   context: { params: { agentId: string } }
 ) {
   const params = await context.params;
-  const agentId = params.agentId;
+  const agentId = (await params).agentId;
   try {
     if (!agentId) {
       return NextResponse.json({ 
@@ -151,7 +151,7 @@ export async function DELETE(
   context: { params: { agentId: string } }
 ) {
   const params = await context.params;
-  const agentId = params.agentId;
+  const agentId = (await params).agentId;
   try {
     if (!agentId) {
       return NextResponse.json({ 

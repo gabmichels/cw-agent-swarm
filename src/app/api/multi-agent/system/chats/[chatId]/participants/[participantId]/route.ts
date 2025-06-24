@@ -9,9 +9,10 @@ export async function GET(
   { params }: { params: { chatId: string, participantId: string } }
 ) {
   try {
-    console.log(`API DEBUG: GET multi-agent/system/chats/${params.chatId}/participants/${params.participantId}`);
+    const awaitedParams = await params;
+    console.log(`API DEBUG: GET multi-agent/system/chats/${awaitedParams.chatId}/participants/${awaitedParams.participantId}`);
     
-    const { chatId, participantId } = params;
+    const { chatId, participantId  } = await params;
     
     if (!chatId) {
       return NextResponse.json(
@@ -49,7 +50,7 @@ export async function GET(
     
     return NextResponse.json({ participant });
   } catch (error) {
-    console.error(`Error getting participant ${params.participantId} from chat ${params.chatId}:`, error);
+    console.error(`Error getting participant ${awaitedParams.participantId} from chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -66,9 +67,9 @@ export async function PATCH(
   { params }: { params: { chatId: string, participantId: string } }
 ) {
   try {
-    console.log(`API DEBUG: PATCH multi-agent/system/chats/${params.chatId}/participants/${params.participantId}`);
+    console.log(`API DEBUG: PATCH multi-agent/system/chats/${awaitedParams.chatId}/participants/${awaitedParams.participantId}`);
     
-    const { chatId, participantId } = params;
+    const { chatId, participantId  } = await params;
     const updateData = await request.json();
     
     if (!chatId) {
@@ -147,7 +148,7 @@ export async function PATCH(
       message: 'Participant updated successfully'
     });
   } catch (error) {
-    console.error(`Error updating participant ${params.participantId} in chat ${params.chatId}:`, error);
+    console.error(`Error updating participant ${awaitedParams.participantId} in chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
@@ -164,9 +165,9 @@ export async function DELETE(
   { params }: { params: { chatId: string, participantId: string } }
 ) {
   try {
-    console.log(`API DEBUG: DELETE multi-agent/system/chats/${params.chatId}/participants/${params.participantId}`);
+    console.log(`API DEBUG: DELETE multi-agent/system/chats/${awaitedParams.chatId}/participants/${awaitedParams.participantId}`);
     
-    const { chatId, participantId } = params;
+    const { chatId, participantId  } = await params;
     
     if (!chatId) {
       return NextResponse.json(
@@ -228,7 +229,7 @@ export async function DELETE(
       message: 'Participant removed successfully'
     });
   } catch (error) {
-    console.error(`Error removing participant ${params.participantId} from chat ${params.chatId}:`, error);
+    console.error(`Error removing participant ${awaitedParams.participantId} from chat ${awaitedParams.chatId}:`, error);
     
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
