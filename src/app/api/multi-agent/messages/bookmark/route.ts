@@ -20,36 +20,61 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get memory service
+    // Get memory service with proper initialization
     const { memoryService } = await getMemoryServices();
+
+    // Ensure the client is properly initialized
+    if (memoryService && 'memoryClient' in memoryService) {
+      const client = (memoryService as any).memoryClient;
+      if (client && typeof client.isInitialized === 'function' && !client.isInitialized()) {
+        console.log('Memory client not initialized, initializing now...');
+        if (typeof client.initialize === 'function') {
+          await client.initialize();
+        }
+      }
+    }
 
     // Try multiple search strategies to find the message
     let searchResults: any[] = [];
     if (content && content.trim()) {
-      searchResults = await memoryService.searchMemories({
-        query: content.substring(0, 200), // Use first 200 chars for better matching
-        type: MemoryType.MESSAGE,
-        limit: 100,
-        minScore: 0.1
-      });
+      try {
+        searchResults = await memoryService.searchMemories({
+          query: content.substring(0, 200), // Use first 200 chars for better matching
+          type: MemoryType.MESSAGE,
+          limit: 100,
+          minScore: 0.1
+        });
+      } catch (searchError) {
+        console.warn('Content-based search failed, trying fallback search:', searchError);
+        searchResults = [];
+      }
     }
 
     // Strategy 2: If no results or no content, search with a broader query
     if (searchResults.length === 0) {
-      searchResults = await memoryService.searchMemories({
-        query: '', // Empty query to get all messages
-        type: MemoryType.MESSAGE,
-        limit: 500, // Increase limit to catch more messages
-        minScore: 0.0 // Lower threshold
-      });
+      try {
+        searchResults = await memoryService.searchMemories({
+          query: '', // Empty query to get all messages
+          type: MemoryType.MESSAGE,
+          limit: 500, // Increase limit to catch more messages
+          minScore: 0.0 // Lower threshold
+        });
+      } catch (searchError) {
+        console.error('Fallback search failed:', searchError);
+        // Return error if we can't search at all
+        return NextResponse.json(
+          { success: false, error: 'Unable to search for message in memory' },
+          { status: 500 }
+        );
+      }
     }
 
     // Find the exact message by ID using multiple strategies
     let targetMemory = searchResults.find(memory => {
       const metadata = memory.payload?.metadata as MessageMetadata;
-      const memoryMessageId = (metadata as any)?.[MetadataField.MESSAGE_ID] || 
-                             (memory.payload as any)?.messageId ||
-                             memory.id; // Also try the memory ID itself
+      const memoryMessageId = (metadata as any)?.[MetadataField.MESSAGE_ID] ||
+        (memory.payload as any)?.messageId ||
+        memory.id; // Also try the memory ID itself
       return memoryMessageId === messageId;
     });
 
@@ -58,14 +83,14 @@ export async function POST(request: Request) {
       const searchTimestamp = new Date(timestamp).toISOString();
       targetMemory = searchResults.find(memory => {
         const metadata = memory.payload?.metadata as MessageMetadata;
-        const memoryTimestamp = (metadata as any)?.[MetadataField.TIMESTAMP] || 
-                               (memory.payload as any)?.timestamp;
+        const memoryTimestamp = (metadata as any)?.[MetadataField.TIMESTAMP] ||
+          (memory.payload as any)?.timestamp;
         const memoryContent = memory.payload?.text || (memory.payload as any)?.content || '';
-        
+
         // Check if timestamps match and content is similar
         const timestampMatch = memoryTimestamp === searchTimestamp;
         const contentMatch = content && memoryContent.includes(content.substring(0, 50));
-        
+
         return timestampMatch && contentMatch;
       });
     }
@@ -90,7 +115,16 @@ export async function POST(request: Request) {
     };
 
     // Update the memory
-    const updateResult = await memoryService.updateMemory(updateParams);
+    let updateResult;
+    try {
+      updateResult = await memoryService.updateMemory(updateParams);
+    } catch (updateError) {
+      console.error('Error updating memory:', updateError);
+      return NextResponse.json(
+        { success: false, error: 'Failed to update bookmark status' },
+        { status: 500 }
+      );
+    }
 
     if (!updateResult) {
       return NextResponse.json(
@@ -133,21 +167,43 @@ export async function GET(request: Request) {
       );
     }
 
-    // Get memory service
+    // Get memory service with proper initialization
     const { memoryService } = await getMemoryServices();
 
-    // Search for the message using proper interface
-    const searchResults = await memoryService.searchMemories({
-      query: '',
-      type: MemoryType.MESSAGE,
-      limit: 100,
-      minScore: 0.1
-    });
+    // Ensure the client is properly initialized
+    if (memoryService && 'memoryClient' in memoryService) {
+      const client = (memoryService as any).memoryClient;
+      if (client && typeof client.isInitialized === 'function' && !client.isInitialized()) {
+        console.log('Memory client not initialized, initializing now...');
+        if (typeof client.initialize === 'function') {
+          await client.initialize();
+        }
+      }
+    }
+
+    // Search for the message using proper interface with error handling
+    let searchResults: any[] = [];
+    try {
+      searchResults = await memoryService.searchMemories({
+        query: '',
+        type: MemoryType.MESSAGE,
+        limit: 100,
+        minScore: 0.1
+      });
+    } catch (searchError) {
+      console.error('Error searching for bookmark status:', searchError);
+      // Return false for bookmark status if we can't search
+      return NextResponse.json({
+        success: true,
+        isBookmarked: false,
+        error: 'Unable to verify bookmark status'
+      });
+    }
 
     const targetMemory = searchResults.find(memory => {
       const metadata = memory.payload?.metadata as MessageMetadata;
-      const memoryMessageId = (metadata as any)?.[MetadataField.MESSAGE_ID] || 
-                             (memory.payload as any)?.messageId;
+      const memoryMessageId = (metadata as any)?.[MetadataField.MESSAGE_ID] ||
+        (memory.payload as any)?.messageId;
       return memoryMessageId === messageId;
     });
 

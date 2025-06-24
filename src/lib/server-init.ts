@@ -7,6 +7,7 @@
 import { bootstrapAgents } from './agent-bootstrap';
 import { createLogger } from './logging/winston-logger';
 import { TokenRefreshService } from '../services/workspace/TokenRefreshService';
+import { unifiedConfig } from './core/unified-config';
 
 // Create a logger for server initialization
 const serverLogger = createLogger({ moduleId: 'server-init' });
@@ -32,29 +33,39 @@ export async function initializeServer() {
     serverLogger.info('Server is already initialized, skipping');
     return initializationPromise;
   }
-  
+
   // Create and store the initialization promise
   initializationPromise = (async () => {
     try {
       serverLogger.info('Starting server initialization...');
-      
+
       // Skip on client side
       if (typeof window !== 'undefined') {
         serverLogger.info('Skipping server initialization on client');
         return;
       }
-      
+
+      // Load unified configuration first
+      try {
+        serverLogger.info('Loading unified configuration...');
+        await unifiedConfig.loadConfig();
+        serverLogger.info('Unified configuration loaded successfully');
+      } catch (configError) {
+        serverLogger.error('Failed to load unified configuration', { error: configError });
+        throw configError; // Configuration is critical, fail hard
+      }
+
       // Bootstrap agent system - this will handle all agents and MCP
       try {
         await bootstrapAgents();
         serverLogger.info('Agent bootstrap completed successfully');
       } catch (bootstrapError) {
-        serverLogger.error('Agent bootstrap encountered errors, continuing with partial initialization', { 
-          error: bootstrapError 
+        serverLogger.error('Agent bootstrap encountered errors, continuing with partial initialization', {
+          error: bootstrapError
         });
         // Continue with initialization even if bootstrap fails
       }
-      
+
       // Start the token refresh service
       try {
         const tokenRefreshService = TokenRefreshService.getInstance();
@@ -64,12 +75,12 @@ export async function initializeServer() {
         serverLogger.error('Failed to start token refresh service', { error: tokenError });
         // Continue with initialization even if token service fails
       }
-      
+
       // Use a flag to track agent initialization attempts within this process
       if (!agentInitAttempted) {
         serverLogger.info('Initializing default agent (first attempt)...');
         agentInitAttempted = true; // Set flag before initialization
-        
+
         try {
           // Check if global agent already exists
           if (global.chloeAgent) {
@@ -77,14 +88,14 @@ export async function initializeServer() {
           } else {
             // Check if we should initialize the default agent
             serverLogger.info('Looking for available agents...');
-            
+
             try {
               // Import AgentService dynamically to ensure it only runs on server
               const { AgentService } = await import('../services/AgentService');
-              
+
               // Get the default agent (will be the first available one)
               const agent = await AgentService.getDefaultAgent();
-              
+
               if (agent) {
                 serverLogger.info(`Found agent: ${agent.name || agent.id}`);
                 if (!agent.initialized && typeof agent.initialize === 'function') {
@@ -106,7 +117,7 @@ export async function initializeServer() {
       } else {
         serverLogger.info('Skipping agent initialization - already attempted in this process');
       }
-      
+
       serverLogger.info('Server initialization complete');
       isInitialized = true;
     } catch (error) {
@@ -116,7 +127,7 @@ export async function initializeServer() {
       throw error;
     }
   })();
-  
+
   // Wait for initialization to complete
   await initializationPromise;
 }

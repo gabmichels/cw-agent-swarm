@@ -1,7 +1,7 @@
-import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { ClientProviders } from '../components/providers/ClientProviders';
+import './globals.css';
 
 // Initialize server components - this will only run on the server
 // The import itself will trigger the initialization

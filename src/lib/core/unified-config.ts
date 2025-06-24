@@ -248,10 +248,19 @@ export class UnifiedConfigManager {
             }
           }),
         },
+        rateLimits: {
+          requestsPerMinute: 60,
+          requestsPerHour: 1000,
+        },
       });
 
       const databaseConfig = ServiceConfigSchemas.database.parse({
         url: environment.DATABASE_URL,
+        pool: {
+          min: 2,
+          max: 10,
+        },
+        timeout: 30000,
       });
 
       const securityConfig = ServiceConfigSchemas.security.parse({

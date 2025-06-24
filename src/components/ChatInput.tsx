@@ -1,6 +1,7 @@
 import React, { FormEvent, useRef, KeyboardEvent, useState, useEffect, DragEvent, useCallback } from 'react';
 import { Send, X } from 'lucide-react';
 import MessagePreview from './message/MessagePreview';
+import WorkflowSelector from './chat/WorkflowSelector';
 import { Message } from '../types';
 
 interface FileAttachment {
@@ -19,6 +20,23 @@ interface MessageForPreview {
   [key: string]: any;
 }
 
+interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  platform: 'n8n' | 'zapier';
+  category: string;
+  parameters: WorkflowParameter[];
+  isActive: boolean;
+}
+
+interface WorkflowParameter {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'object';
+  required: boolean;
+  description?: string;
+}
+
 interface ChatInputProps {
   inputMessage: string;
   setInputMessage: (message: string) => void;
@@ -32,6 +50,10 @@ interface ChatInputProps {
   attachedMessage?: MessageForPreview | null;
   onRemoveAttachedMessage?: () => void;
   onNavigateToMessage?: (messageId: string) => void;
+  // Workflow props
+  availableWorkflows?: Workflow[];
+  onWorkflowSelect?: (workflow: Workflow) => void;
+  onNavigateToWorkflowsTab?: () => void;
 }
 
 const ChatInput: React.FC<ChatInputProps> = React.memo(({
@@ -46,11 +68,21 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
   attachedMessage,
   onRemoveAttachedMessage,
   onNavigateToMessage,
+  availableWorkflows = [],
+  onWorkflowSelect,
+  onNavigateToWorkflowsTab,
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const textareaWrapperRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  
+  // Workflow selector state
+  const [showWorkflowSelector, setShowWorkflowSelector] = useState(false);
+  const [workflowSearchQuery, setWorkflowSearchQuery] = useState('');
+  const [selectedWorkflowIndex, setSelectedWorkflowIndex] = useState(0);
+  const [mentionStartPosition, setMentionStartPosition] = useState(-1);
+  const [selectorPosition, setSelectorPosition] = useState({ top: 0, left: 0 });
 
   // Handle clipboard paste - memoized to prevent useEffect re-runs
   const handlePaste = useCallback((e: ClipboardEvent) => {
@@ -120,6 +152,46 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
   }, [handlePaste]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Handle workflow selector navigation
+    if (showWorkflowSelector) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedWorkflowIndex(prev => 
+          prev < availableWorkflows.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedWorkflowIndex(prev => 
+          prev > 0 ? prev - 1 : availableWorkflows.length - 1
+        );
+        return;
+      }
+      if (e.key === 'Enter' && availableWorkflows.length > 0) {
+        e.preventDefault();
+        const selectedWorkflow = availableWorkflows[selectedWorkflowIndex];
+        if (selectedWorkflow && onWorkflowSelect) {
+          onWorkflowSelect(selectedWorkflow);
+          // Replace @ mention with workflow name
+          const beforeMention = inputMessage.substring(0, mentionStartPosition);
+          const afterMention = inputMessage.substring(inputRef.current?.selectionStart || 0);
+          setInputMessage(`${beforeMention}@${selectedWorkflow.name} ${afterMention}`);
+          setShowWorkflowSelector(false);
+          setWorkflowSearchQuery('');
+          setMentionStartPosition(-1);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowWorkflowSelector(false);
+        setWorkflowSearchQuery('');
+        setMentionStartPosition(-1);
+        return;
+      }
+    }
+
     // Submit on ENTER without SHIFT key
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -129,7 +201,7 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
         if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
       }
     }
-  }, [inputMessage, pendingAttachments.length, attachedMessage]);
+  }, [inputMessage, pendingAttachments.length, attachedMessage, showWorkflowSelector, availableWorkflows, selectedWorkflowIndex, mentionStartPosition, onWorkflowSelect]);
 
   // Auto-resize textarea based on content height - your original implementation
   useEffect(() => {
@@ -149,6 +221,89 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
       inputRef.current.style.height = `${newHeight}px`;
     }
   }, [inputMessage, inputRef, isFocused]);
+
+  // Handle @ mention detection and workflow search
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    const cursorPosition = e.target.selectionStart;
+    
+    setInputMessage(value);
+    
+    // Check for @ mention
+    const lastAtIndex = value.lastIndexOf('@', cursorPosition - 1);
+    
+    if (lastAtIndex !== -1) {
+      // Check if there's a space before @ (or it's at the start)
+      const charBeforeAt = lastAtIndex > 0 ? value[lastAtIndex - 1] : ' ';
+      const isValidMention = charBeforeAt === ' ' || charBeforeAt === '\n' || lastAtIndex === 0;
+      
+      if (isValidMention) {
+        // Extract search query after @
+        const afterAt = value.substring(lastAtIndex + 1, cursorPosition);
+        const spaceIndex = afterAt.indexOf(' ');
+        const searchQuery = spaceIndex === -1 ? afterAt : afterAt.substring(0, spaceIndex);
+        
+        // Debug logging
+        console.log('Workflow selector:', {
+          searchQuery,
+          availableWorkflows: availableWorkflows.length,
+          showSelector: spaceIndex === -1,
+          workflows: availableWorkflows.map(w => w.name)
+        });
+        
+        // Only show selector if we're still typing the mention (no space after)
+        if (spaceIndex === -1) {
+          setWorkflowSearchQuery(searchQuery);
+          setMentionStartPosition(lastAtIndex);
+          setSelectedWorkflowIndex(0);
+          setShowWorkflowSelector(true);
+          
+          // Calculate selector position
+          if (inputRef.current) {
+            const rect = inputRef.current.getBoundingClientRect();
+            setSelectorPosition({
+              top: rect.top,
+              left: rect.left
+            });
+          }
+        } else {
+          setShowWorkflowSelector(false);
+        }
+      } else {
+        setShowWorkflowSelector(false);
+      }
+    } else {
+      setShowWorkflowSelector(false);
+    }
+  }, [setInputMessage, availableWorkflows]);
+
+  // Handle workflow selection
+  const handleWorkflowSelect = useCallback((workflow: Workflow) => {
+    if (onWorkflowSelect) {
+      onWorkflowSelect(workflow);
+    }
+    
+    // Replace @ mention with workflow name
+    const beforeMention = inputMessage.substring(0, mentionStartPosition);
+    const afterMention = inputMessage.substring(inputRef.current?.selectionStart || 0);
+    setInputMessage(`${beforeMention}@${workflow.name} ${afterMention}`);
+    setShowWorkflowSelector(false);
+    setWorkflowSearchQuery('');
+    setMentionStartPosition(-1);
+    
+    // Focus back to textarea
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+  }, [inputMessage, mentionStartPosition, onWorkflowSelect, setInputMessage]);
+
+  // Handle navigate to workflows tab
+  const handleNavigateToWorkflowsTab = useCallback(() => {
+    if (onNavigateToWorkflowsTab) {
+      onNavigateToWorkflowsTab();
+    }
+    setShowWorkflowSelector(false);
+  }, [onNavigateToWorkflowsTab]);
 
   // Handle message navigation
   const handleNavigateToMessage = useCallback(() => {
@@ -275,7 +430,7 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
           <textarea
             ref={inputRef}
             value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
@@ -311,6 +466,25 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
           )}
         </button>
       </form>
+
+      {/* Debug Indicator */}
+      {showWorkflowSelector && (
+        <div className="fixed top-4 right-4 bg-green-500 text-white px-2 py-1 rounded z-[10000] text-sm">
+          Workflow Selector Active: {workflowSearchQuery}
+        </div>
+      )}
+
+      {/* Workflow Selector */}
+      <WorkflowSelector
+        isOpen={showWorkflowSelector}
+        searchQuery={workflowSearchQuery}
+        workflows={availableWorkflows}
+        selectedIndex={selectedWorkflowIndex}
+        onSelect={handleWorkflowSelect}
+        onClose={() => setShowWorkflowSelector(false)}
+        onNavigateToWorkflowsTab={handleNavigateToWorkflowsTab}
+        position={selectorPosition}
+      />
     </div>
   );
 });

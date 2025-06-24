@@ -113,7 +113,7 @@ export class AgentConfigValidator {
     this.logger = createLogger({
       moduleId: 'agent-config-validator',
     });
-    
+
     // Set default validation options
     this.defaultOptions = {
       strict: true,
@@ -137,10 +137,10 @@ export class AgentConfigValidator {
     options: Partial<ValidationOptions> = {}
   ): ConfigValidationResult {
     const validationOptions = { ...this.defaultOptions, ...options };
-    
+
     try {
       this.logger.info(`Validating configuration with schema: ${schemaName}`);
-      
+
       const result: ConfigValidationResult = {
         valid: true,
         errors: [],
@@ -184,7 +184,7 @@ export class AgentConfigValidator {
         '',
         validationOptions
       );
-      
+
       result.errors.push(...validationResult.errors);
       result.warnings.push(...validationResult.warnings);
       result.normalizedConfig = validationResult.value as Record<string, unknown>;
@@ -200,12 +200,12 @@ export class AgentConfigValidator {
       result.valid = result.errors.filter(e => e.severity === 'error' || e.severity === 'critical').length === 0;
 
       this.logger.info(`Configuration validation completed. Valid: ${result.valid}, Errors: ${result.errors.length}, Warnings: ${result.warnings.length}`);
-      
+
       return result;
-      
+
     } catch (error) {
       this.logger.error('Error during configuration validation:', { error: error instanceof Error ? error.message : String(error) });
-      
+
       return {
         valid: false,
         errors: [{
@@ -377,7 +377,7 @@ export class AgentConfigValidator {
         propPath,
         options
       );
-      
+
       normalizedValue[propName] = propValidation.value;
       errors.push(...propValidation.errors);
       warnings.push(...propValidation.warnings);
@@ -438,7 +438,7 @@ export class AgentConfigValidator {
         itemPath,
         options
       );
-      
+
       normalizedValue.push(itemValidation.value);
       errors.push(...itemValidation.errors);
       warnings.push(...itemValidation.warnings);
@@ -590,13 +590,13 @@ export class AgentConfigValidator {
         });
       } else {
         const managerExists = (config.managers as unknown[]).some(
-          (manager: unknown) => 
-            typeof manager === 'object' && 
-            manager !== null && 
-            'id' in manager && 
+          (manager: unknown) =>
+            typeof manager === 'object' &&
+            manager !== null &&
+            'id' in manager &&
             (manager as { id: unknown }).id === config.managerId
         );
-        
+
         if (!managerExists) {
           errors.push({
             path: 'managerId',
@@ -618,16 +618,16 @@ export class AgentConfigValidator {
     if (value === null || typeof value !== 'object') {
       return value;
     }
-    
+
     if (Array.isArray(value)) {
       return value.map(item => this.cloneValue(item));
     }
-    
+
     const cloned: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
       cloned[key] = this.cloneValue(val);
     }
-    
+
     return cloned;
   }
 
@@ -997,6 +997,55 @@ export class AgentConfigValidator {
           type: 'object',
           required: false,
           description: 'Component configurations'
+        },
+        visualizationConfig: {
+          type: 'object',
+          required: false,
+          properties: {
+            enabled: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Enable visualization tracking'
+            },
+            trackMemoryRetrieval: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Track memory retrieval operations'
+            },
+            trackLLMInteraction: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Track LLM interactions'
+            },
+            trackToolExecution: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Track tool execution'
+            },
+            trackTaskCreation: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Track task creation'
+            },
+            includePerformanceMetrics: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Include performance metrics'
+            },
+            includeContextData: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Include context data'
+            }
+          },
+          description: 'Visualization configuration'
         }
       }
     });
@@ -1028,13 +1077,13 @@ export class AgentConfigValidator {
     if (!this.migrationRules.has(schemaName)) {
       this.migrationRules.set(schemaName, []);
     }
-    
+
     const rules = this.migrationRules.get(schemaName)!;
     rules.push(rule);
-    
+
     // Sort by version
     rules.sort((a, b) => a.version.localeCompare(b.version));
-    
+
     this.logger.info(`Added migration rule for ${schemaName}: ${rule.description}`);
   }
 
@@ -1061,12 +1110,12 @@ export class AgentConfigValidator {
     options: Partial<ValidationOptions> = {}
   ): string {
     const result = this.validateConfig(config, schemaName, options);
-    
+
     let report = `Configuration Validation Report\n`;
     report += `Schema: ${schemaName}\n`;
     report += `Valid: ${result.valid}\n`;
     report += `Migration Applied: ${result.migrationApplied}\n\n`;
-    
+
     if (result.errors.length > 0) {
       report += `Errors (${result.errors.length}):\n`;
       for (const error of result.errors) {
@@ -1074,7 +1123,7 @@ export class AgentConfigValidator {
       }
       report += '\n';
     }
-    
+
     if (result.warnings.length > 0) {
       report += `Warnings (${result.warnings.length}):\n`;
       for (const warning of result.warnings) {
@@ -1085,7 +1134,7 @@ export class AgentConfigValidator {
       }
       report += '\n';
     }
-    
+
     return report;
   }
 } 

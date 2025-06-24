@@ -144,28 +144,60 @@ export class UnifiedTokenManager {
   private readonly iterations = 100000;
   private readonly tagLength = 16;
 
-  private masterKey: Buffer;
-  private refreshConfig: TokenRefreshConfig;
+  private masterKey: Buffer | null = null;
+  private refreshConfig: TokenRefreshConfig | null = null;
   private refreshCallbacks = new Map<string, TokenRefreshCallback>();
   private lifecycleListeners: TokenLifecycleListener[] = [];
   private refreshTimers = new Map<string, NodeJS.Timeout>();
+  private configInitialized = false;
 
   private constructor() {
-    const securityConfig = getServiceConfig('security');
-    const oauthConfig = getServiceConfig('oauth');
+    // Don't load configuration in constructor - use lazy loading
+  }
 
-    this.masterKey = this.deriveMasterKey(securityConfig.encryptionKey);
-    this.refreshConfig = {
-      refreshBuffer: oauthConfig.tokenRefreshBuffer,
-      maxRetries: oauthConfig.maxRetries,
-      retryDelay: 1000,
-      exponentialBackoff: true,
-    };
+  /**
+   * Initialize configuration lazily
+   */
+  private async initializeConfig(): Promise<void> {
+    if (this.configInitialized) {
+      return;
+    }
 
-    logger.info('Unified token manager initialized', {
-      refreshBuffer: this.refreshConfig.refreshBuffer,
-      maxRetries: this.refreshConfig.maxRetries,
-    });
+    try {
+      // Load configuration asynchronously
+      const { unifiedConfig } = await import('../core/unified-config');
+      await unifiedConfig.loadConfig();
+
+      const securityConfig = getServiceConfig('security');
+      const oauthConfig = getServiceConfig('oauth');
+
+      this.masterKey = this.deriveMasterKey(securityConfig.encryptionKey);
+      this.refreshConfig = {
+        refreshBuffer: oauthConfig.tokenRefreshBuffer,
+        maxRetries: oauthConfig.maxRetries,
+        retryDelay: 1000,
+        exponentialBackoff: true,
+      };
+
+      this.configInitialized = true;
+
+      logger.info('Unified token manager initialized', {
+        refreshBuffer: this.refreshConfig.refreshBuffer,
+        maxRetries: this.refreshConfig.maxRetries,
+      });
+    } catch (error) {
+      logger.error('Failed to initialize token manager configuration', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Ensure configuration is loaded
+   */
+  private async ensureConfigLoaded(): Promise<void> {
+    if (!this.configInitialized) {
+      await this.initializeConfig();
+    }
   }
 
   /**
@@ -182,6 +214,7 @@ export class UnifiedTokenManager {
    * Encrypt OAuth token data
    */
   async encryptTokens(tokenData: OAuthTokenData): Promise<EncryptedTokenData> {
+    await this.ensureConfigLoaded();
     const context = createErrorContext('UnifiedTokenManager', 'encryptTokens');
 
     const result = await handleAsync(async () => {
@@ -235,6 +268,7 @@ export class UnifiedTokenManager {
    * Decrypt OAuth token data
    */
   async decryptTokens(encryptedData: EncryptedTokenData | string): Promise<OAuthTokenData> {
+    await this.ensureConfigLoaded();
     const context = createErrorContext('UnifiedTokenManager', 'decryptTokens');
 
     const result = await handleAsync(async () => {
@@ -279,7 +313,8 @@ export class UnifiedTokenManager {
       return false; // No expiry information, assume valid
     }
 
-    const buffer = (bufferSeconds ?? this.refreshConfig.refreshBuffer) * 1000;
+    // Use provided buffer or default value if config not loaded
+    const buffer = (bufferSeconds ?? this.refreshConfig?.refreshBuffer ?? 300) * 1000;
     const expiryTime = tokenData.expiresAt.getTime() - buffer;
     return Date.now() >= expiryTime;
   }
@@ -491,7 +526,7 @@ export class UnifiedTokenManager {
    * Derive encryption key from master key and salt
    */
   private deriveKey(salt: Buffer): Buffer {
-    return crypto.pbkdf2Sync(this.masterKey, salt, this.iterations, this.keyLength, 'sha256');
+    return crypto.pbkdf2Sync(this.masterKey!, salt, this.iterations, this.keyLength, 'sha256');
   }
 
   /**

@@ -37,6 +37,7 @@ import TasksTab from '@/components/tabs/TasksTab';
 import KnowledgeTab from '@/components/tabs/KnowledgeTab';
 import ToolsTab from '@/components/tabs/ToolsTab';
 import BookmarksTab from '@/components/tabs/BookmarksTab';
+import WorkflowsTab from '@/components/tabs/WorkflowsTab';
 import { createReplyContextFromMessage } from '@/lib/metadata/reply-context-factory';
 import { MessageMetadata } from '@/types/metadata';
 import { createStructuredId, EntityNamespace, EntityType, structuredIdToString } from '@/types/entity-identifier';
@@ -1064,6 +1065,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         );
       case 'bookmarks':
         return <BookmarksTab onSelectMessage={memoizedNavigateToMessage} />;
+      case 'workflows':
+        return <WorkflowsTab agentId={agentId} agentName={chat?.name || 'Agent'} />;
       default:
         return <WelcomeScreen />;
     }
@@ -1140,6 +1143,129 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
       })) || []
     };
   }, [attachedMessage]);
+
+  // Real workflow data from API
+  const [availableWorkflows, setAvailableWorkflows] = useState<any[]>([]);
+  const [workflowsLoading, setWorkflowsLoading] = useState(false);
+
+  // Fetch real workflow data
+  useEffect(() => {
+    const fetchWorkflows = async () => {
+      setWorkflowsLoading(true);
+      try {
+        const response = await fetch('/api/workflows?limit=100');
+        const data = await response.json();
+        
+        if (data.success && data.data.workflows) {
+          // Transform workflow data to match the expected interface
+          const transformedWorkflows = data.data.workflows.map((workflow: any) => ({
+            id: workflow.id,
+            name: workflow.name,
+            description: workflow.description,
+            platform: 'n8n' as const,
+            category: workflow.category,
+            parameters: extractWorkflowParameters(workflow.nodes || []),
+            isActive: workflow.active !== false
+          }));
+          
+          setAvailableWorkflows(transformedWorkflows);
+          console.log(`Loaded ${transformedWorkflows.length} real workflows from API`);
+        } else {
+          console.warn('Failed to load workflows, using mock data');
+          setAvailableWorkflows(mockWorkflows);
+        }
+      } catch (error) {
+        console.error('Error fetching workflows:', error);
+        setAvailableWorkflows(mockWorkflows);
+      } finally {
+        setWorkflowsLoading(false);
+      }
+    };
+
+    fetchWorkflows();
+  }, []);
+
+  // Extract parameters from workflow nodes
+  const extractWorkflowParameters = (nodes: any[]) => {
+    const parameters: Array<{
+      name: string;
+      type: 'string' | 'number' | 'boolean';
+      required: boolean;
+      description: string;
+    }> = [];
+
+    // Look for common parameter patterns in nodes
+    nodes.forEach(node => {
+      if (node.parameters) {
+        Object.keys(node.parameters).forEach(key => {
+          // Skip internal parameters
+          if (!key.startsWith('_') && !['resource', 'operation'].includes(key)) {
+            parameters.push({
+              name: key,
+              type: typeof node.parameters[key] === 'boolean' ? 'boolean' : 
+                    typeof node.parameters[key] === 'number' ? 'number' : 'string',
+              required: false,
+              description: `${node.name || node.type} ${key} parameter`
+            });
+          }
+        });
+      }
+    });
+
+    return parameters.slice(0, 5); // Limit to first 5 parameters
+  };
+
+  // Mock workflow data for fallback
+  const mockWorkflows = [
+    {
+      id: 'wf_email_automation',
+      name: 'Email Automation',
+      description: 'Automatically send personalized emails based on triggers',
+      platform: 'n8n' as const,
+      category: 'Communication',
+      parameters: [
+        { name: 'to', type: 'string' as const, required: true, description: 'Recipient email address' },
+        { name: 'subject', type: 'string' as const, required: true, description: 'Email subject' },
+        { name: 'content', type: 'string' as const, required: true, description: 'Email content' }
+      ],
+      isActive: true
+    },
+    {
+      id: 'wf_slack_notification',
+      name: 'Slack Notification',
+      description: 'Send notifications to Slack channels',
+      platform: 'zapier' as const,
+      category: 'Communication',
+      parameters: [
+        { name: 'channel', type: 'string' as const, required: true, description: 'Slack channel' },
+        { name: 'message', type: 'string' as const, required: true, description: 'Message content' }
+      ],
+      isActive: true
+    },
+    {
+      id: 'wf_data_sync',
+      name: 'Data Sync',
+      description: 'Synchronize data between different platforms',
+      platform: 'n8n' as const,
+      category: 'Data Integration',
+      parameters: [
+        { name: 'source', type: 'string' as const, required: true, description: 'Source system' },
+        { name: 'destination', type: 'string' as const, required: true, description: 'Destination system' }
+      ],
+      isActive: true
+    }
+  ];
+
+  // Handle workflow selection
+  const handleWorkflowSelect = useCallback((workflow: any) => {
+    console.log('Workflow selected:', workflow);
+    // TODO: Handle workflow execution logic
+  }, []);
+
+  // Handle navigate to workflows tab
+  const handleNavigateToWorkflowsTab = useCallback(() => {
+    setSelectedTab('workflows');
+  }, [setSelectedTab]);
 
   // UI matches main page
   return (
@@ -1228,6 +1354,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
               attachedMessage={memoizedAttachedMessage}
               onRemoveAttachedMessage={optimizedHandleRemoveAttachedMessage}
               onNavigateToMessage={optimizedHandleNavigateToMessage}
+              availableWorkflows={availableWorkflows}
+              onWorkflowSelect={handleWorkflowSelect}
+              onNavigateToWorkflowsTab={handleNavigateToWorkflowsTab}
             />
           </div>
           <DevModeToggle showInternalMessages={showInternalMessages} setShowInternalMessages={setShowInternalMessages} />
