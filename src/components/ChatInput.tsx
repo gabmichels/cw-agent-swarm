@@ -1,8 +1,9 @@
-import React, { FormEvent, useRef, KeyboardEvent, useState, useEffect, DragEvent, useCallback } from 'react';
 import { Send, X } from 'lucide-react';
-import MessagePreview from './message/MessagePreview';
-import WorkflowSelector from './chat/WorkflowSelector';
+import React, { DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { AgentWorkflow, AvailableWorkflow } from '../hooks/useWorkflows';
 import { Message } from '../types';
+import WorkflowSelector from './chat/WorkflowSelector';
+import MessagePreview from './message/MessagePreview';
 
 interface FileAttachment {
   file: File;
@@ -20,23 +21,6 @@ interface MessageForPreview {
   [key: string]: any;
 }
 
-interface Workflow {
-  id: string;
-  name: string;
-  description: string;
-  platform: 'n8n' | 'zapier';
-  category: string;
-  parameters: WorkflowParameter[];
-  isActive: boolean;
-}
-
-interface WorkflowParameter {
-  name: string;
-  type: 'string' | 'number' | 'boolean' | 'object';
-  required: boolean;
-  description?: string;
-}
-
 interface ChatInputProps {
   inputMessage: string;
   setInputMessage: (message: string) => void;
@@ -51,8 +35,10 @@ interface ChatInputProps {
   onRemoveAttachedMessage?: () => void;
   onNavigateToMessage?: (messageId: string) => void;
   // Workflow props
-  availableWorkflows?: Workflow[];
-  onWorkflowSelect?: (workflow: Workflow) => void;
+  availableWorkflows?: AgentWorkflow[]; // Agent-assigned workflows
+  availableWorkflowsFromDiscovery?: AvailableWorkflow[]; // Available workflows from discovery
+  onWorkflowSelect?: (workflow: AgentWorkflow | AvailableWorkflow) => void;
+  onAddWorkflow?: (workflow: AvailableWorkflow) => void; // New prop for adding workflows
   onNavigateToWorkflowsTab?: () => void;
 }
 
@@ -69,7 +55,9 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
   onRemoveAttachedMessage,
   onNavigateToMessage,
   availableWorkflows = [],
+  availableWorkflowsFromDiscovery = [],
   onWorkflowSelect,
+  onAddWorkflow,
   onNavigateToWorkflowsTab,
 }) => {
   const [isFocused, setIsFocused] = useState(false);
@@ -278,7 +266,7 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
   }, [setInputMessage, availableWorkflows]);
 
   // Handle workflow selection
-  const handleWorkflowSelect = useCallback((workflow: Workflow) => {
+  const handleWorkflowSelect = useCallback((workflow: AgentWorkflow | AvailableWorkflow) => {
     if (onWorkflowSelect) {
       onWorkflowSelect(workflow);
     }
@@ -472,10 +460,12 @@ const ChatInput: React.FC<ChatInputProps> = React.memo(({
         isOpen={showWorkflowSelector}
         searchQuery={workflowSearchQuery}
         workflows={availableWorkflows}
+        availableWorkflows={availableWorkflowsFromDiscovery}
         selectedIndex={selectedWorkflowIndex}
         onSelect={handleWorkflowSelect}
         onClose={() => setShowWorkflowSelector(false)}
         onNavigateToWorkflowsTab={handleNavigateToWorkflowsTab}
+        onAddWorkflow={onAddWorkflow}
         position={selectorPosition}
       />
     </div>

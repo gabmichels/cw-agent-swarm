@@ -1,47 +1,42 @@
 'use client';
 
-import React, { useEffect, useState, useRef, FormEvent, useCallback, useMemo } from 'react';
-import { useParams } from 'next/navigation';
-import Header from '@/components/Header';
-import Sidebar from '@/components/Sidebar';
-import TabsNavigation from '@/components/TabsNavigation';
 import ChatInput from '@/components/ChatInput';
 import ChatMessages from '@/components/ChatMessages';
 import DevModeToggle from '@/components/DevModeToggle';
-import { useChatSSE } from '@/hooks/useChatSSE';
-import { useMultiChannelSSE } from '@/hooks/useMultiChannelSSE';
-import { NotificationToastProvider } from '@/components/notifications/NotificationToastProvider';
-import { Message as ChatMessage, MessageType, MessageRole, MessageStatus, MessageAttachment } from '@/lib/multi-agent/types/message';
-import { ParticipantType } from '@/lib/multi-agent/types/chat';
-import { FileMetadata, FileAttachmentType as StorageFileType, FileProcessingStatus, FileAttachment as StorageFileAttachment } from '@/types/files';
-import { Message as HandlerMessage, MessageType as HandlerMessageType, MessageStatus as HandlerMessageStatus, MessageHandlerOptions } from '@/services/message/MessageHandlerService';
-import { Message as DisplayMessage } from '@/types';
-import { Message } from '@/types';
-import { FileAttachmentType } from '@/constants/file';
-import { getCurrentUser } from '@/lib/user';
-import { FileUploadImplementation } from '@/services/upload/FileUploadImplementation';
-import { IndexedDBFileStorage } from '@/services/storage/IndexedDBFileStorage';
-import { MessageHandlerImplementation } from '@/services/message/MessageHandlerImplementation';
-import { FilePreview } from '@/components/file/FilePreview';
-import { ProgressBar } from '@/components/ui/progress-bar';
-import { ErrorMessage } from '@/components/ui/error-message';
+import Header from '@/components/Header';
 import { ImageModal } from '@/components/modals/ImageModal';
-import { FileAttachmentHandler, FileHandlerOptions } from '@/services/handlers/FileAttachmentHandler';
-import { ClipboardHandler } from '@/services/handlers/ClipboardHandler';
-import { DragDropHandler } from '@/services/handlers/DragDropHandler';
-import { generateMessageId } from '@/lib/multi-agent/types/message';
-import { UploadInfo } from '@/services/upload/FileUploadService';
-import { ImportanceLevel } from '@/constants/memory';
+import { NotificationToastProvider } from '@/components/notifications/NotificationToastProvider';
+import Sidebar from '@/components/Sidebar';
+import BookmarksTab from '@/components/tabs/BookmarksTab';
+import KnowledgeTab from '@/components/tabs/KnowledgeTab';
 import MemoryTab from '@/components/tabs/MemoryTab';
 import TasksTab from '@/components/tabs/TasksTab';
-import KnowledgeTab from '@/components/tabs/KnowledgeTab';
 import ToolsTab from '@/components/tabs/ToolsTab';
-import BookmarksTab from '@/components/tabs/BookmarksTab';
 import WorkflowsTab from '@/components/tabs/WorkflowsTab';
-import { createReplyContextFromMessage } from '@/lib/metadata/reply-context-factory';
-import { MessageMetadata } from '@/types/metadata';
-import { createStructuredId, EntityNamespace, EntityType, structuredIdToString } from '@/types/entity-identifier';
+import TabsNavigation from '@/components/TabsNavigation';
+import { ErrorMessage } from '@/components/ui/error-message';
+import { ProgressBar } from '@/components/ui/progress-bar';
 import { VisualizationDashboard } from '@/components/visualization/VisualizationDashboard';
+import { FileAttachmentType } from '@/constants/file';
+import { ImportanceLevel } from '@/constants/memory';
+import { useChatSSE } from '@/hooks/useChatSSE';
+import { useMultiChannelSSE } from '@/hooks/useMultiChannelSSE';
+import { createReplyContextFromMessage } from '@/lib/metadata/reply-context-factory';
+import { generateMessageId, MessageAttachment } from '@/lib/multi-agent/types/message';
+import { getCurrentUser } from '@/lib/user';
+import { ClipboardHandler } from '@/services/handlers/ClipboardHandler';
+import { DragDropHandler } from '@/services/handlers/DragDropHandler';
+import { FileAttachmentHandler, FileHandlerOptions } from '@/services/handlers/FileAttachmentHandler';
+import { MessageHandlerImplementation } from '@/services/message/MessageHandlerImplementation';
+import { IndexedDBFileStorage } from '@/services/storage/IndexedDBFileStorage';
+import { FileUploadImplementation } from '@/services/upload/FileUploadImplementation';
+import { Message as DisplayMessage, Message } from '@/types';
+import { createStructuredId, EntityNamespace, EntityType } from '@/types/entity-identifier';
+import { FileMetadata, FileProcessingStatus, FileAttachmentType as StorageFileType } from '@/types/files';
+import { MessageMetadata } from '@/types/metadata';
+import { useParams } from 'next/navigation';
+import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useWorkflows } from '../../../hooks/useWorkflows';
 
 // Define message priority enum
 enum MessagePriority {
@@ -205,6 +200,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   const clipboardHandler = useRef<ClipboardHandler>();
   const dragDropHandler = useRef<DragDropHandler>();
   const messageHandler = useRef<MessageHandlerImplementation>();
+
+
 
   // Sidebar agent selection handler (optional, can be a no-op here)
   const setSelectedAgent = () => {};
@@ -1144,123 +1141,32 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     };
   }, [attachedMessage]);
 
-  // Real workflow data from API
-  const [availableWorkflows, setAvailableWorkflows] = useState<any[]>([]);
-  const [workflowsLoading, setWorkflowsLoading] = useState(false);
-
-  // Fetch real workflow data
-  useEffect(() => {
-    const fetchWorkflows = async () => {
-      setWorkflowsLoading(true);
-      try {
-        const response = await fetch('/api/workflows?limit=100');
-        const data = await response.json();
-        
-        if (data.success && data.data.workflows) {
-          // Transform workflow data to match the expected interface
-          const transformedWorkflows = data.data.workflows.map((workflow: any) => ({
-            id: workflow.id,
-            name: workflow.name,
-            description: workflow.description,
-            platform: 'n8n' as const,
-            category: workflow.category,
-            parameters: extractWorkflowParameters(workflow.nodes || []),
-            isActive: workflow.active !== false
-          }));
-          
-          setAvailableWorkflows(transformedWorkflows);
-          console.log(`Loaded ${transformedWorkflows.length} real workflows from API`);
-        } else {
-          console.warn('Failed to load workflows, using mock data');
-          setAvailableWorkflows(mockWorkflows);
-        }
-      } catch (error) {
-        console.error('Error fetching workflows:', error);
-        setAvailableWorkflows(mockWorkflows);
-      } finally {
-        setWorkflowsLoading(false);
-      }
-    };
-
-    fetchWorkflows();
-  }, []);
-
-  // Extract parameters from workflow nodes
-  const extractWorkflowParameters = (nodes: any[]) => {
-    const parameters: Array<{
-      name: string;
-      type: 'string' | 'number' | 'boolean';
-      required: boolean;
-      description: string;
-    }> = [];
-
-    // Look for common parameter patterns in nodes
-    nodes.forEach(node => {
-      if (node.parameters) {
-        Object.keys(node.parameters).forEach(key => {
-          // Skip internal parameters
-          if (!key.startsWith('_') && !['resource', 'operation'].includes(key)) {
-            parameters.push({
-              name: key,
-              type: typeof node.parameters[key] === 'boolean' ? 'boolean' : 
-                    typeof node.parameters[key] === 'number' ? 'number' : 'string',
-              required: false,
-              description: `${node.name || node.type} ${key} parameter`
-            });
-          }
-        });
-      }
-    });
-
-    return parameters.slice(0, 5); // Limit to first 5 parameters
-  };
-
-  // Mock workflow data for fallback
-  const mockWorkflows = [
-    {
-      id: 'wf_email_automation',
-      name: 'Email Automation',
-      description: 'Automatically send personalized emails based on triggers',
-      platform: 'n8n' as const,
-      category: 'Communication',
-      parameters: [
-        { name: 'to', type: 'string' as const, required: true, description: 'Recipient email address' },
-        { name: 'subject', type: 'string' as const, required: true, description: 'Email subject' },
-        { name: 'content', type: 'string' as const, required: true, description: 'Email content' }
-      ],
-      isActive: true
-    },
-    {
-      id: 'wf_slack_notification',
-      name: 'Slack Notification',
-      description: 'Send notifications to Slack channels',
-      platform: 'zapier' as const,
-      category: 'Communication',
-      parameters: [
-        { name: 'channel', type: 'string' as const, required: true, description: 'Slack channel' },
-        { name: 'message', type: 'string' as const, required: true, description: 'Message content' }
-      ],
-      isActive: true
-    },
-    {
-      id: 'wf_data_sync',
-      name: 'Data Sync',
-      description: 'Synchronize data between different platforms',
-      platform: 'n8n' as const,
-      category: 'Data Integration',
-      parameters: [
-        { name: 'source', type: 'string' as const, required: true, description: 'Source system' },
-        { name: 'destination', type: 'string' as const, required: true, description: 'Destination system' }
-      ],
-      isActive: true
-    }
-  ];
+  // Workflow management
+  const {
+    agentWorkflows,
+    availableWorkflows,
+    assignWorkflowToAgent
+  } = useWorkflows({ agentId, autoFetch: true });
 
   // Handle workflow selection
   const handleWorkflowSelect = useCallback((workflow: any) => {
     console.log('Workflow selected:', workflow);
     // TODO: Handle workflow execution logic
   }, []);
+
+  // Handle workflow addition
+  const handleAddWorkflow = useCallback(async (workflow: any) => {
+    try {
+      const success = await assignWorkflowToAgent(workflow.id);
+      if (success) {
+        console.log('Workflow added successfully:', workflow.name);
+        // TODO: Show success notification
+      }
+    } catch (error) {
+      console.error('Failed to add workflow:', error);
+      // TODO: Show error notification
+    }
+  }, [assignWorkflowToAgent]);
 
   // Handle navigate to workflows tab
   const handleNavigateToWorkflowsTab = useCallback(() => {
@@ -1354,8 +1260,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
               attachedMessage={memoizedAttachedMessage}
               onRemoveAttachedMessage={optimizedHandleRemoveAttachedMessage}
               onNavigateToMessage={optimizedHandleNavigateToMessage}
-              availableWorkflows={availableWorkflows}
+              availableWorkflows={agentWorkflows}
+              availableWorkflowsFromDiscovery={availableWorkflows}
               onWorkflowSelect={handleWorkflowSelect}
+              onAddWorkflow={handleAddWorkflow}
               onNavigateToWorkflowsTab={handleNavigateToWorkflowsTab}
             />
           </div>
