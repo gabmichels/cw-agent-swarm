@@ -160,6 +160,7 @@ model WorkspaceConnection {
   @@index([provider])
   @@index([email])
   @@index([status])
+  @@unique([userId, organizationId, provider, email], name: "unique_workspace_connection")
 }
 
 model AgentWorkspacePermission {
