@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WorkspaceProvider } from '../../../../services/database/types';
-import { N8nCloudProvider } from '../../../../services/workspace/providers/N8nCloudProvider';
-import { N8nSelfHostedProvider } from '../../../../services/workspace/providers/N8nSelfHostedProvider';
+import { getRequiredScopes } from '../../../../services/workspace/scopes/WorkspaceScopes';
+import { GoogleWorkspaceProvider } from '../../../../services/workspace/providers/GoogleWorkspaceProvider';
 import { ZohoWorkspaceProvider } from '../../../../services/workspace/providers/ZohoWorkspaceProvider';
-import { WorkspaceService } from '../../../../services/workspace/WorkspaceService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,54 +34,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Initialize services
-    const workspaceService = new WorkspaceService();
-
-    // Use alternative approach since getProvider is private
-    const provider = body.provider;
+    console.log(`OAuth connection requested for provider: ${body.provider}`);
 
     // Get provider-specific redirect URI and scopes
-    let redirectUri: string;
-    let defaultScopes: string[];
+    const redirectUri = process.env.WORKSPACE_REDIRECT_URI ||
+      `${process.env.BASE_URL || 'http://localhost:3000'}/api/workspace/callback`;
+    const defaultScopes = body.scopes || getRequiredScopes(body.provider);
 
-    switch (body.provider) {
-      case WorkspaceProvider.GOOGLE_WORKSPACE:
-        redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
-        defaultScopes = [
-          'https://www.googleapis.com/auth/gmail.send',
-          'https://www.googleapis.com/auth/gmail.modify',
-          'https://www.googleapis.com/auth/calendar',
-          'https://www.googleapis.com/auth/drive',
-          'https://www.googleapis.com/auth/spreadsheets',
-          'https://www.googleapis.com/auth/userinfo.email',
-          'https://www.googleapis.com/auth/userinfo.profile'
-        ];
-        break;
-
-      case WorkspaceProvider.ZOHO:
-        redirectUri = process.env.ZOHO_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
-        defaultScopes = ZohoWorkspaceProvider.getRequiredScopes();
-        break;
-
-      case WorkspaceProvider.N8N_CLOUD:
-        redirectUri = process.env.N8N_CLOUD_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
-        defaultScopes = N8nCloudProvider.getRequiredScopes();
-        break;
-
-      case WorkspaceProvider.N8N_SELF_HOSTED:
-        // Self-hosted doesn't use OAuth, return special response
-        return NextResponse.json({
-          success: true,
-          authUrl: undefined, // No OAuth URL needed
-          requiresApiKey: true,
-          instructions: N8nSelfHostedProvider.getApiKeyInstructions(),
-          error: null
-        });
-
-      default:
-        redirectUri = 'http://localhost:3000/api/workspace/callback';
-        defaultScopes = [];
-    }
+    console.log('OAuth config:', {
+      provider: body.provider,
+      redirectUri: redirectUri.substring(0, 50) + '...',
+      scopeCount: defaultScopes.length
+    });
 
     // Create state parameter with user info
     const stateData = {
@@ -93,39 +56,56 @@ export async function POST(request: NextRequest) {
     };
     const state = Buffer.from(JSON.stringify(stateData)).toString('base64');
 
-    // Create provider-specific connection URL manually since initiateConnection doesn't exist
-    let connectionUrl: string;
+    // Get the appropriate provider and initiate connection
+    let result;
 
-    switch (body.provider) {
-      case WorkspaceProvider.GOOGLE_WORKSPACE:
-        connectionUrl = `https://accounts.google.com/oauth/authorize?response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${defaultScopes.join(' ')}&state=${state}&access_type=offline&prompt=consent`;
-        break;
+    try {
+      switch (body.provider) {
+        case WorkspaceProvider.GOOGLE_WORKSPACE:
+          const googleProvider = new GoogleWorkspaceProvider();
+          result = await googleProvider.initiateConnection({
+            scopes: defaultScopes,
+            redirectUri,
+            state
+          });
+          break;
 
-      case WorkspaceProvider.ZOHO:
-        const zohoRegion = process.env.ZOHO_REGION || 'com';
-        connectionUrl = `https://accounts.zoho.${zohoRegion}/oauth/v2/auth?response_type=code&client_id=${process.env.ZOHO_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${defaultScopes.join(' ')}&state=${state}&access_type=offline&prompt=consent`;
-        break;
+        case WorkspaceProvider.ZOHO:
+          const zohoProvider = new ZohoWorkspaceProvider();
+          result = await zohoProvider.initiateConnection({
+            scopes: defaultScopes,
+            redirectUri,
+            state
+          });
+          break;
 
-      case WorkspaceProvider.N8N_CLOUD:
-        connectionUrl = `https://app.n8n.cloud/oauth2/authorize?response_type=code&client_id=${process.env.N8N_CLOUD_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${defaultScopes.join(' ')}&state=${state}&access_type=offline&prompt=consent`;
-        break;
+        default:
+          throw new Error(`Unsupported provider: ${body.provider}`);
+      }
 
-      default:
-        connectionUrl = `https://accounts.google.com/oauth/authorize?response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=profile email&state=${state}`;
+      if (!result.success) {
+        console.error(`OAuth initiation failed for ${body.provider}:`, result.error);
+        return NextResponse.json(
+          { error: result.error || 'Failed to initiate connection' },
+          { status: 500 }
+        );
+      }
+
+      console.log(`Generated OAuth URL for ${body.provider}: ${result.authUrl?.substring(0, 100)}...`);
+
+      return NextResponse.json({
+        success: result.success,
+        authUrl: result.authUrl,
+        error: result.error
+      });
+
+    } catch (providerError) {
+      console.error(`Error creating ${body.provider} provider:`, providerError);
+      return NextResponse.json(
+        { error: `Failed to initialize ${body.provider} provider: ${providerError instanceof Error ? providerError.message : 'Unknown error'}` },
+        { status: 500 }
+      );
     }
-
-    const result = {
-      authUrl: connectionUrl,
-      state: stateData,
-      success: true,
-      error: null
-    };
-
-    return NextResponse.json({
-      success: result.success,
-      authUrl: result.authUrl,
-      error: result.error
-    });
 
   } catch (error) {
     console.error('Error initiating workspace connection:', error);

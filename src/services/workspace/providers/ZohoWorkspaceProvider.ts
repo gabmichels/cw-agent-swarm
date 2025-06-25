@@ -12,7 +12,6 @@ import { getRequiredScopes } from '../scopes/WorkspaceScopes';
 import { ConnectionConfig, ConnectionResult, IWorkspaceProvider, ValidationResult } from './IWorkspaceProvider';
 
 // Unified systems imports
-import { getServiceConfig } from '../../../lib/core/unified-config';
 import {
   handleAsync,
   handleWithRetry,
@@ -64,18 +63,15 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
   private readonly region: string;
 
   constructor() {
-    // Get configuration from unified config system
-    const oauthConfig = getServiceConfig('oauth');
-    const zohoProvider = oauthConfig.providers.zoho;
+    // Get configuration directly from environment variables for immediate availability
+    this.clientId = process.env.ZOHO_CLIENT_ID || '';
+    this.clientSecret = process.env.ZOHO_CLIENT_SECRET || '';
+    this.redirectUri = process.env.ZOHO_REDIRECT_URI || `${process.env.BASE_URL || 'http://localhost:3000'}/api/workspace/callback`;
+    this.region = process.env.ZOHO_REGION || 'com'; // com, eu, in, au, jp, ca
 
-    if (!zohoProvider) {
+    if (!this.clientId || !this.clientSecret) {
       throw new Error('Zoho OAuth provider not configured. Please set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET environment variables.');
     }
-
-    this.clientId = zohoProvider.clientId;
-    this.clientSecret = zohoProvider.clientSecret;
-    this.redirectUri = zohoProvider.redirectUri || `${process.env.BASE_URL || 'http://localhost:3000'}/api/auth/callback/zoho`;
-    this.region = process.env.ZOHO_REGION || 'com'; // com, eu, in, au, jp, ca
 
     this.authBaseUrl = `https://accounts.zoho.${this.region}/oauth/v2`;
     this.apiBaseUrl = `https://www.zohoapis.${this.region}`;
@@ -463,8 +459,7 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
 
   async isHealthy(): Promise<boolean> {
     const result = await handleAsync(async () => {
-      const oauthConfig = getServiceConfig('oauth');
-      return !!oauthConfig.providers.zoho?.clientId;
+      return !!(process.env.ZOHO_CLIENT_ID && process.env.ZOHO_CLIENT_SECRET);
     }, createErrorContext('ZohoWorkspaceProvider', 'isHealthy', { severity: ErrorSeverity.LOW }));
     return result.success && result.data === true;
   }

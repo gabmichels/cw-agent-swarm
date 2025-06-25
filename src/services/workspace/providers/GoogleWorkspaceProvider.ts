@@ -12,7 +12,6 @@ import {
 import { ConnectionConfig, ConnectionResult, IWorkspaceProvider, ValidationResult } from './IWorkspaceProvider';
 
 // Unified systems imports
-import { getServiceConfig } from '../../../lib/core/unified-config';
 import {
   handleAsync,
   handleWithRetry,
@@ -61,17 +60,14 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
   private readonly redirectUri: string;
 
   constructor() {
-    // Get configuration from unified config system
-    const oauthConfig = getServiceConfig('oauth');
-    const googleProvider = oauthConfig.providers.google;
+    // Get configuration directly from environment variables for immediate availability
+    this.clientId = process.env.GOOGLE_CLIENT_ID || '';
+    this.clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+    this.redirectUri = process.env.GOOGLE_REDIRECT_URI || `${process.env.BASE_URL || 'http://localhost:3000'}/api/workspace/callback`;
 
-    if (!googleProvider) {
+    if (!this.clientId || !this.clientSecret) {
       throw new Error('Google OAuth provider not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.');
     }
-
-    this.clientId = googleProvider.clientId;
-    this.clientSecret = googleProvider.clientSecret;
-    this.redirectUri = googleProvider.redirectUri || `${process.env.BASE_URL || 'http://localhost:3000'}/api/auth/callback/google`;
 
     this.oauth2Client = new google.auth.OAuth2(
       this.clientId,
@@ -634,19 +630,18 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
     });
 
     const result = await handleAsync(async () => {
-      // Verify configuration is available
-      const oauthConfig = getServiceConfig('oauth');
-      const googleProvider = oauthConfig.providers.google;
+      // Verify configuration is available from environment
+      const hasConfig = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
-      if (!googleProvider) {
-        throw new Error('Google OAuth provider configuration not found');
+      if (!hasConfig) {
+        throw new Error('Google OAuth environment variables not configured');
       }
 
       // Verify we can create an OAuth client
       const testClient = new google.auth.OAuth2(
-        googleProvider.clientId,
-        googleProvider.clientSecret,
-        googleProvider.redirectUri || this.redirectUri
+        this.clientId,
+        this.clientSecret,
+        this.redirectUri
       );
 
       if (!testClient) {
@@ -655,8 +650,8 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
 
       logger.debug('Google Workspace provider health check passed', {
         providerId: this.providerId,
-        hasClientId: !!googleProvider.clientId,
-        hasClientSecret: !!googleProvider.clientSecret,
+        hasClientId: !!this.clientId,
+        hasClientSecret: !!this.clientSecret,
         redirectUri: this.redirectUri,
       });
 

@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Settings, AlertCircle, CheckCircle, Clock } from 'lucide-react';
-import { WorkspaceProvider, WorkspaceConnection, ConnectionStatus } from '../../services/database/types';
 import { WorkspaceConnectionCard } from '@/components/workspace/WorkspaceConnectionCard';
+import { AlertCircle, Clock, Settings, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { WorkspaceConnection, WorkspaceProvider } from '../../services/database/types';
 import { getRequiredScopes } from '../../services/workspace/scopes/WorkspaceScopes';
 
 interface WorkspaceSettingsModalProps {

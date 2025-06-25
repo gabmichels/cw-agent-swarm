@@ -123,7 +123,7 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
         refresh_token: input.refreshToken,
         expires_in: input.tokenExpiresAt ? Math.floor((input.tokenExpiresAt.getTime() - Date.now()) / 1000) : undefined
       });
-      
+
       updateData.accessToken = encryptedTokens;
       updateData.refreshToken = undefined; // Refresh token is included in encrypted data
     }
@@ -157,13 +157,13 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
     try {
       // Decrypt the tokens
       const decryptedTokens = tokenEncryption.decryptTokens(prismaConnection.accessToken);
-      
+
       return {
         ...prismaConnection,
         accessToken: decryptedTokens.access_token,
         refreshToken: decryptedTokens.refresh_token || undefined,
         // Update tokenExpiresAt based on decrypted data if available
-        tokenExpiresAt: decryptedTokens.expires_in && decryptedTokens.encrypted_at 
+        tokenExpiresAt: decryptedTokens.expires_in && decryptedTokens.encrypted_at
           ? new Date(new Date(decryptedTokens.encrypted_at).getTime() + (decryptedTokens.expires_in * 1000))
           : prismaConnection.tokenExpiresAt
       };
@@ -205,7 +205,7 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
         lastUsedAt: new Date()
       }
     });
-    
+
     return this.convertAgentWorkspacePermission(result);
   }
 
@@ -238,6 +238,12 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
       where: query
     });
     return results.map(result => this.convertAgentWorkspacePermission(result));
+  }
+
+  async deleteAgentWorkspacePermissionsByConnection(connectionId: string): Promise<void> {
+    await this.client.agentWorkspacePermission.deleteMany({
+      where: { workspaceConnectionId: connectionId }
+    });
   }
 
   // Workspace Audit Log Operations
@@ -278,6 +284,12 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
   async deleteWorkspaceAuditLog(id: string): Promise<void> {
     await this.client.workspaceAuditLog.delete({
       where: { id }
+    });
+  }
+
+  async deleteWorkspaceAuditLogsByConnection(connectionId: string): Promise<void> {
+    await this.client.workspaceAuditLog.deleteMany({
+      where: { workspaceConnectionId: connectionId }
     });
   }
 
@@ -334,6 +346,18 @@ export class PrismaDatabaseProvider implements IDatabaseProvider {
   async deleteAgentNotification(id: string): Promise<void> {
     await this.client.agentNotification.delete({
       where: { id }
+    });
+  }
+
+  async deleteAgentNotificationsByConnection(connectionId: string): Promise<void> {
+    await this.client.agentNotification.deleteMany({
+      where: { connectionId: connectionId }
+    });
+  }
+
+  async deleteWorkspaceCapabilitiesByConnection(connectionId: string): Promise<void> {
+    await this.client.workspaceCapability.deleteMany({
+      where: { workspaceConnectionId: connectionId }
     });
   }
 } 

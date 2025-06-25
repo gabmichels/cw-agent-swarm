@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WorkspaceProvider } from '../../../../services/database/types';
 import { GoogleWorkspaceProvider } from '../../../../services/workspace/providers/GoogleWorkspaceProvider';
-import { N8nCloudProvider } from '../../../../services/workspace/providers/N8nCloudProvider';
 import { ZohoWorkspaceProvider } from '../../../../services/workspace/providers/ZohoWorkspaceProvider';
 
 export const runtime = 'nodejs';
@@ -78,11 +77,6 @@ export async function GET(request: NextRequest) {
         case WorkspaceProvider.ZOHO:
           const zohoProvider = new ZohoWorkspaceProvider();
           connection = await zohoProvider.completeConnection(code, state || '');
-          break;
-
-        case WorkspaceProvider.N8N_CLOUD:
-          const n8nCloudProvider = new N8nCloudProvider();
-          connection = await n8nCloudProvider.completeConnection(code, state || '');
           break;
 
         default:

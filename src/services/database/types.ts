@@ -6,9 +6,7 @@
 export enum WorkspaceProvider {
   MICROSOFT_365 = "MICROSOFT_365",
   GOOGLE_WORKSPACE = "GOOGLE_WORKSPACE",
-  ZOHO = "ZOHO",
-  N8N_CLOUD = "N8N_CLOUD",
-  N8N_SELF_HOSTED = "N8N_SELF_HOSTED"
+  ZOHO = "ZOHO"
 }
 
 export enum WorkspaceAccountType {

@@ -78,7 +78,7 @@ describe('WorkflowImportService', () => {
 
     const mockConnection = {
       id: 'conn123',
-      provider: WorkspaceProvider.N8N_CLOUD
+      provider: 'N8N_CLOUD' as any // TODO: Move to third-party tools system
     };
 
     beforeEach(() => {
@@ -211,7 +211,7 @@ describe('WorkflowImportService', () => {
     it('should handle self-hosted provider', async () => {
       const selfHostedConnection = {
         id: 'conn123',
-        provider: WorkspaceProvider.N8N_SELF_HOSTED
+        provider: 'N8N_SELF_HOSTED' as any // TODO: Move to third-party tools system
       };
 
       mockDb.getWorkspaceConnection.mockResolvedValueOnce(selfHostedConnection);
@@ -414,7 +414,7 @@ describe('WorkflowImportService', () => {
     it('should work with self-hosted provider', async () => {
       const selfHostedConnection = {
         id: 'conn123',
-        provider: WorkspaceProvider.N8N_SELF_HOSTED
+        provider: 'N8N_SELF_HOSTED' as any // TODO: Move to third-party tools system
       };
 
       mockDb.getWorkspaceConnection.mockResolvedValueOnce(selfHostedConnection);

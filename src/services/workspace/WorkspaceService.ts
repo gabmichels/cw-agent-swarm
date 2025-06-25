@@ -10,8 +10,6 @@ import {
 } from '../database/types';
 import { GoogleWorkspaceProvider } from './providers/GoogleWorkspaceProvider';
 import { ConnectionResult, IWorkspaceProvider, ValidationResult } from './providers/IWorkspaceProvider';
-import { N8nCloudProvider } from './providers/N8nCloudProvider';
-import { N8nSelfHostedProvider } from './providers/N8nSelfHostedProvider';
 import { ZohoWorkspaceProvider } from './providers/ZohoWorkspaceProvider';
 
 /**
@@ -65,32 +63,6 @@ export class WorkspaceService {
         }
       } else {
         logger.debug('Zoho Workspace provider not initialized - credentials not configured');
-      }
-
-      // Initialize N8N Cloud Provider only if credentials are configured
-      if (oauthConfig.providers.n8n_cloud) {
-        try {
-          const n8nCloudProvider = new N8nCloudProvider();
-          this.providers.set(WorkspaceProvider.N8N_CLOUD, n8nCloudProvider);
-          initializedProviders.push('N8N Cloud');
-        } catch (error) {
-          logger.warn('Failed to initialize N8N Cloud provider', {
-            error: error instanceof Error ? error.message : 'Unknown error'
-          });
-        }
-      } else {
-        logger.debug('N8N Cloud provider not initialized - credentials not configured');
-      }
-
-      // Initialize N8N Self-Hosted Provider (always available since it uses API keys)
-      try {
-        const n8nSelfHostedProvider = new N8nSelfHostedProvider();
-        this.providers.set(WorkspaceProvider.N8N_SELF_HOSTED, n8nSelfHostedProvider);
-        initializedProviders.push('N8N Self-Hosted');
-      } catch (error) {
-        logger.warn('Failed to initialize N8N Self-Hosted provider', {
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
       }
 
       // TODO: Add Microsoft 365 provider when implemented
@@ -325,5 +297,131 @@ export class WorkspaceService {
    */
   getAvailableProviders(): WorkspaceProvider[] {
     return Array.from(this.providers.keys());
+  }
+
+  /**
+   * Revoke/disconnect a workspace connection
+   */
+  async revokeConnection(connectionId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      logger.debug('Starting connection revocation', { connectionId });
+
+      // Get the connection to determine provider
+      const connection = await this.db.getWorkspaceConnection(connectionId);
+      if (!connection) {
+        logger.warn('Connection not found during revocation', { connectionId });
+        return { success: false, error: 'Connection not found' };
+      }
+
+      logger.debug('Connection found', {
+        connectionId,
+        provider: connection.provider,
+        email: connection.email
+      });
+
+      // Try to get the provider instance - but don't fail if it's not available
+      const provider = this.providers.get(connection.provider);
+
+      if (provider) {
+        logger.debug('Provider found, attempting provider-level revocation', {
+          provider: connection.provider
+        });
+
+        // Revoke the connection through the provider if it supports it
+        try {
+          if ('revokeConnection' in provider && typeof provider.revokeConnection === 'function') {
+            await (provider as any).revokeConnection(connectionId);
+            logger.debug('Provider-level revocation completed', { connectionId });
+          } else {
+            logger.debug('Provider does not support revocation method', {
+              provider: connection.provider
+            });
+          }
+        } catch (providerError) {
+          // Log provider error but continue with database deletion
+          logger.warn('Provider revocation failed, continuing with database deletion', {
+            connectionId,
+            provider: connection.provider,
+            error: providerError instanceof Error ? providerError.message : 'Unknown provider error'
+          });
+        }
+      } else {
+        logger.warn('Provider not available for revocation, proceeding with database deletion only', {
+          provider: connection.provider,
+          availableProviders: Array.from(this.providers.keys())
+        });
+      }
+
+      // Delete the connection from database - this is the most important part
+      // First, we need to clean up related records to avoid foreign key constraint violations
+      logger.debug('Cleaning up related records before deletion', { connectionId });
+
+      try {
+        // Delete related agent permissions
+        await this.db.deleteAgentWorkspacePermissionsByConnection(connectionId);
+        logger.debug('Deleted agent workspace permissions', { connectionId });
+      } catch (error) {
+        logger.warn('Failed to delete agent workspace permissions', {
+          connectionId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+
+      try {
+        // Delete related audit logs  
+        await this.db.deleteWorkspaceAuditLogsByConnection(connectionId);
+        logger.debug('Deleted workspace audit logs', { connectionId });
+      } catch (error) {
+        logger.warn('Failed to delete workspace audit logs', {
+          connectionId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+
+      try {
+        // Delete related notifications
+        await this.db.deleteAgentNotificationsByConnection(connectionId);
+        logger.debug('Deleted agent notifications', { connectionId });
+      } catch (error) {
+        logger.warn('Failed to delete agent notifications', {
+          connectionId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+
+      try {
+        // Delete related workspace capabilities
+        await this.db.deleteWorkspaceCapabilitiesByConnection(connectionId);
+        logger.debug('Deleted workspace capabilities', { connectionId });
+      } catch (error) {
+        logger.warn('Failed to delete workspace capabilities', {
+          connectionId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+
+      // Now delete the connection itself
+      logger.debug('Deleting connection from database', { connectionId });
+      await this.db.deleteWorkspaceConnection(connectionId);
+
+      logger.info('Workspace connection revoked successfully', {
+        connectionId,
+        provider: connection.provider,
+        email: connection.email
+      });
+
+      return { success: true };
+
+    } catch (error) {
+      logger.error('Error revoking workspace connection', {
+        connectionId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to revoke connection'
+      };
+    }
   }
 } 

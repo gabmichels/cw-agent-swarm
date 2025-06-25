@@ -7,8 +7,6 @@ import {
 import { logger } from '../../lib/logging';
 import { DatabaseService } from '../database/DatabaseService';
 import { WorkspaceProvider } from '../database/types';
-import { N8nCloudProvider } from '../workspace/providers/N8nCloudProvider';
-import { N8nSelfHostedProvider } from '../workspace/providers/N8nSelfHostedProvider';
 
 export interface WorkflowImportRequest {
   connectionId: string;
@@ -280,15 +278,10 @@ export class WorkflowImportService {
     return response.json();
   }
 
-  private getProvider(providerType: WorkspaceProvider): N8nCloudProvider | N8nSelfHostedProvider {
-    switch (providerType) {
-      case WorkspaceProvider.N8N_CLOUD:
-        return new N8nCloudProvider();
-      case WorkspaceProvider.N8N_SELF_HOSTED:
-        return new N8nSelfHostedProvider();
-      default:
-        throw new Error(`Unsupported provider type: ${providerType}`);
-    }
+  // Note: This service needs to be refactored to use third-party tools system
+  // N8N providers should not be part of the workspace system
+  private getProvider(providerType: WorkspaceProvider): any {
+    throw new Error(`N8N workflow import functionality is being migrated to third-party tools system. Provider ${providerType} is not supported in workspace context.`);
   }
 
   private prepareWorkflowForImport(libraryWorkflow: any, request: WorkflowImportRequest): any {
