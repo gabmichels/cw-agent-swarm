@@ -6,12 +6,12 @@
  */
 
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { Task, TaskStatus, createTask, TaskScheduleType } from '../../models/Task.model';
-import { TaskFilter } from '../../models/TaskFilter.model';
-import { TaskRegistry } from '../../interfaces/TaskRegistry.interface';
-import { TaskRegistryError, TaskRegistryErrorCode } from '../../errors/TaskRegistryError';
 import { ulid } from 'ulid';
-import { randomUUID } from 'crypto';
+import { convertToQdrantId } from '../../../../utils/id-conversion';
+import { TaskRegistryError } from '../../errors/TaskRegistryError';
+import { TaskRegistry } from '../../interfaces/TaskRegistry.interface';
+import { createTask, Task, TaskScheduleType, TaskStatus } from '../../models/Task.model';
+import { TaskFilter } from '../../models/TaskFilter.model';
 // Use require for lru-cache to avoid TypeScript definition issues
 const LRU = require('lru-cache');
 
@@ -42,22 +42,22 @@ interface SerializedHandler {
 class HandlerRegistry {
   private static instance: HandlerRegistry;
   private handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>();
-  
+
   static getInstance(): HandlerRegistry {
     if (!HandlerRegistry.instance) {
       HandlerRegistry.instance = new HandlerRegistry();
     }
     return HandlerRegistry.instance;
   }
-  
+
   registerHandler(id: string, handler: (...args: unknown[]) => Promise<unknown>): void {
     this.handlers.set(id, handler);
   }
-  
+
   getHandler(id: string): ((...args: unknown[]) => Promise<unknown>) | undefined {
     return this.handlers.get(id);
   }
-  
+
   hasHandler(id: string): boolean {
     return this.handlers.has(id);
   }
@@ -73,13 +73,13 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
   // Cache for task objects - improves read performance
   private taskCache: any; // Use any type to avoid TypeScript issues with lru-cache
-  
+
   // Cache frequently accessed task lists (like pending tasks) for faster scheduling
   private queryCache: any; // Use any type to avoid TypeScript issues with lru-cache
-  
+
   // Options for caching behavior
   private cacheOptions: CacheOptions;
-  
+
   // Handler registry for function serialization
   private handlerRegistry: HandlerRegistry;
 
@@ -91,7 +91,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
    * @param cacheOptions - Optional configuration for the caching behavior
    */
   constructor(
-    client: QdrantClient, 
+    client: QdrantClient,
     collectionName = 'tasks',
     cacheOptions: Partial<CacheOptions> = {},
   ) {
@@ -99,13 +99,13 @@ export class QdrantTaskRegistry implements TaskRegistry {
     this.collectionName = collectionName;
     this.cacheOptions = { ...DEFAULT_CACHE_OPTIONS, ...cacheOptions };
     this.handlerRegistry = HandlerRegistry.getInstance();
-    
+
     // Initialize caches
     this.taskCache = new LRU({
       max: this.cacheOptions.maxSize,
       ttl: this.cacheOptions.ttlMs,
     });
-    
+
     this.queryCache = new LRU({
       max: 50, // Keep fewer query results in cache
       ttl: 30000, // Shorter TTL for query results (30 seconds)
@@ -118,7 +118,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
   async initialize(): Promise<void> {
     try {
       console.log('🔧 QdrantTaskRegistry: Initializing task collection...');
-      
+
       const collections = await this.client.getCollections();
       const collectionExists = collections.collections.some(
         collection => collection.name === this.collectionName
@@ -126,7 +126,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       if (!collectionExists) {
         console.log(`📦 QdrantTaskRegistry: Creating collection '${this.collectionName}'...`);
-        
+
         // Create the collection if it doesn't exist
         await this.client.createCollection(this.collectionName, {
           vectors: {
@@ -134,7 +134,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
             distance: 'Dot', // Doesn't matter for our use case
           },
         });
-        
+
         console.log(`✅ QdrantTaskRegistry: Collection '${this.collectionName}' created successfully`);
       } else {
         console.log(`✅ QdrantTaskRegistry: Collection '${this.collectionName}' already exists`);
@@ -195,8 +195,8 @@ export class QdrantTaskRegistry implements TaskRegistry {
     }
 
     if (filter.scheduleType) {
-      const scheduleTypes = Array.isArray(filter.scheduleType) 
-        ? filter.scheduleType 
+      const scheduleTypes = Array.isArray(filter.scheduleType)
+        ? filter.scheduleType
         : [filter.scheduleType];
       must.push({
         key: 'scheduleType',
@@ -264,13 +264,13 @@ export class QdrantTaskRegistry implements TaskRegistry {
       const metadataKeys = Object.keys(filter.metadata);
       for (const key of metadataKeys) {
         const value = filter.metadata[key];
-        
+
         // Handle nested objects (like agentId)
         if (value !== null && typeof value === 'object') {
           const nestedKeys = Object.keys(value as Record<string, unknown>);
           for (const nestedKey of nestedKeys) {
             const nestedValue = (value as Record<string, unknown>)[nestedKey];
-            
+
             if (nestedValue !== null && typeof nestedValue === 'object') {
               // Handle deeply nested objects (like agentId.id)
               const deepKeys = Object.keys(nestedValue as Record<string, unknown>);
@@ -358,7 +358,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
             // Parse temporal expression
             const value = parseInt(timeStr);
             const unit = timeStr.slice(-1);
-            
+
             let milliseconds = 0;
             switch (unit) {
               case 's': milliseconds = value * 1000; break;
@@ -366,7 +366,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
               case 'h': milliseconds = value * 60 * 60 * 1000; break;
               case 'd': milliseconds = value * 24 * 60 * 60 * 1000; break;
             }
-            
+
             taskToStore.scheduledTime = new Date(now.getTime() + milliseconds);
             console.log(`📅 QdrantTaskRegistry: Converted temporal expression '${timeStr}' to ${taskToStore.scheduledTime.toISOString()}`);
           } else {
@@ -397,10 +397,10 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       // Store the task in Qdrant
       const qdrantId = this.ulidToUuid(taskToStore.id);
-      
+
       // Serialize the task, handling the handler function specially
       const qdrantPayload = { ...taskToStore } as any;
-      
+
       // Simplify handler serialization - just store a reference for now
       if (taskToStore.handler && typeof taskToStore.handler === 'function') {
         // For now, just store a simple handler identifier instead of the complex serialized function
@@ -457,7 +457,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       // Cache the stored task (with original handler)
       this.taskCache.set(taskToStore.id, taskToStore);
-      
+
       // Invalidate query cache since data has changed
       this.queryCache.clear();
 
@@ -496,7 +496,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       // Convert ULID to UUID for Qdrant lookup
       const qdrantId = this.ulidToUuid(taskId);
-      
+
       // Not in cache, retrieve from Qdrant
       const response = await this.client.retrieve(this.collectionName, {
         ids: [qdrantId],
@@ -512,17 +512,17 @@ export class QdrantTaskRegistry implements TaskRegistry {
       if (!this.isValidTaskPayload(payload)) {
         throw TaskRegistryError.invalidTask(`Invalid task data retrieved from storage for ID: ${taskId}`);
       }
-      
+
       // Convert payload to Task, deserializing the handler
       const task: Task = {
         ...(payload as unknown as Task),
         handler: this.deserializeHandler(payload.handler),
         lastExecutedAt: payload.lastExecutedAt ? new Date(payload.lastExecutedAt as string | number) : undefined
       };
-      
+
       // Update the cache
       this.taskCache.set(taskId, task);
-      
+
       return task;
     } catch (error) {
       if (error instanceof TaskRegistryError) {
@@ -538,11 +538,11 @@ export class QdrantTaskRegistry implements TaskRegistry {
   private isValidTaskPayload(payload: Record<string, unknown>): boolean {
     // Basic requirements: id and some form of task identification
     const hasId = typeof payload.id === 'string' && payload.id.length > 0;
-    
+
     if (!hasId) {
       return false;
     }
-    
+
     // Check for task identifier (relaxed - either regular Task fields or memory task fields)
     const isRegularTask = (
       // Regular Task objects have these direct fields
@@ -550,46 +550,46 @@ export class QdrantTaskRegistry implements TaskRegistry {
       typeof payload.description === 'string' ||
       typeof payload.status === 'string'
     );
-    
+
     const isMemoryTask = (
       // Memory system tasks have these patterns
       payload.type === 'task' ||
-      (payload.metadata && 
-       typeof payload.metadata === 'object' && 
-       (payload.metadata as any).taskType)
+      (payload.metadata &&
+        typeof payload.metadata === 'object' &&
+        (payload.metadata as any).taskType)
     );
-    
+
     if (!isRegularTask && !isMemoryTask) {
       return false;
     }
-    
+
     // For regular Task objects, check for status field
     if (isRegularTask && typeof payload.status === 'string') {
       return true;
     }
-    
+
     // For memory tasks, check for status in metadata
-    if (isMemoryTask && payload.metadata && 
-        typeof payload.metadata === 'object' && 
-        typeof (payload.metadata as any).status === 'string') {
+    if (isMemoryTask && payload.metadata &&
+      typeof payload.metadata === 'object' &&
+      typeof (payload.metadata as any).status === 'string') {
       return true;
     }
-    
+
     // Check for basic task info (name, description, or title)
     const hasTaskInfo = (
       typeof payload.name === 'string' ||
       typeof payload.description === 'string' ||
       typeof payload.text === 'string' ||
-      (payload.metadata && 
-       typeof payload.metadata === 'object' && 
-       (typeof (payload.metadata as any).title === 'string' ||
-        typeof (payload.metadata as any).name === 'string'))
+      (payload.metadata &&
+        typeof payload.metadata === 'object' &&
+        (typeof (payload.metadata as any).title === 'string' ||
+          typeof (payload.metadata as any).name === 'string'))
     );
-    
+
     if (!hasTaskInfo) {
       return false;
     }
-    
+
     // All essential checks passed
     return true;
   }
@@ -634,7 +634,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       // Update the cache
       this.taskCache.set(task.id, updatedTask);
-      
+
       // Invalidate query cache since data has changed
       this.queryCache.clear();
 
@@ -680,7 +680,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       // Remove from cache
       this.taskCache.delete(taskId);
-      
+
       // Invalidate query cache since data has changed
       this.queryCache.clear();
 
@@ -729,7 +729,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
       // Execute search
       const response = await this.client.scroll(this.collectionName, searchParams);
-      
+
       if (!response || !response.points) {
         return [];
       }
@@ -738,23 +738,23 @@ export class QdrantTaskRegistry implements TaskRegistry {
       const tasks: Task[] = [];
       for (const [index, point] of response.points.entries()) {
         const payload = point.payload as Record<string, unknown>;
-        
+
         // Validate the payload has required Task properties before conversion
         const isValid = this.isValidTaskPayload(payload);
-        
+
         if (isValid) {
           // Convert the Qdrant payload format to Task interface format
-          
+
           // Check if this is a regular Task object or a memory task
           const isRegularTask = (
             typeof payload.name === 'string' &&
             typeof payload.status === 'string' &&
             typeof payload.scheduleType === 'string'
           );
-          
+
           if (isRegularTask) {
             // REGULAR TASK OBJECTS - Use direct payload fields
-            
+
             // Parse scheduledTime from payload
             let scheduledTime: Date | undefined;
             if (payload.scheduledTime) {
@@ -769,7 +769,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
                 scheduledTime = undefined;
               }
             }
-            
+
             // Parse createdAt from payload
             let createdAt: Date = new Date();
             if (payload.createdAt) {
@@ -784,7 +784,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
                 createdAt = new Date();
               }
             }
-            
+
             // Parse updatedAt from payload
             let updatedAt: Date = new Date();
             if (payload.updatedAt) {
@@ -799,7 +799,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
                 updatedAt = new Date();
               }
             }
-            
+
             // Parse lastExecutedAt from payload
             let lastExecutedAt: Date | undefined;
             if (payload.lastExecutedAt) {
@@ -814,7 +814,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
                 lastExecutedAt = undefined;
               }
             }
-            
+
             const task: Task = {
               id: payload.id as string,
               name: payload.name as string,
@@ -829,16 +829,16 @@ export class QdrantTaskRegistry implements TaskRegistry {
               metadata: payload.metadata as Record<string, unknown> || {},
               handler: this.deserializeHandler(payload.handler)
             };
-            
+
             tasks.push(task);
           } else {
             // MEMORY TASK CONVERSION - Use the existing logic for memory system tasks
             const metadata = payload.metadata as Record<string, unknown>;
-            
+
             // Improved date parsing with debugging
             let createdAt: Date;
             const rawTimestamp = payload.timestamp;
-            
+
             if (rawTimestamp) {
               // Try different timestamp formats
               if (typeof rawTimestamp === 'number') {
@@ -862,18 +862,18 @@ export class QdrantTaskRegistry implements TaskRegistry {
               // No timestamp, use current time
               createdAt = new Date();
             }
-            
+
             // Validate the resulting date
             if (isNaN(createdAt.getTime())) {
               createdAt = new Date();
             }
-            
+
             const task: Task = {
               id: payload.id as string, // Use the original ULID from payload
-              name: (metadata.title as string) || 
-                    (payload.text ? (payload.text as string).slice(0, 50) + '...' : '') ||
-                    (payload.name as string) ||
-                    `Task ${payload.id}`,
+              name: (metadata.title as string) ||
+                (payload.text ? (payload.text as string).slice(0, 50) + '...' : '') ||
+                (payload.name as string) ||
+                `Task ${payload.id}`,
               status: metadata.status as TaskStatus,
               priority: this.convertPriority(metadata.priority as string) || 5, // Default medium priority
               scheduleType: TaskScheduleType.PRIORITY, // Default for converted tasks
@@ -882,7 +882,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
               metadata: metadata,
               handler: this.deserializeHandler(payload.handler)
             };
-            
+
             tasks.push(task);
           }
         }
@@ -892,24 +892,24 @@ export class QdrantTaskRegistry implements TaskRegistry {
       let filteredTasks = tasks;
 
       if (filter.createdBetween) {
-        filteredTasks = filteredTasks.filter(task => 
-          task.createdAt >= filter.createdBetween!.start && 
+        filteredTasks = filteredTasks.filter(task =>
+          task.createdAt >= filter.createdBetween!.start &&
           task.createdAt <= filter.createdBetween!.end
         );
       }
 
       if (filter.scheduledBetween) {
-        filteredTasks = filteredTasks.filter(task => 
-          task.scheduledTime instanceof Date && 
-          task.scheduledTime >= filter.scheduledBetween!.start && 
+        filteredTasks = filteredTasks.filter(task =>
+          task.scheduledTime instanceof Date &&
+          task.scheduledTime >= filter.scheduledBetween!.start &&
           task.scheduledTime <= filter.scheduledBetween!.end
         );
       }
 
       if (filter.lastExecutedBetween) {
-        filteredTasks = filteredTasks.filter(task => 
-          task.lastExecutedAt instanceof Date && 
-          task.lastExecutedAt >= filter.lastExecutedBetween!.start && 
+        filteredTasks = filteredTasks.filter(task =>
+          task.lastExecutedAt instanceof Date &&
+          task.lastExecutedAt >= filter.lastExecutedBetween!.start &&
           task.lastExecutedAt <= filter.lastExecutedBetween!.end
         );
       }
@@ -918,7 +918,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
       if (filter.sortBy) {
         const sortField = filter.sortBy;
         const sortDirection = filter.sortDirection || 'asc';
-        
+
         filteredTasks.sort((a, b) => {
           let valueA: any;
           let valueB: any;
@@ -958,7 +958,7 @@ export class QdrantTaskRegistry implements TaskRegistry {
       // Cache frequently accessed queries
       if (this.shouldCacheQuery(filter)) {
         this.queryCache.set(cacheKey, filteredTasks);
-        
+
         // Update task cache for each task
         for (const task of filteredTasks) {
           this.taskCache.set(task.id, task);
@@ -980,17 +980,17 @@ export class QdrantTaskRegistry implements TaskRegistry {
   private shouldCacheQuery(filter: TaskFilter): boolean {
     // Cache common queries like "all pending tasks"
     if (
-      Object.keys(filter).length === 1 && 
+      Object.keys(filter).length === 1 &&
       filter.status === TaskStatus.PENDING
     ) {
       return true;
     }
-    
+
     // Cache queries for due tasks
     if (filter.isDueNow || filter.isOverdue) {
       return true;
     }
-    
+
     // Don't cache complex queries
     return false;
   }
@@ -1070,35 +1070,10 @@ export class QdrantTaskRegistry implements TaskRegistry {
 
   /**
    * Convert ULID to UUID for Qdrant compatibility
-   * Qdrant only accepts UUIDs or integers as point IDs
+   * @deprecated - Use convertToQdrantId from utils/id-conversion.ts instead
    */
   private ulidToUuid(ulidString: string): string {
-    // Create a proper UUID by deterministically converting the ULID
-    // This ensures the same ULID always produces the same valid UUID
-    
-    // Take the first 32 characters of the ULID and pad/trim as needed
-    const cleanUlid = ulidString.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-    let hex = '';
-    
-    // Convert each character to a hex digit
-    for (let i = 0; i < cleanUlid.length && hex.length < 32; i++) {
-      const char = cleanUlid[i];
-      if (/[0-9a-f]/.test(char)) {
-        hex += char;
-      } else {
-        // Convert letters to hex digits deterministically
-        const code = char.charCodeAt(0);
-        hex += (code % 16).toString(16);
-      }
-    }
-    
-    // Pad with zeros if needed
-    hex = hex.padEnd(32, '0').slice(0, 32);
-    
-    // Format as proper UUID: 8-4-4-4-12
-    const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(12, 15)}-8${hex.slice(15, 18)}-${hex.slice(18, 30)}`;
-    
-    return uuid;
+    return convertToQdrantId(ulidString);
   }
 
   /**
@@ -1118,10 +1093,10 @@ export class QdrantTaskRegistry implements TaskRegistry {
   private serializeHandler(handler: (...args: unknown[]) => Promise<unknown>): SerializedHandler {
     const handlerId = ulid(); // Generate unique ID for the handler
     const functionString = handler.toString();
-    
+
     // Register the handler in our registry
     this.handlerRegistry.registerHandler(handlerId, handler);
-    
+
     return {
       type: 'serialized_function',
       functionString,
@@ -1136,29 +1111,29 @@ export class QdrantTaskRegistry implements TaskRegistry {
     // Check if it's a serialized handler
     if (serialized && typeof serialized === 'object' && serialized.type === 'serialized_function') {
       const { handlerId, functionString } = serialized;
-      
+
       // First, try to get from our registry
       const registeredHandler = this.handlerRegistry.getHandler(handlerId);
       if (registeredHandler) {
         return registeredHandler;
       }
-      
+
       // If not in registry, try to reconstruct from function string (fallback)
       try {
         // This is a fallback for handlers that might have been created in previous sessions
         // Note: This is limited and may not work for all function types due to closure issues
         const reconstructed = new Function('return ' + functionString)() as (...args: unknown[]) => Promise<unknown>;
-        
+
         // Register it for future use
         this.handlerRegistry.registerHandler(handlerId, reconstructed);
-        
+
         return reconstructed;
       } catch (error) {
         console.warn(`Failed to reconstruct handler from string: ${error}`);
         // Fall through to default handler
       }
     }
-    
+
     // Return default handler if deserialization fails
     return async (...args) => {
       console.log(`Executing task with default handler`);

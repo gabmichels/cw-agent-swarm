@@ -2,7 +2,8 @@
  * Qdrant memory client implementation
  */
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { v4 as uuidv4 } from 'uuid';
+import { ulid } from 'ulid';
+import { convertToQdrantId } from '../../../../utils/id-conversion';
 import { DEFAULTS } from '../../config';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
 import { handleMemoryError } from '../../utils';
@@ -341,9 +342,9 @@ export class QdrantMemoryClient implements IMemoryClient {
       await this.initialize();
     }
 
-    // Generate ID if not provided
+    // Generate ID if not provided - use ULID for consistency
     if (!point.id) {
-      point.id = uuidv4();
+      point.id = ulid();
     }
 
     // Use fallback storage if Qdrant is not available
@@ -425,22 +426,10 @@ export class QdrantMemoryClient implements IMemoryClient {
 
   /**
    * Convert any ID format to Qdrant-compatible UUID format
+   * @deprecated - Use convertToQdrantId from utils/id-conversion.ts instead
    */
   private convertToQdrantId(id: string): string {
-    if (id.match(/^[0-9A-HJKMNP-TV-Z]{26}$/)) {
-      // This is a ULID, convert to UUID format using deterministic hash
-      const crypto = require('crypto');
-      const hash = crypto.createHash('md5').update(id).digest('hex');
-      return `${hash.substring(0, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 32)}`;
-    } else if (id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-      // Already a UUID
-      return id;
-    } else {
-      // Use hash of the ID to create a UUID for any other format
-      const crypto = require('crypto');
-      const hash = crypto.createHash('md5').update(id).digest('hex');
-      return `${hash.substring(0, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 32)}`;
-    }
+    return convertToQdrantId(id);
   }
 
   /**
@@ -1031,7 +1020,7 @@ export class QdrantMemoryClient implements IMemoryClient {
     // Generate IDs for points that don't have them
     points = points.map(point => {
       if (!point.id) {
-        point.id = uuidv4();
+        point.id = ulid();
       }
       return point;
     });
