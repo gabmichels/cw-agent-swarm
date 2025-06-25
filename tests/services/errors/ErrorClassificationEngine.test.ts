@@ -75,7 +75,7 @@ describe('ErrorClassificationEngine', () => {
       expect(classification.retryable).toBe(false);
     });
 
-    it('should classify API rate limit errors with low severity', async () => {
+    it('should classify API rate limit errors with medium severity', async () => {
       const error = ErrorFactory.createError({
         type: ErrorType.API_RATE_LIMIT,
         message: 'Rate limit exceeded for CoinGecko API',
