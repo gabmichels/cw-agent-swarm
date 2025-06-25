@@ -1257,7 +1257,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
 
       // Check if cached metrics are still valid
       if ((now.getTime() - this.metricsCache.lastUpdate.getTime()) < this.metricsCache.ttlMs) {
-        this.logger.info("Returning cached metrics", {
+        this.logger.debug("Returning cached metrics", {
           cacheAge: now.getTime() - this.metricsCache.lastUpdate.getTime(),
           cacheTtl: this.metricsCache.ttlMs
         });
@@ -1356,7 +1356,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         ttlMs: this.metricsCache.ttlMs
       };
 
-      this.logger.info("Metrics cache updated");
+      this.logger.debug("Metrics cache updated");
 
       return metrics;
     } catch (error) {

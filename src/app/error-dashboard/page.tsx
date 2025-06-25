@@ -57,7 +57,7 @@ const statusColors = {
   IGNORED: 'bg-gray-100 text-gray-800'
 };
 
-const USE_MOCK_DATA = true;
+const USE_MOCK_DATA = false;
 
 // Mock data for demonstration
 const mockErrors: ErrorData[] = [
@@ -620,19 +620,39 @@ export default function ErrorDashboard() {
             </div>
 
             {/* Error List */}
-            <div className="bg-gray-800 rounded-lg border border-gray-700">
-              <div className="p-6 border-b border-gray-700">
-                <h2 className="text-lg font-semibold text-white">
-                  Errors ({filteredErrors.length})
-                </h2>
+            <div className="bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-700">
+                <h2 className="text-lg font-semibold text-white">Recent Errors</h2>
               </div>
-
-              {paginatedErrors.length === 0 ? (
-                <div className="p-8 text-center">
-                  <svg className="w-12 h-12 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-gray-400">No errors found matching your filters.</p>
+              
+              {loading ? (
+                <div className="p-6 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+                  <p className="mt-2 text-gray-400">Loading errors...</p>
+                </div>
+              ) : error ? (
+                <div className="p-6 text-center">
+                  <p className="text-red-400">Error loading data: {error}</p>
+                  <button 
+                    onClick={loadData}
+                    className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : filteredErrors.length === 0 ? (
+                <div className="p-6 text-center">
+                  {errors.length === 0 ? (
+                    <div>
+                      <p className="text-green-400 text-lg mb-2">🎉 No errors found!</p>
+                      <p className="text-gray-400">Your system is running smoothly. Error data will appear here when issues occur.</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-gray-400 text-lg mb-2">No errors match your filters</p>
+                      <p className="text-gray-500">Try adjusting your search criteria or filters above.</p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="divide-y divide-gray-700">
