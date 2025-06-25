@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Settings, AlertCircle, CheckCircle, Clock, Loader2 } from 'lucide-react';
+import { Loader2, Plus, Settings, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 
 // Types for third-party tool integrations
 export enum ThirdPartyToolProvider {
@@ -11,7 +11,8 @@ export enum ThirdPartyToolProvider {
   WHATSAPP_BUSINESS = 'WHATSAPP_BUSINESS',
   CANVA = 'CANVA',
   YOUTUBE = 'YOUTUBE',
-  STRIPE = 'STRIPE'
+  STRIPE = 'STRIPE',
+  N8N_CLOUD = 'N8N_CLOUD'
 }
 
 export enum ThirdPartyToolConnectionStatus {
@@ -120,6 +121,8 @@ export const ThirdPartyToolsSettingsModal: React.FC<ThirdPartyToolsSettingsModal
         return 'YouTube';
       case ThirdPartyToolProvider.STRIPE:
         return 'Stripe';
+      case ThirdPartyToolProvider.N8N_CLOUD:
+        return 'N8N Cloud';
       default:
         return provider;
     }
@@ -141,6 +144,8 @@ export const ThirdPartyToolsSettingsModal: React.FC<ThirdPartyToolsSettingsModal
         return '📺';
       case ThirdPartyToolProvider.STRIPE:
         return '💳';
+      case ThirdPartyToolProvider.N8N_CLOUD:
+        return '🌐';
       default:
         return '🔧';
     }
@@ -162,6 +167,8 @@ export const ThirdPartyToolsSettingsModal: React.FC<ThirdPartyToolsSettingsModal
         return 'Video hosting and management';
       case ThirdPartyToolProvider.STRIPE:
         return 'Payment processing and billing';
+      case ThirdPartyToolProvider.N8N_CLOUD:
+        return 'Workflow automation platform';
       default:
         return 'Third-party integration';
     }
@@ -172,7 +179,8 @@ export const ThirdPartyToolsSettingsModal: React.FC<ThirdPartyToolsSettingsModal
     ThirdPartyToolProvider.ZOOM,
     ThirdPartyToolProvider.DROPBOX,
     ThirdPartyToolProvider.ONEDRIVE,
-    ThirdPartyToolProvider.WHATSAPP_BUSINESS
+    ThirdPartyToolProvider.WHATSAPP_BUSINESS,
+    ThirdPartyToolProvider.N8N_CLOUD
   ];
 
   // Coming soon providers

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Settings, AlertCircle, CheckCircle, Eye, EyeOff, Key, Save } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, Key, Plus, Save, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 
 // Types for API key integrations
 export enum ApiKeyProvider {
@@ -13,7 +13,8 @@ export enum ApiKeyProvider {
   MAILCHIMP = 'MAILCHIMP',
   TYPEFORM = 'TYPEFORM',
   CALENDLY = 'CALENDLY',
-  TWILIO = 'TWILIO'
+  TWILIO = 'TWILIO',
+  N8N_SELF_HOSTED = 'N8N_SELF_HOSTED'
 }
 
 export enum ApiKeyStatus {
@@ -163,6 +164,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
         return 'Calendly';
       case ApiKeyProvider.TWILIO:
         return 'Twilio';
+      case ApiKeyProvider.N8N_SELF_HOSTED:
+        return 'n8n Self-Hosted';
       default:
         return provider;
     }
@@ -184,6 +187,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
         return '📅';
       case ApiKeyProvider.TWILIO:
         return '📱';
+      case ApiKeyProvider.N8N_SELF_HOSTED:
+        return '⚙️';
       default:
         return '🔑';
     }
@@ -205,6 +210,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
         return 'Meeting scheduling and calendar management';
       case ApiKeyProvider.TWILIO:
         return 'SMS, voice calls, and 2FA verification';
+      case ApiKeyProvider.N8N_SELF_HOSTED:
+        return 'Self-hosted workflow automation platform';
       default:
         return 'API integration';
     }
@@ -226,6 +233,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
         return 'Get your personal access token from Typeform Admin Panel';
       case ApiKeyProvider.CALENDLY:
         return 'Get your API key from Calendly Integrations > API & Webhooks';
+      case ApiKeyProvider.N8N_SELF_HOSTED:
+        return 'Enter your n8n API key and instance URL in the format: ApiKey:InstanceURL (e.g., n8n_abc123:https://your-n8n.example.com)';
       default:
         return 'Enter your API key from the service provider';
     }
@@ -239,7 +248,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
     ApiKeyProvider.MAILCHIMP,
     ApiKeyProvider.TYPEFORM,
     ApiKeyProvider.CALENDLY,
-    ApiKeyProvider.TWILIO
+    ApiKeyProvider.TWILIO,
+    ApiKeyProvider.N8N_SELF_HOSTED
   ];
 
   // Service-provided APIs (shown as info only)

@@ -1,16 +1,18 @@
+import { getServiceConfig } from '../../lib/core/unified-config';
+import { logger } from '../../lib/logging';
 import { DatabaseService } from '../database/DatabaseService';
 import { IDatabaseProvider } from '../database/IDatabaseProvider';
 import {
-  WorkspaceConnection,
-  WorkspaceProvider,
   ConnectionStatus,
-  WorkspaceCapabilityType
+  WorkspaceCapabilityType,
+  WorkspaceConnection,
+  WorkspaceProvider
 } from '../database/types';
 import { GoogleWorkspaceProvider } from './providers/GoogleWorkspaceProvider';
+import { ConnectionResult, IWorkspaceProvider, ValidationResult } from './providers/IWorkspaceProvider';
+import { N8nCloudProvider } from './providers/N8nCloudProvider';
+import { N8nSelfHostedProvider } from './providers/N8nSelfHostedProvider';
 import { ZohoWorkspaceProvider } from './providers/ZohoWorkspaceProvider';
-import { IWorkspaceProvider, ConnectionResult, ValidationResult } from './providers/IWorkspaceProvider';
-import { logger } from '../../lib/logging';
-import { getServiceConfig } from '../../lib/core/unified-config';
 
 /**
  * Main workspace service that orchestrates multiple workspace providers
@@ -63,6 +65,32 @@ export class WorkspaceService {
         }
       } else {
         logger.debug('Zoho Workspace provider not initialized - credentials not configured');
+      }
+
+      // Initialize N8N Cloud Provider only if credentials are configured
+      if (oauthConfig.providers.n8n_cloud) {
+        try {
+          const n8nCloudProvider = new N8nCloudProvider();
+          this.providers.set(WorkspaceProvider.N8N_CLOUD, n8nCloudProvider);
+          initializedProviders.push('N8N Cloud');
+        } catch (error) {
+          logger.warn('Failed to initialize N8N Cloud provider', {
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      } else {
+        logger.debug('N8N Cloud provider not initialized - credentials not configured');
+      }
+
+      // Initialize N8N Self-Hosted Provider (always available since it uses API keys)
+      try {
+        const n8nSelfHostedProvider = new N8nSelfHostedProvider();
+        this.providers.set(WorkspaceProvider.N8N_SELF_HOSTED, n8nSelfHostedProvider);
+        initializedProviders.push('N8N Self-Hosted');
+      } catch (error) {
+        logger.warn('Failed to initialize N8N Self-Hosted provider', {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
       }
 
       // TODO: Add Microsoft 365 provider when implemented
