@@ -8,54 +8,40 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { 
-  BaseMetadata,
-  MessageMetadata,
-  CognitiveProcessMetadata,
-  ThoughtMetadata,
-  ReflectionMetadata,
-  InsightMetadata,
-  PlanningMetadata,
-  ThreadInfo,
-  MetadataField,
-  CognitiveProcessType,
-  MessagePriority,
-  DocumentMetadata,
-  DocumentSource,
-  TaskMetadata,
-  TaskStatus,
-  TaskPriority,
-  AuthContext,
-  TenantContext,
-  PerformanceDirectives,
-  MetadataSource,
-  MessageType,
-  CognitiveMemoryMetadata
-} from '../../../../types/metadata';
 import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
 import { ImportanceLevel } from '../../../../constants/memory';
 import {
+  generateChatId,
+  generateMessageId,
+  generateThoughtId
+} from '../../../../lib/core/id-generation';
+import {
   EntityIdentifier,
-  createEntityIdentifier,
-  createEnumEntityIdentifier,
   EntityNamespace,
   EntityType,
-  IdPrefix,
-  entityIdentifierToString
+  createEnumEntityIdentifier
 } from '../../../../types/entity-identifier';
-import { ContentSummaryGenerator } from '../../../../services/importance/ContentSummaryGenerator';
-import { ulid } from 'ulid';
 import {
-  generateUserId,
-  generateAgentId,
-  generateChatId,
-  generateSystemUserId,
-  generateSystemAgentId,
-  generateSystemChatId,
-  generateMessageId,
-  generateThoughtId,
-  generateTaskId
-} from '../../../../lib/core/id-generation';
+  AuthContext,
+  BaseMetadata,
+  CognitiveMemoryMetadata,
+  CognitiveProcessMetadata,
+  CognitiveProcessType,
+  DocumentMetadata,
+  DocumentSource,
+  InsightMetadata,
+  MessageMetadata,
+  MessagePriority,
+  PerformanceDirectives,
+  PlanningMetadata,
+  ReflectionMetadata,
+  TaskMetadata,
+  TaskPriority,
+  TaskStatus,
+  TenantContext,
+  ThoughtMetadata,
+  ThreadInfo
+} from '../../../../types/metadata';
 
 /**
  * Current schema version for metadata
@@ -83,7 +69,7 @@ export function validateBaseMetadata(metadata: Partial<BaseMetadata>): BaseMetad
   if (!metadata.schemaVersion) {
     metadata.schemaVersion = CURRENT_SCHEMA_VERSION;
   }
-  
+
   return {
     schemaVersion: metadata.schemaVersion,
     ...(metadata.importance !== undefined ? { importance: metadata.importance } : {}),
@@ -136,11 +122,11 @@ export function validateThreadInfo(threadInfo: Partial<ThreadInfo>): ThreadInfo 
   if (!threadInfo.id) {
     throw new Error('Thread ID is required');
   }
-  
+
   if (threadInfo.position === undefined) {
     throw new Error('Thread position is required');
   }
-  
+
   return {
     id: threadInfo.id,
     position: threadInfo.position,
@@ -189,14 +175,14 @@ export function createMessageMetadata(
     // Basic tag extraction from content - look for hashtags and keywords
     const hashtagMatches = content.match(/#[a-zA-Z0-9_]+/g) || [];
     const hashtags = hashtagMatches.map(tag => tag.substring(1).toLowerCase());
-    
+
     // Extract key terms (simple approach - can be enhanced)
     const words = content.toLowerCase().split(/\s+/);
-    const keyWords = words.filter(word => 
-      word.length > 3 && 
+    const keyWords = words.filter(word =>
+      word.length > 3 &&
       !['this', 'that', 'with', 'from', 'they', 'were', 'been', 'have', 'will', 'your', 'what', 'when', 'where', 'would', 'could', 'should'].includes(word)
     );
-    
+
     extractedTags.push(...hashtags, ...keyWords.slice(0, 10)); // Limit to first 10 key words
   }
 
@@ -211,13 +197,13 @@ export function createMessageMetadata(
     messageType: options.messageType || 'text',
     attachments: options.attachments || [],
     timestamp: Date.now(), // Use numeric timestamp
-    
+
     // Importance
     importance: options.importance || ImportanceLevel.MEDIUM,
-    
+
     // Memory metadata fields
     tags: [...new Set(extractedTags)], // Remove duplicates
-    
+
     // Custom metadata
     ...options.metadata
   };
@@ -251,7 +237,7 @@ export function createAgentToAgentMessageMetadata(
     EntityType.USER,
     'system'
   );
-  
+
   return createMessageMetadata(
     '',
     MessageRole.ASSISTANT, // Always assistant role for agent-to-agent
@@ -306,13 +292,13 @@ export function createCognitiveProcessMetadata(
     influences: options.influences || [],
     influencedBy: options.influencedBy || [],
     timestamp: new Date().toISOString(),
-    
+
     // Importance
     importance: options.importance || ImportanceLevel.MEDIUM,
-    
+
     // Memory metadata fields
     tags: [],
-    
+
     // Custom metadata
     ...options.metadata
   };
@@ -332,20 +318,20 @@ export function createThoughtMetadata(
     agentId,
     options
   );
-  
+
   const thoughtMetadata: ThoughtMetadata = {
     ...baseMetadata,
     processType: CognitiveProcessType.THOUGHT
   };
-  
+
   if (options.intention) {
     thoughtMetadata.intention = options.intention;
   }
-  
+
   if (options.confidenceScore !== undefined) {
     thoughtMetadata.confidenceScore = options.confidenceScore;
   }
-  
+
   return thoughtMetadata;
 }
 
@@ -361,20 +347,20 @@ export function createReflectionMetadata(
     agentId,
     options
   );
-  
+
   const reflectionMetadata: ReflectionMetadata = {
     ...baseMetadata,
     processType: CognitiveProcessType.REFLECTION
   };
-  
+
   if (options.reflectionType) {
     reflectionMetadata.reflectionType = options.reflectionType;
   }
-  
+
   if (options.timeScope) {
     reflectionMetadata.timeScope = options.timeScope;
   }
-  
+
   return reflectionMetadata;
 }
 
@@ -390,24 +376,24 @@ export function createInsightMetadata(
     agentId,
     options
   );
-  
+
   const insightMetadata: InsightMetadata = {
     ...baseMetadata,
     processType: CognitiveProcessType.INSIGHT
   };
-  
+
   if (options.insightType) {
     insightMetadata.insightType = options.insightType;
   }
-  
+
   if (options.applicationContext) {
     insightMetadata.applicationContext = options.applicationContext;
   }
-  
+
   if (options.validityPeriod) {
     insightMetadata.validityPeriod = options.validityPeriod;
   }
-  
+
   return insightMetadata;
 }
 
@@ -423,24 +409,24 @@ export function createPlanningMetadata(
     agentId,
     options
   );
-  
+
   const planningMetadata: PlanningMetadata = {
     ...baseMetadata,
     processType: CognitiveProcessType.PLANNING
   };
-  
+
   if (options.planType) {
     planningMetadata.planType = options.planType;
   }
-  
+
   if (options.estimatedSteps !== undefined) {
     planningMetadata.estimatedSteps = options.estimatedSteps;
   }
-  
+
   if (options.dependsOn) {
     planningMetadata.dependsOn = options.dependsOn;
   }
-  
+
   return planningMetadata;
 }
 
@@ -456,73 +442,73 @@ export function createDocumentMetadata(
   options: Partial<DocumentMetadata> = {}
 ): DocumentMetadata {
   const baseMetadata = createBaseMetadata(options);
-  
+
   const documentMetadata: DocumentMetadata = {
     ...baseMetadata,
     source
   };
-  
+
   // Copy fields if they exist
   if (options.title) {
     documentMetadata.title = options.title;
   }
-  
+
   if (options.contentType) {
     documentMetadata.contentType = options.contentType;
   }
-  
+
   if (options.fileType) {
     documentMetadata.fileType = options.fileType;
   }
-  
+
   if (options.url) {
     documentMetadata.url = options.url;
   }
-  
+
   if (options.userId) {
     documentMetadata.userId = options.userId;
   }
-  
+
   if (options.agentId) {
     documentMetadata.agentId = options.agentId;
   }
-  
+
   if (options.chunkIndex !== undefined) {
     documentMetadata.chunkIndex = options.chunkIndex;
   }
-  
+
   if (options.totalChunks !== undefined) {
     documentMetadata.totalChunks = options.totalChunks;
   }
-  
+
   if (options.parentDocumentId) {
     documentMetadata.parentDocumentId = options.parentDocumentId;
   }
-  
+
   if (options.fileSize !== undefined) {
     documentMetadata.fileSize = options.fileSize;
   }
-  
+
   if (options.fileName) {
     documentMetadata.fileName = options.fileName;
   }
-  
+
   if (options.lastModified) {
     documentMetadata.lastModified = options.lastModified;
   }
-  
+
   if (options.siteName) {
     documentMetadata.siteName = options.siteName;
   }
-  
+
   if (options.author) {
     documentMetadata.author = options.author;
   }
-  
+
   if (options.publishDate) {
     documentMetadata.publishDate = options.publishDate;
   }
-  
+
   return documentMetadata;
 }
 
@@ -574,13 +560,13 @@ export function createTaskMetadata(
     dependsOn: options.dependsOn || [],
     blockedBy: options.blockedBy || [],
     timestamp: new Date().toISOString(),
-    
+
     // Importance
     importance: options.importance || ImportanceLevel.MEDIUM,
-    
+
     // Memory metadata fields
     tags: [],
-    
+
     // Custom metadata
     ...options.metadata
   };

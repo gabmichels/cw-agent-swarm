@@ -3,11 +3,11 @@
  */
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { v4 as uuidv4 } from 'uuid';
-import { DEFAULTS, MemoryErrorCode } from '../../config';
+import { DEFAULTS } from '../../config';
 import { BaseMemorySchema, MemoryPoint, MemorySearchResult } from '../../models';
 import { handleMemoryError } from '../../utils';
-import { ClientStatus, DeleteOptions, IMemoryClient, MemoryClientOptions, SearchQuery } from './types';
 import { EmbeddingService } from './embedding-service';
+import { ClientStatus, DeleteOptions, IMemoryClient, MemoryClientOptions, SearchQuery } from './types';
 
 /**
  * In-memory fallback storage
@@ -380,6 +380,7 @@ export class QdrantMemoryClient implements IMemoryClient {
           ]
         });
       } catch (upsertError) {
+
         // Handle 404 Not Found errors by creating the collection and retrying
         if (
           upsertError instanceof Error &&
