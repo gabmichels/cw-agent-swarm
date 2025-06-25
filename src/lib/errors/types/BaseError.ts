@@ -237,7 +237,6 @@ export class ErrorFactory {
     switch (type) {
       case ErrorType.TOOL_EXECUTION:
       case ErrorType.DATABASE_ERROR:
-      case ErrorType.VALIDATION_ERROR:
         return ErrorCategory.INTERNAL;
 
       case ErrorType.API_FAILURE:
@@ -248,6 +247,7 @@ export class ErrorFactory {
 
       case ErrorType.PERMISSION_DENIED:
       case ErrorType.AUTHENTICATION_ERROR:
+      case ErrorType.VALIDATION_ERROR:
         return ErrorCategory.USER_ACTION;
 
       case ErrorType.WORKSPACE_CONNECTION:
