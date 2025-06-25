@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WorkspaceProvider } from '../../../../services/database/types';
+import { N8nCloudProvider } from '../../../../services/workspace/providers/N8nCloudProvider';
+import { N8nSelfHostedProvider } from '../../../../services/workspace/providers/N8nSelfHostedProvider';
 import { ZohoWorkspaceProvider } from '../../../../services/workspace/providers/ZohoWorkspaceProvider';
 import { WorkspaceService } from '../../../../services/workspace/WorkspaceService';
 
@@ -62,6 +64,21 @@ export async function POST(request: NextRequest) {
         defaultScopes = ZohoWorkspaceProvider.getRequiredScopes();
         break;
 
+      case WorkspaceProvider.N8N_CLOUD:
+        redirectUri = process.env.N8N_CLOUD_REDIRECT_URI || 'http://localhost:3000/api/workspace/callback';
+        defaultScopes = N8nCloudProvider.getRequiredScopes();
+        break;
+
+      case WorkspaceProvider.N8N_SELF_HOSTED:
+        // Self-hosted doesn't use OAuth, return special response
+        return NextResponse.json({
+          success: true,
+          authUrl: undefined, // No OAuth URL needed
+          requiresApiKey: true,
+          instructions: N8nSelfHostedProvider.getApiKeyInstructions(),
+          error: null
+        });
+
       default:
         redirectUri = 'http://localhost:3000/api/workspace/callback';
         defaultScopes = [];
@@ -77,7 +94,25 @@ export async function POST(request: NextRequest) {
     const state = Buffer.from(JSON.stringify(stateData)).toString('base64');
 
     // Create provider-specific connection URL manually since initiateConnection doesn't exist
-    const connectionUrl = `https://accounts.google.com/oauth/authorize?response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=profile email&state=${Buffer.from(JSON.stringify(stateData)).toString('base64')}`;
+    let connectionUrl: string;
+
+    switch (body.provider) {
+      case WorkspaceProvider.GOOGLE_WORKSPACE:
+        connectionUrl = `https://accounts.google.com/oauth/authorize?response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${defaultScopes.join(' ')}&state=${state}&access_type=offline&prompt=consent`;
+        break;
+
+      case WorkspaceProvider.ZOHO:
+        const zohoRegion = process.env.ZOHO_REGION || 'com';
+        connectionUrl = `https://accounts.zoho.${zohoRegion}/oauth/v2/auth?response_type=code&client_id=${process.env.ZOHO_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${defaultScopes.join(' ')}&state=${state}&access_type=offline&prompt=consent`;
+        break;
+
+      case WorkspaceProvider.N8N_CLOUD:
+        connectionUrl = `https://app.n8n.cloud/oauth2/authorize?response_type=code&client_id=${process.env.N8N_CLOUD_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${defaultScopes.join(' ')}&state=${state}&access_type=offline&prompt=consent`;
+        break;
+
+      default:
+        connectionUrl = `https://accounts.google.com/oauth/authorize?response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=profile email&state=${state}`;
+    }
 
     const result = {
       authUrl: connectionUrl,

@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
     const organizationId = searchParams.get('organizationId');
+    const provider = searchParams.get('provider');
 
     console.log('Initializing WorkspaceService...');
     const workspaceService = new WorkspaceService();
@@ -26,6 +27,13 @@ export async function GET(request: NextRequest) {
       // If no specific user or organization is requested, return all connections
       // This is useful for development and when user context is not available
       connections = await workspaceService.getAllConnections();
+    }
+
+    // Filter by provider if specified
+    if (provider && connections) {
+      const providers = provider.split(',').map(p => p.trim());
+      connections = connections.filter(conn => providers.includes(conn.provider));
+      console.log(`Filtered to ${connections.length} connections for providers: ${providers.join(', ')}`);
     }
 
     console.log(`Found ${connections?.length || 0} connections`);

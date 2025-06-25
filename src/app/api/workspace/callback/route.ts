@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WorkspaceProvider } from '../../../../services/database/types';
-import { WorkspaceService } from '../../../../services/workspace/WorkspaceService';
+import { GoogleWorkspaceProvider } from '../../../../services/workspace/providers/GoogleWorkspaceProvider';
+import { N8nCloudProvider } from '../../../../services/workspace/providers/N8nCloudProvider';
+import { ZohoWorkspaceProvider } from '../../../../services/workspace/providers/ZohoWorkspaceProvider';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,9 +52,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Initialize workspace service
-    const workspaceService = new WorkspaceService();
-
     try {
       console.log('Attempting to complete connection for provider:', provider);
 
@@ -67,26 +66,34 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Complete the connection - using a placeholder approach since the method signature doesn't match
-      // TODO: Implement proper workspace connection completion
-      console.log('Processing workspace connection:', {
-        provider,
-        code: code ? 'present' : 'missing',
-        state: state ? 'present' : 'missing',
-        userId: stateData.userId,
-        organizationId: stateData.organizationId
+      // Get the appropriate provider and complete the connection
+      let connection;
+
+      switch (provider as WorkspaceProvider) {
+        case WorkspaceProvider.GOOGLE_WORKSPACE:
+          const googleProvider = new GoogleWorkspaceProvider();
+          connection = await googleProvider.completeConnection(code, state || '');
+          break;
+
+        case WorkspaceProvider.ZOHO:
+          const zohoProvider = new ZohoWorkspaceProvider();
+          connection = await zohoProvider.completeConnection(code, state || '');
+          break;
+
+        case WorkspaceProvider.N8N_CLOUD:
+          const n8nCloudProvider = new N8nCloudProvider();
+          connection = await n8nCloudProvider.completeConnection(code, state || '');
+          break;
+
+        default:
+          throw new Error(`Unsupported provider: ${provider}`);
+      }
+
+      console.log('Connection completed successfully:', {
+        connectionId: connection.id,
+        provider: connection.provider,
+        email: connection.email
       });
-
-      // For now, create a mock connection response since the service method doesn't support this flow
-      const connection = {
-        id: `ws_${Date.now()}`,
-        provider,
-        userId: stateData.userId || 'unknown',
-        organizationId: stateData.organizationId || 'unknown',
-        status: 'connected'
-      };
-
-      console.log('Connection processed:', connection.id);
 
       // Redirect to success page with connection info
       return NextResponse.redirect(
