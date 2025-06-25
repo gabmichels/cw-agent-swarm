@@ -13,20 +13,19 @@ import { ConnectionConfig, ConnectionResult, IWorkspaceProvider, ValidationResul
 
 // Unified systems imports
 import {
-  handleAsync,
-  handleWithRetry,
   createErrorContext,
-  ErrorSeverity
+  ErrorSeverity,
+  handleAsync,
+  handleWithRetry
 } from '../../../lib/errors/standardized-handler';
+import { logger } from '../../../lib/logging';
 import {
-  unifiedTokenManager,
+  encryptTokens,
+  isTokenExpired,
   OAuthTokenData,
   registerTokenRefreshCallback,
-  isTokenExpired,
-  encryptTokens,
-  decryptTokens
+  unifiedTokenManager
 } from '../../../lib/security/unified-token-manager';
-import { logger } from '../../../lib/logging';
 
 /**
  * Google Workspace provider implementation
@@ -228,6 +227,22 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
           }
         }
 
+        // Schedule token refresh for the updated connection
+        if (tokenData.expiresAt && tokenData.refreshToken) {
+          try {
+            unifiedTokenManager.scheduleTokenRefresh('google-workspace', updatedConnection.id, tokenData);
+            logger.debug('Token refresh scheduled for updated connection', {
+              connectionId: updatedConnection.id,
+              expiresAt: tokenData.expiresAt
+            });
+          } catch (scheduleError) {
+            logger.warn('Failed to schedule token refresh', {
+              connectionId: updatedConnection.id,
+              error: scheduleError
+            });
+          }
+        }
+
         logger.info('Updated existing Google Workspace connection', {
           connectionId: updatedConnection.id,
           email: updatedConnection.email
@@ -254,6 +269,22 @@ export class GoogleWorkspaceProvider implements IWorkspaceProvider {
           domain: !isGoogleDomain ? domain : undefined,
           status: ConnectionStatus.ACTIVE
         });
+
+        // Schedule token refresh for the new connection
+        if (tokenData.expiresAt && tokenData.refreshToken) {
+          try {
+            unifiedTokenManager.scheduleTokenRefresh('google-workspace', connection.id, tokenData);
+            logger.debug('Token refresh scheduled for new connection', {
+              connectionId: connection.id,
+              expiresAt: tokenData.expiresAt
+            });
+          } catch (scheduleError) {
+            logger.warn('Failed to schedule token refresh', {
+              connectionId: connection.id,
+              error: scheduleError
+            });
+          }
+        }
 
         logger.info('Created new Google Workspace connection', {
           connectionId: connection.id,

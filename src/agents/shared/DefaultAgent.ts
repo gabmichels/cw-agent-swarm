@@ -12,65 +12,63 @@
  * - AgentConfigValidator: Validates configuration
  */
 
+import { createLogger } from '@/lib/logging/winston-logger';
 import { v4 as uuidv4 } from 'uuid';
 import { AbstractAgentBase } from './base/AbstractAgentBase';
-import { AgentBaseConfig } from './base/types';
 import { BaseManager } from './base/managers/BaseManager';
 import { ManagerType } from './base/managers/ManagerType';
-import { createLogger } from '@/lib/logging/winston-logger';
+import { AgentBaseConfig } from './base/types';
 
 // Import our refactored components
-import { AgentInitializer, AgentInitializationConfig } from './core/AgentInitializer';
-import { AgentLifecycleManager } from './core/AgentLifecycleManager';
+import { InputProcessorConfig } from './base/managers/InputProcessor.interface';
+import { OutputProcessorConfig } from './base/managers/OutputProcessor.interface';
 import { AgentCommunicationHandler } from './core/AgentCommunicationHandler';
 import { AgentExecutionEngine } from './core/AgentExecutionEngine';
+import { AgentInitializationConfig, AgentInitializer } from './core/AgentInitializer';
+import { AgentLifecycleManager } from './core/AgentLifecycleManager';
 import { InputProcessingCoordinator } from './processors/InputProcessingCoordinator';
 import { OutputProcessingCoordinator } from './processors/OutputProcessingCoordinator';
 import { ThinkingProcessor } from './processors/ThinkingProcessor';
 import { AgentConfigValidator } from './utils/AgentConfigValidator';
-import { InputProcessorConfig } from './base/managers/InputProcessor.interface';
-import { OutputProcessorConfig } from './base/managers/OutputProcessor.interface';
 
 // Import interfaces
-import { 
-  AgentResponse, 
-  GetLLMResponseOptions, 
-  MessageProcessingOptions, 
-  ThinkOptions 
-} from './base/AgentBase.interface';
-import { ThinkingResult } from '../../services/thinking/types';
-import { TaskCreationOptions, TaskCreationResult, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
-import { Task, TaskStatus, createTask } from '../../lib/scheduler/models/Task.model';
 import { ModularSchedulerManager } from '../../lib/scheduler/implementations/ModularSchedulerManager';
-import { PlanCreationOptions, PlanCreationResult, PlanExecutionResult, PlanningManager } from './base/managers/PlanningManager.interface';
+import { Task, TaskStatus } from '../../lib/scheduler/models/Task.model';
+import { ThinkingResult } from '../../services/thinking/types';
+import {
+  AgentResponse,
+  GetLLMResponseOptions,
+  MessageProcessingOptions,
+  ThinkOptions
+} from './base/AgentBase.interface';
+import { MemoryEntry, MemoryManager } from './base/managers/MemoryManager.interface';
+import { PlanExecutionResult, PlanningManager } from './base/managers/PlanningManager.interface';
 import { ReflectionResult } from './base/managers/ReflectionManager.interface';
-import { MemoryManager, MemoryEntry } from './base/managers/MemoryManager.interface';
+import { TaskCreationOptions, TaskCreationResult, TaskExecutionResult } from './base/managers/SchedulerManager.interface';
 
 // Import types for configuration
-import { PromptFormatter, PersonaInfo } from './messaging/PromptFormatter';
-import { ResourceUtilizationTracker, ResourceUtilizationTrackerOptions, ResourceUsageListener } from './scheduler/ResourceUtilization';
 import { OpportunityManager } from '../../lib/opportunity';
+import { PersonaInfo } from './messaging/PromptFormatter';
+import { ResourceUsageListener, ResourceUtilizationTracker, ResourceUtilizationTrackerOptions } from './scheduler/ResourceUtilization';
 
 // Import processInputWithLangChain helper at the top
 import { processInputWithLangChain } from './processInput';
-import { ChatOpenAI } from '@langchain/openai';
 
 // Import ThinkingService and related types
-import { ThinkingService } from '../../services/thinking/ThinkingService';
-import { ImportanceCalculatorService, ImportanceCalculationMode } from '../../services/importance/ImportanceCalculatorService';
 import { getLLM } from '../../lib/core/llm';
 import { TaskScheduleType } from '../../lib/scheduler/models/Task.model';
+import { ImportanceCalculationMode, ImportanceCalculatorService } from '../../services/importance/ImportanceCalculatorService';
+import { ThinkingService } from '../../services/thinking/ThinkingService';
 import { IAgent } from '../../services/thinking/graph/types';
 
 // Import multi-agent delegation service
-import { 
-  MultiAgentDelegationService, 
+import {
   createMultiAgentDelegationService,
-  type IMultiAgentDelegationService 
+  type IMultiAgentDelegationService
 } from '../../lib/multi-agent/MultiAgentDelegationService';
-import { 
-  ToolDelegationPriority,
-  ToolCapabilityCategory 
+import {
+  ToolCapabilityCategory,
+  ToolDelegationPriority
 } from '../../lib/multi-agent/delegation/ToolDelegationProtocol';
 
 // Import new types
@@ -82,12 +80,12 @@ import { WorkspaceAgentIntegration } from '../../services/workspace/integration/
 // Import visualization components
 import { ThinkingVisualizer } from '../../services/thinking/visualization/ThinkingVisualizer';
 import { AgentVisualizationTracker } from '../../services/visualization/AgentVisualizationTracker';
-import { 
+import {
   AgentVisualizationContext,
-  VisualizationRequestIdFactory,
   DEFAULT_VISUALIZATION_CONFIG,
+  LLMInteractionVisualizationData,
   VisualizationConfig,
-  LLMInteractionVisualizationData
+  VisualizationRequestIdFactory
 } from '../../types/visualization-integration';
 
 // Agent status constants
@@ -102,21 +100,21 @@ const AGENT_STATUS = {
 interface DefaultAgentConfig {
   /** Optional agent ID */
   id?: string;
-  
+
   /** Optional agent name */
   name?: string;
-  
+
   /** Optional agent description */
   description?: string;
-  
+
   /** Optional agent type */
   type?: string;
-  
+
   // LLM configuration
   modelName?: string;
   temperature?: number;
   maxTokens?: number;
-  
+
   // Manager enablement flags
   enableMemoryManager?: boolean;
   enablePlanningManager?: boolean;
@@ -127,31 +125,31 @@ interface DefaultAgentConfig {
   enableOutputProcessor?: boolean;
   enableResourceTracking?: boolean;
   enableReflectionManager?: boolean;
-  
+
   // New manager enablement flags (Phase 2 integration)
   enableEthicsManager?: boolean;
   enableCollaborationManager?: boolean;
   enableCommunicationManager?: boolean;
   enableNotificationManager?: boolean;
-  
+
   // Enhanced manager flags
   useEnhancedMemory?: boolean;
   useEnhancedReflection?: boolean;
-  
+
   // Behavior configuration
   adaptiveBehavior?: boolean;
-  
+
   // Persona and system prompt configuration
   systemPrompt?: string;
   persona?: PersonaInfo;
-  
+
   // Memory refresh configuration
   memoryRefresh?: {
     enabled: boolean;
     interval: number;
     maxCriticalMemories: number;
   };
-  
+
   // Component configurations
   componentsConfig?: {
     // Core component configurations
@@ -164,21 +162,21 @@ interface DefaultAgentConfig {
     thinkingProcessor?: Record<string, unknown>;
     configValidator?: Record<string, unknown>;
     resourceTracker?: Partial<ResourceUtilizationTrackerOptions>;
-    
+
     // Manager configurations
-    memoryManager?: { enabled: boolean; [key: string]: unknown };
-    planningManager?: { enabled: boolean; [key: string]: unknown };
-    toolManager?: { enabled: boolean; [key: string]: unknown };
-    knowledgeManager?: { enabled: boolean; [key: string]: unknown };
-    schedulerManager?: { enabled: boolean; [key: string]: unknown };
-    reflectionManager?: { enabled: boolean; [key: string]: unknown };
-    
+    memoryManager?: { enabled: boolean;[key: string]: unknown };
+    planningManager?: { enabled: boolean;[key: string]: unknown };
+    toolManager?: { enabled: boolean;[key: string]: unknown };
+    knowledgeManager?: { enabled: boolean;[key: string]: unknown };
+    schedulerManager?: { enabled: boolean;[key: string]: unknown };
+    reflectionManager?: { enabled: boolean;[key: string]: unknown };
+
     // New manager configurations (Phase 2 integration)
-    ethicsManager?: { enabled: boolean; [key: string]: unknown };
-    collaborationManager?: { enabled: boolean; [key: string]: unknown };
-    communicationManager?: { enabled: boolean; [key: string]: unknown };
-    notificationManager?: { enabled: boolean; [key: string]: unknown };
-    
+    ethicsManager?: { enabled: boolean;[key: string]: unknown };
+    collaborationManager?: { enabled: boolean;[key: string]: unknown };
+    communicationManager?: { enabled: boolean;[key: string]: unknown };
+    notificationManager?: { enabled: boolean;[key: string]: unknown };
+
     [key: string]: Record<string, unknown> | undefined;
   };
 
@@ -220,10 +218,10 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private readonly version: string = '2.0.0'; // Updated version for refactored agent
   private readonly logger: ReturnType<typeof createLogger>;
   private agentConfig: DefaultAgentConfig;
-  
+
   // DEBUG: Add instance tracking
   private readonly _instanceId: string = `agent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
+
   // Component instances
   private initializer: AgentInitializer | null = null;
   private lifecycleManager: AgentLifecycleManager | null = null;
@@ -233,13 +231,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private outputProcessor: OutputProcessingCoordinator | null = null;
   private thinkingProcessor: ThinkingProcessor | null = null;
   private configValidator: AgentConfigValidator | null = null;
-  
+
   // Add ThinkingService for proper thought storage
   private thinkingService: ThinkingService | null = null;
-  
+
   // Multi-agent delegation service
   private multiAgentDelegationService: IMultiAgentDelegationService | null = null;
-  
+
   // Legacy compatibility properties
   private resourceTracker: ResourceUtilizationTracker | null = null;
   private opportunityManager: OpportunityManager | null = null;
@@ -260,7 +258,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   constructor(config: DefaultAgentConfig) {
     // Generate agent ID
     const agentId = config.id || uuidv4();
-    
+
     // Create agent memory entity for base class compatibility
     const baseConfig: AgentMemoryEntity = {
       id: agentId,
@@ -297,28 +295,28 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       updatedAt: new Date(),
       schemaVersion: '2.0'
     };
-    
+
     // Initialize base class
     super(baseConfig as unknown as AgentBaseConfig);
-    
+
     // Set properties
     this.agentId = agentId;
     this.agentType = config.type || 'default';
     this.agentConfig = config;
-    
+
     // Initialize logger
     this.logger = createLogger({
       moduleId: `default-agent-${agentId}`,
       agentId: agentId
     });
-    
+
     this.logger.system("Refactored DefaultAgent created", {
       agentId: agentId,
       agentName: config.name || 'Default Agent',
       version: this.version,
       config: config
     });
-    
+
     // Initialize workspace integration
     this.workspaceIntegration = new WorkspaceAgentIntegration();
   }
@@ -426,18 +424,18 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       if (this.lifecycleManager) {
         await this.lifecycleManager.stop();
       }
-      
+
       // Reset all managers
       for (const manager of Array.from(this.managers.values())) {
         await manager.reset();
       }
-      
+
       // Reset resource tracker
       if (this.resourceTracker) {
         this.resourceTracker.stop();
         this.resourceTracker = null;
       }
-      
+
       this.initialized = false;
     } catch (error) {
       this.logger.error('Error resetting agent', { error });
@@ -446,16 +444,16 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   }
 
   /**
-   * Initialize the agent using the new component-based architecture
-   */
+ * Initialize the agent using the new component-based architecture
+ */
   async initialize(): Promise<boolean> {
     if (this.initialized) {
       return true;
     }
-    
+
     try {
       this.logger.system("Initializing refactored agent", { agentId: this.agentId });
-      
+
       // Step 1: Validate configuration
       this.configValidator = new AgentConfigValidator();
       try {
@@ -469,10 +467,11 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         // If schema doesn't exist, skip validation for now
         this.logger.warn("Configuration validation skipped - schema not found", { error: validationError });
       }
-      
+
       // Step 2: Initialize components using AgentInitializer
+      // Initialize components using AgentInitializer
       this.initializer = new AgentInitializer();
-      
+
       // Map componentsConfig to the format AgentInitializer expects
       const initConfig: AgentInitializationConfig = {
         ...this.agentConfig,
@@ -483,13 +482,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         enableKnowledgeManager: this.agentConfig.enableKnowledgeManager || this.agentConfig.componentsConfig?.knowledgeManager?.enabled || false,
         enableSchedulerManager: this.agentConfig.enableSchedulerManager || this.agentConfig.componentsConfig?.schedulerManager?.enabled || false,
         enableReflectionManager: this.agentConfig.enableReflectionManager || this.agentConfig.componentsConfig?.reflectionManager?.enabled || false,
-        
+
         // New manager enablement flags (Phase 2 integration)
         enableEthicsManager: this.agentConfig.enableEthicsManager || this.agentConfig.componentsConfig?.ethicsManager?.enabled || false,
         enableCollaborationManager: this.agentConfig.enableCollaborationManager || this.agentConfig.componentsConfig?.collaborationManager?.enabled || false,
         enableCommunicationManager: this.agentConfig.enableCommunicationManager || this.agentConfig.componentsConfig?.communicationManager?.enabled || false,
         enableNotificationManager: this.agentConfig.enableNotificationManager || this.agentConfig.componentsConfig?.notificationManager?.enabled || false,
-        
+
         // Map componentsConfig to managersConfig for AgentInitializer
         managersConfig: {
           memoryManager: this.agentConfig.componentsConfig?.memoryManager || { enabled: this.agentConfig.enableMemoryManager || false },
@@ -501,7 +500,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           inputProcessor: this.agentConfig.componentsConfig?.inputProcessor as InputProcessorConfig || { enabled: this.agentConfig.enableInputProcessor || false },
           outputProcessor: this.agentConfig.componentsConfig?.outputProcessor as OutputProcessorConfig || { enabled: this.agentConfig.enableOutputProcessor || false },
           resourceTracker: this.agentConfig.componentsConfig?.resourceTracker || {},
-          
+
           // New manager configurations (Phase 2 integration)
           ethicsManager: this.agentConfig.componentsConfig?.ethicsManager || { enabled: this.agentConfig.enableEthicsManager || false },
           collaborationManager: this.agentConfig.componentsConfig?.collaborationManager || { enabled: this.agentConfig.enableCollaborationManager || false },
@@ -509,13 +508,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           notificationManager: this.agentConfig.componentsConfig?.notificationManager || { enabled: this.agentConfig.enableNotificationManager || false }
         }
       };
-      
+
       const initResult = await this.initializer.initializeAgent(this, initConfig);
       if (!initResult.success) {
         this.logger.error("Component initialization failed", { errors: initResult.errors });
-        return false;
+        throw new Error("Failed to initialize components");
       }
-      
+
       // Register all managers with the base class
       for (const [managerType, manager] of initResult.managers) {
         this.setManager(manager);
@@ -526,182 +525,180 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
           hasPlanAndExecute: 'planAndExecute' in manager
         });
       }
-      
+
       // Store scheduler manager reference
       if (initResult.schedulerManager) {
         this.schedulerManager = initResult.schedulerManager;
       }
-      
+
       // Store opportunity manager reference
       if (initResult.opportunityManager) {
         this.opportunityManager = initResult.opportunityManager;
       }
-      
-      this.logger.system("Component initialization passed", {
-        managersRegistered: initResult.managers.size,
-        finalManagersCount: this.managers.size,
-        finalManagers: Array.from(this.managers.keys()).map(key => key.toString())
-      });
-      
-      // Step 3: Initialize lifecycle manager
-      this.lifecycleManager = new AgentLifecycleManager(this);
-      await this.lifecycleManager.start();
-      this.logger.system("Lifecycle manager initialized");
-      
-      // Step 4: Initialize communication handler
-      this.communicationHandler = new AgentCommunicationHandler(this);
-      this.logger.system("Communication handler initialized");
-      
-      // Step 5: Initialize execution engine
-      this.executionEngine = new AgentExecutionEngine(this);
-      this.logger.system("Execution engine initialized");
-      
-      // Step 6: Initialize processing coordinators
-      this.inputProcessor = new InputProcessingCoordinator(this);
-      this.outputProcessor = new OutputProcessingCoordinator(this);
-      this.thinkingProcessor = new ThinkingProcessor(this);
-      this.logger.system("Processing coordinators initialized");
-      
-      // Step 6.5: Initialize ThinkingService for proper thought storage
-      try {
-        // Create a generic LLM service wrapper using shared factory - no business logic here
-        const llmService = {
-          generateStructuredOutput: async <T>(
-            model: string,
-            prompt: string,
-            outputSchema: Record<string, unknown>
-          ): Promise<T> => {
-            // Use the shared getLLM factory with cheap model for importance calculation
-            const cheapModel = getLLM({ 
-              useCheapModel: true, 
-              temperature: 0.3, 
-              maxTokens: 300 
-            });
-            
-            try {
-              const response = await cheapModel.invoke(prompt);
-              const content = typeof response === 'string' ? response : response.content;
-              
-              // Try to parse as JSON first (for structured output)
-              try {
-                return JSON.parse(content) as T;
-              } catch {
-                // If not JSON, return the content as-is and let the caller handle it
-                return content as T;
-              }
-            } catch (error) {
-              this.logger.warn('LLM call failed, throwing error for ImportanceCalculatorService to handle', { error });
-              throw error; // Let ImportanceCalculatorService handle the fallback logic
-            }
-          }
-        };
-        
-        const importanceCalculator = new ImportanceCalculatorService(llmService, {
-          defaultMode: ImportanceCalculationMode.RULE_BASED, // Use rule-based by default to save costs
-          hybridConfidenceThreshold: 0.8 // Only use LLM if rule-based confidence is very low
-        });
-        this.thinkingService = new ThinkingService(importanceCalculator);
-        this.logger.system("ThinkingService initialized with shared LLM factory - thoughts will now be stored in the thoughts collection via CognitiveArtifactService");
-      } catch (error) {
-        this.logger.warn("Failed to initialize ThinkingService, falling back to ThinkingProcessor only - thoughts will only appear in message conversationContext", { error });
-      }
-      
-      // Step 7: Initialize multi-agent delegation service if communication manager is enabled
-      if (this.agentConfig.enableCommunicationManager) {
-        try {
-          this.multiAgentDelegationService = createMultiAgentDelegationService({
-            messagingService: {
-              sendMessage: async (toAgentId: string, request: any) => {
-                // Use the communication manager for inter-agent messaging
-                const commManager = this.getManager(ManagerType.COMMUNICATION);
-                if (commManager && typeof (commManager as any).sendMessage === 'function') {
-                  return await (commManager as any).sendMessage({
-                    id: request.id,
-                    type: 'delegation_request',
-                    senderId: this.agentId,
-                    recipientId: toAgentId,
-                    payload: request,
-                    timestamp: new Date(),
-                    priority: request.priority || 'normal'
-                  });
-                }
-                throw new Error('Communication manager not available');
-              }
-            }
-          });
-          
-          this.logger.system("Multi-agent delegation service initialized", {
-            hasCapabilityDiscovery: !!this.multiAgentDelegationService,
-            agentId: this.agentId
-          });
-          
-          // Auto-register this agent's capabilities from available tools
-          // This allows other agents to discover what this agent can do
-          setTimeout(async () => {
-            try {
-              await this.registerCapabilitiesFromTools();
-              this.logger.system("Agent capabilities auto-registered for multi-agent discovery", {
-                agentId: this.agentId
-              });
-            } catch (error) {
-              this.logger.warn("Failed to auto-register agent capabilities", { 
-                agentId: this.agentId,
-                error: error instanceof Error ? error.message : String(error)
-              });
-            }
-          }, 1000); // Wait 1 second for tools to be fully initialized
-          
-        } catch (error) {
-          this.logger.warn("Failed to initialize MultiAgentDelegationService", { error });
-        }
-      }
-      
-      // Step 8: Initialize visualization components
-      try {
-        this.visualizationConfig = {
-          ...DEFAULT_VISUALIZATION_CONFIG,
-          ...this.agentConfig.visualizationConfig
-        };
 
-        this.visualizer = new ThinkingVisualizer();
-        this.visualizationTracker = new AgentVisualizationTracker(
-          this.visualizer,
-          this.visualizationConfig
-        );
-        
-        this.logger.system("Visualization tracking initialized", {
-          enabled: this.visualizationConfig.enabled,
-          trackMemoryRetrieval: this.visualizationConfig.trackMemoryRetrieval,
-          trackLLMInteraction: this.visualizationConfig.trackLLMInteraction
-        });
-      } catch (error) {
-        this.logger.warn("Failed to initialize visualization tracking", { error });
-      }
-      
-      // Step 9: Initialize resource tracking if enabled
+      // Step 3: Initialize managers and core components
+      await this.initializeManagers();
+      this.logger.system("Managers initialized");
+
+      // Step 4: Initialize new manager instances and services
+      await this.initializeNewManagerInstances();
+      this.logger.system("New manager instances initialized");
+
+      // Step 5: Initialize resource tracking if enabled
       if (this.agentConfig.enableResourceTracking) {
         this.initializeResourceTracking();
-        this.logger.system("Resource tracking initialized");
       }
-      
+
+      // Step 6: Initialize workspace integration
+      if (this.workspaceIntegration) {
+        try {
+          await this.workspaceIntegration.initializeAgentWorkspace(this);
+          this.logger.system("Workspace integration initialized successfully", {
+            agentId: this.agentId
+          });
+        } catch (workspaceError) {
+          this.logger.warn("Failed to initialize workspace integration", {
+            error: workspaceError instanceof Error ? workspaceError.message : String(workspaceError)
+          });
+        }
+      }
+
+      // Step 7: Mark as initialized
       this.initialized = true;
-      this.logger.system("Agent initialization completed successfully", { 
+      this.logger.system("Agent initialization completed successfully", {
         agentId: this.agentId,
-        managersInitialized: initResult.managers.size
+        version: this.version
       });
-      
+
       return true;
+
     } catch (error) {
-      this.logger.error("Error during agent initialization", { error });
-      
-      // Clean up any resources that were created
-      try {
-        await this.shutdown();
-      } catch (shutdownError) {
-        this.logger.error("Error during shutdown after failed initialization", { shutdownError });
-      }
-      
+      this.logger.error("Agent initialization failed", { error });
+      this.initialized = false;
       return false;
+    }
+  }
+
+  /**
+   * Initialize managers
+   */
+  public async initializeManagers(): Promise<void> {
+    // Initialize lifecycle manager
+    this.lifecycleManager = new AgentLifecycleManager(this);
+    await this.lifecycleManager.start();
+    this.logger.system("Lifecycle manager initialized");
+
+    // Initialize communication handler
+    this.communicationHandler = new AgentCommunicationHandler(this);
+    this.logger.system("Communication handler initialized");
+
+    // Initialize execution engine
+    this.executionEngine = new AgentExecutionEngine(this);
+    this.logger.system("Execution engine initialized");
+
+    // Initialize processing coordinators
+    this.inputProcessor = new InputProcessingCoordinator(this);
+    this.outputProcessor = new OutputProcessingCoordinator(this);
+    this.thinkingProcessor = new ThinkingProcessor(this);
+    this.logger.system("Processing coordinators initialized");
+  }
+
+  /**
+   * Initialize new manager instances
+   */
+  private async initializeNewManagerInstances(): Promise<void> {
+    // Initialize ThinkingService
+    try {
+      // Create a generic LLM service wrapper using shared factory - no business logic here
+      const llmService = {
+        generateStructuredOutput: async <T>(
+          model: string,
+          prompt: string,
+          outputSchema: Record<string, unknown>
+        ): Promise<T> => {
+          // Use the shared getLLM factory with cheap model for importance calculation
+          const cheapModel = getLLM({
+            useCheapModel: true,
+            temperature: 0.3,
+            maxTokens: 300
+          });
+
+          try {
+            const response = await cheapModel.invoke(prompt);
+            const content = typeof response === 'string' ? response : response.content;
+
+            // Try to parse as JSON first (for structured output)
+            try {
+              return JSON.parse(content) as T;
+            } catch {
+              // If not JSON, return the content as-is and let the caller handle it
+              return content as T;
+            }
+          } catch (error) {
+            this.logger.warn('LLM call failed, throwing error for ImportanceCalculatorService to handle', { error });
+            throw error; // Let ImportanceCalculatorService handle the fallback logic
+          }
+        }
+      };
+
+      const importanceCalculator = new ImportanceCalculatorService(llmService, {
+        defaultMode: ImportanceCalculationMode.RULE_BASED, // Use rule-based by default to save costs
+        hybridConfidenceThreshold: 0.8 // Only use LLM if rule-based confidence is very low
+      });
+      this.thinkingService = new ThinkingService(importanceCalculator);
+      this.logger.system("ThinkingService initialized with shared LLM factory - thoughts will now be stored in the thoughts collection via CognitiveArtifactService");
+    } catch (error) {
+      this.logger.warn("Failed to initialize ThinkingService, falling back to ThinkingProcessor only - thoughts will only appear in message conversationContext", { error });
+    }
+
+    // Initialize multi-agent delegation service if communication manager is enabled
+    if (this.agentConfig.enableCommunicationManager) {
+      try {
+        this.multiAgentDelegationService = createMultiAgentDelegationService({
+          messagingService: {
+            sendMessage: async (toAgentId: string, request: any) => {
+              // Use the communication manager for inter-agent messaging
+              const commManager = this.getManager(ManagerType.COMMUNICATION);
+              if (commManager && typeof (commManager as any).sendMessage === 'function') {
+                return await (commManager as any).sendMessage({
+                  id: request.id,
+                  type: 'delegation_request',
+                  senderId: this.agentId,
+                  recipientId: toAgentId,
+                  payload: request,
+                  timestamp: new Date(),
+                  priority: request.priority || 'normal'
+                });
+              }
+              throw new Error('Communication manager not available');
+            }
+          }
+        });
+
+        this.logger.system("Multi-agent delegation service initialized", {
+          hasCapabilityDiscovery: !!this.multiAgentDelegationService,
+          agentId: this.agentId
+        });
+
+        // Auto-register this agent's capabilities from available tools
+        // This allows other agents to discover what this agent can do
+        setTimeout(async () => {
+          try {
+            await this.registerCapabilitiesFromTools();
+            this.logger.system("Agent capabilities auto-registered for multi-agent discovery", {
+              agentId: this.agentId
+            });
+          } catch (error) {
+            this.logger.warn("Failed to auto-register agent capabilities", {
+              agentId: this.agentId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }, 1000); // Wait 1 second for tools to be fully initialized
+
+      } catch (error) {
+        this.logger.warn("Failed to initialize MultiAgentDelegationService", { error });
+      }
     }
   }
 
@@ -714,13 +711,13 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       this.resourceTracker = new ResourceUtilizationTracker(
         this.agentConfig.componentsConfig?.resourceTracker || {}
       );
-      
+
       // Register this agent as a listener
       this.resourceTracker.addListener(this);
-      
+
       // Start tracking
       this.resourceTracker.start();
-      
+
       this.logger.system("Resource utilization tracking initialized", { agentId: this.agentId });
     } catch (error) {
       this.logger.error('Error initializing resource tracking', { error });
@@ -733,34 +730,34 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   async shutdown(): Promise<void> {
     try {
       this.logger.system("Shutting down agent", { agentId: this.agentId });
-      
+
       // Stop lifecycle manager
       if (this.lifecycleManager) {
         await this.lifecycleManager.stop();
       }
-      
+
       // Clean up ThinkingService
       if (this.thinkingService) {
         this.thinkingService = null;
         this.logger.system("ThinkingService cleaned up");
       }
-      
+
       // Stop resource tracking
-    if (this.resourceTracker) {
+      if (this.resourceTracker) {
         this.resourceTracker.stop();
-      this.resourceTracker = null;
-    }
-    
+        this.resourceTracker = null;
+      }
+
       // Shutdown all managers
       for (const manager of Array.from(this.managers.values())) {
         if (typeof manager.shutdown === 'function') {
           await manager.shutdown();
         }
       }
-      
+
       this.initialized = false;
       this.logger.system("Agent shutdown completed", { agentId: this.agentId });
-      } catch (error) {
+    } catch (error) {
       this.logger.error('Error during agent shutdown', { error });
       throw error;
     }
@@ -775,7 +772,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   async getLLMResponse(message: string, options?: GetLLMResponseOptions): Promise<AgentResponse> {
     let llmNodeId: string | null = null;
     const llmStartTime = Date.now();
-    
+
     try {
       this.logger.info('Getting LLM response', {
         message: message.substring(0, 100),
@@ -785,15 +782,15 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
 
       // Initialize LLM visualization tracking if visualization context is available
       const visualizationContext = (options as any)?.visualizationContext as AgentVisualizationContext;
-      
+
       // Prepare enhanced input with thinking context for accurate processing and token counting
       let enhancedInput = message;
       if (options?.thinkingResult) {
         const thinking = options.thinkingResult;
         const memoryContext = thinking.context?.formattedMemoryContext || '';
-        const memoryContextSection = memoryContext ? 
+        const memoryContextSection = memoryContext ?
           `\nRelevant Memory Context:\n${memoryContext}` : '';
-        
+
         enhancedInput = `User Input: ${message}
 
 Context from thinking analysis:
@@ -812,7 +809,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
         try {
           const systemPrompt = await this.generateSystemPrompt();
           const conversationHistory: MemoryEntry[] = Array.isArray(options?.conversationHistory) ? options.conversationHistory : [];
-          
+
           // Create LLM interaction visualization data
           const llmVisualizationData: LLMInteractionVisualizationData = {
             promptTokens: this.estimateTokens(enhancedInput),
@@ -845,18 +842,18 @@ Please provide a helpful, contextual response based on this analysis and memory 
       if (mockModel && typeof mockModel.invoke === 'function') {
         // Use the mock model for testing
         this.logger.debug('Using mock model for testing');
-        
+
         // Prepare enhanced input with thinking context
         let enhancedInput = message;
-        
+
         if (options?.thinkingResult) {
           const thinking = options.thinkingResult;
-          
+
           // Get formatted memory context from thinking results
           const memoryContext = thinking.context?.formattedMemoryContext || '';
-          const memoryContextSection = memoryContext ? 
+          const memoryContextSection = memoryContext ?
             `\nRelevant Memory Context:\n${memoryContext}` : '';
-          
+
           enhancedInput = `User Input: ${message}
 
 Context from thinking analysis:
@@ -887,7 +884,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       } else {
         // Use real LLM for production using shared factory
         this.logger.debug('Using shared LLM factory for production');
-        
+
         // Use shared LLM factory with agent configuration
         const model = getLLM({
           modelName: this.agentConfig.modelName || process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14',
@@ -897,15 +894,15 @@ Please provide a helpful, contextual response based on this analysis and memory 
 
         // Prepare enhanced input with thinking context
         let enhancedInput = message;
-        
+
         if (options?.thinkingResult) {
           const thinking = options.thinkingResult;
-          
+
           // Get formatted memory context from thinking results
           const memoryContext = thinking.context?.formattedMemoryContext || '';
-          const memoryContextSection = memoryContext ? 
+          const memoryContextSection = memoryContext ?
             `\nRelevant Memory Context:\n${memoryContext}` : '';
-          
+
           enhancedInput = `User Input: ${message}
 
 Context from thinking analysis:
@@ -983,7 +980,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       if (options?.useVisionModel && options?.attachments && (this as any).processWithVisionModel) {
         try {
           const visionResult = await (this as any).processWithVisionModel(message, options.attachments);
-          
+
           return {
             content: visionResult,
             thoughts: options?.thinkingResult?.reasoning || [],
@@ -1088,7 +1085,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
   async processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse> {
     const startTime = Date.now();
     let visualizationContext: AgentVisualizationContext | null = null;
-    
+
     try {
       this.logger.info('Processing user input', {
         message: message.substring(0, 100),
@@ -1121,7 +1118,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
 
           // Create initial user input node
           await this.visualizationTracker.createUserInputNode(visualizationContext);
-          
+
           this.logger.debug('Visualization tracking initialized', {
             requestId: requestId.toString(),
             visualizationId: visualization.id
@@ -1136,7 +1133,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
         userId: options?.userId,
         ...options
       });
-      
+
       // Create thinking visualization node
       let thinkingNodeId: string | undefined;
       if (visualizationContext && this.visualizationTracker) {
@@ -1149,7 +1146,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
           this.logger.warn('Failed to create thinking visualization node', { error });
         }
       }
-      
+
       this.logger.info('=== THINKING COMPLETED - ANALYZING RESULT ===', {
         intent: thinkingResult.intent.primary,
         confidence: thinkingResult.intent.confidence,
@@ -1166,11 +1163,11 @@ Please provide a helpful, contextual response based on this analysis and memory 
       const memoryManager = this.getManager<MemoryManager>(ManagerType.MEMORY);
       let conversationHistory: MemoryEntry[] = [];
       let memoryNodeId: string | undefined;
-      
+
       // Check if this is a summary request to expand conversation history
       const isSummaryRequest = thinkingResult.intent?.isSummaryRequest || false;
       const conversationHistoryLimit = isSummaryRequest ? 30 : 10; // Expand for summaries
-      
+
       if (memoryManager) {
         try {
           // Store the user input in memory first
@@ -1181,10 +1178,10 @@ Please provide a helpful, contextual response based on this analysis and memory 
             intent: thinkingResult.intent.primary,
             ...(options || {})
           });
-          
+
           // Retrieve recent conversation history with expanded limit for summaries
           conversationHistory = await memoryManager.getRecentMemories(conversationHistoryLimit);
-          
+
           // Create memory retrieval visualization node
           if (visualizationContext && this.visualizationTracker) {
             try {
@@ -1211,7 +1208,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
               this.logger.warn('Failed to create memory retrieval visualization node', { error });
             }
           }
-          
+
           this.logger.info('Retrieved conversation history', {
             historyCount: conversationHistory.length,
             isSummaryRequest,
@@ -1234,20 +1231,20 @@ Please provide a helpful, contextual response based on this analysis and memory 
       if (this.multiAgentDelegationService) {
         try {
           delegationResult = await this.analyzeForDelegation(message);
-          
+
           if (delegationResult.needsDelegation) {
             this.logger.info('Delegation opportunity detected', {
               suggestedTool: delegationResult.suggestedTool,
               suggestedCategory: delegationResult.suggestedCategory,
               reasoning: delegationResult.reasoning
             });
-            
+
             // Attempt delegation first before proceeding with other processing paths
             if (delegationResult.suggestedTool && delegationResult.suggestedCategory) {
               try {
                 // Extract parameters from the user message using simple heuristics
                 const delegationParameters = this.extractParametersFromMessage(message, delegationResult.suggestedTool);
-                
+
                 const delegationResponse = await this.delegateToolToAgent(
                   delegationResult.suggestedTool,
                   delegationParameters,
@@ -1257,12 +1254,12 @@ Please provide a helpful, contextual response based on this analysis and memory 
                     timeout: 30000
                   }
                 );
-                
+
                 this.logger.info('Successfully delegated task to another agent', {
                   tool: delegationResult.suggestedTool,
                   delegationResponse: typeof delegationResponse === 'object' ? 'object' : String(delegationResponse)
                 });
-                
+
                 // Return delegation success response
                 return {
                   content: `I've delegated your ${delegationResult.suggestedTool} request to a specialized agent. ${delegationResponse.message || 'The task has been processed successfully.'}`,
@@ -1276,19 +1273,19 @@ Please provide a helpful, contextual response based on this analysis and memory 
                     processingPath: 'delegation'
                   }
                 };
-                
+
               } catch (delegationError) {
                 this.logger.warn('Delegation attempt failed, continuing with normal processing', {
                   error: delegationError instanceof Error ? delegationError.message : String(delegationError),
                   suggestedTool: delegationResult.suggestedTool
                 });
-                
+
                 // Don't block normal processing if delegation fails
                 // The agent will handle the request itself as a fallback
               }
             }
           }
-          
+
         } catch (error) {
           this.logger.warn('Failed to analyze for delegation opportunities', {
             error: error instanceof Error ? error.message : String(error)
@@ -1315,14 +1312,14 @@ Please provide a helpful, contextual response based on this analysis and memory 
             this.agentId,
             message
           );
-          
+
           if (workspaceResult.success) {
             this.logger.info('Workspace command processed successfully', {
               scheduled: workspaceResult.scheduled,
               taskId: workspaceResult.taskId,
               hasData: !!workspaceResult.data
             });
-            
+
             // Generate response based on result
             let responseContent = 'Workspace command executed successfully.';
             if (workspaceResult.scheduled) {
@@ -1330,7 +1327,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
             } else if (workspaceResult.data) {
               responseContent = `Workspace command completed. Result: ${JSON.stringify(workspaceResult.data)}`;
             }
-            
+
             // Return workspace response directly
             return {
               content: responseContent,
@@ -1373,7 +1370,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       // Use intelligent classification from thinking process instead of manual rules
       const requestType = thinkingResult.requestType?.type || 'PURE_LLM_TASK';
       const requestClassification = thinkingResult.requestType?.reasoning || 'No classification available';
-      
+
       console.log(`🧠 Smart routing decision: ${requestType} (confidence: ${thinkingResult.requestType?.confidence?.toFixed(2) || 'N/A'})`);
       console.log(`📝 Classification reasoning: ${requestClassification}`);
 
@@ -1393,12 +1390,12 @@ Please provide a helpful, contextual response based on this analysis and memory 
 
         // Get LLM response first to understand the request
         const llmResponse = await this.getLLMResponse(message, enhancedOptions);
-        
+
         // Create task based on LLM understanding - ensure we have the right manager type
         if (schedulerManager && 'createTask' in schedulerManager) {
           // Extract time expression from LLM classification, or use the original message to extract time info
           let timeExpression = thinkingResult.requestType?.suggestedSchedule?.timeExpression;
-          
+
           // If LLM didn't extract time expression, try to extract from the message
           if (!timeExpression) {
             // Simple regex to catch common time expressions
@@ -1408,7 +1405,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
               /(tomorrow|today|tonight|later|soon)/i,
               /(next|this)\s+(week|month|friday|monday|tuesday|wednesday|thursday|saturday|sunday)/i
             ];
-            
+
             for (const pattern of timePatterns) {
               const match = message.match(pattern);
               if (match) {
@@ -1416,47 +1413,47 @@ Please provide a helpful, contextual response based on this analysis and memory 
                 break;
               }
             }
-            
+
             // If still no time expression, default to "now"
             if (!timeExpression) {
               timeExpression = "now";
             }
           }
-          
+
           this.logger.info('Creating scheduled task with time expression', {
             originalMessage: message,
             extractedTimeExpression: timeExpression,
             llmSuggestedExpression: thinkingResult.requestType?.suggestedSchedule?.timeExpression
           });
-          
+
           // Create tool-specific task description for message scheduling
           let taskDescription = `Task created from user input: ${message}`;
-          
+
           // If this is a message scheduling task, make it explicit that the agent should use the send_message tool
           if (message.toLowerCase().includes('send') && message.toLowerCase().includes('message') ||
-              message.toLowerCase().includes('deliver') && message.toLowerCase().includes('joke') ||
-              message.toLowerCase().includes('schedule') && message.toLowerCase().includes('chat')) {
-            
+            message.toLowerCase().includes('deliver') && message.toLowerCase().includes('joke') ||
+            message.toLowerCase().includes('schedule') && message.toLowerCase().includes('chat')) {
+
             // Extract chat ID from options context first, then try message text if not available
             const contextChatId = options?.chatId;
             const messageTextChatId = message.match(/chat\s+([a-f0-9-]{36})/i)?.[1];
             const chatId = contextChatId || messageTextChatId;
-            
+
             this.logger.info('Chat ID extraction for scheduled message', {
               contextChatId,
               messageTextChatId,
               finalChatId: chatId,
               hasContextChatId: !!contextChatId
             });
-            
+
             // Create explicit tool execution instructions
             taskDescription = `Execute send_message tool to deliver the scheduled message. ` +
-                             `Original request: ${message}. ` +
-                             `IMPORTANT: Use the send_message tool with the following parameters: ` +
-                             `{chatId: "${chatId || 'MISSING_CHAT_ID'}", content: "generated-joke-content", messageType: "scheduled_message"}. ` +
-                             `Generate a funny programming joke as the content and deliver it via the send_message tool.`;
+              `Original request: ${message}. ` +
+              `IMPORTANT: Use the send_message tool with the following parameters: ` +
+              `{chatId: "${chatId || 'MISSING_CHAT_ID'}", content: "generated-joke-content", messageType: "scheduled_message"}. ` +
+              `Generate a funny programming joke as the content and deliver it via the send_message tool.`;
           }
-          
+
           // Create a simple task that AgentTaskExecutor can process directly
           // The AgentTaskExecutor will extract the goal from the description and call agent.planAndExecute()
           const taskData = {
@@ -1573,7 +1570,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
         } else {
           // Fallback: use standard PlanningManager methods
           this.logger.info('Planning manager does not have planAndExecute, using createPlan + executePlan');
-          
+
           try {
             const createResult = await planningManager.createPlan({
               name: `External Tool Task: ${message.substring(0, 50)}`,
@@ -1589,7 +1586,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
 
             if (createResult.success && createResult.plan) {
               const executeResult = await planningManager.executePlan(createResult.plan.id);
-              
+
               response = {
                 content: executeResult.success ? 'Completed external tool execution via planning.' : 'External tool execution encountered issues.',
                 metadata: {
@@ -1610,7 +1607,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
             this.logger.warn('Planning manager execution failed, falling back to LLM response', {
               error: planningError instanceof Error ? planningError.message : String(planningError)
             });
-            
+
             response = await this.getLLMResponse(message, enhancedOptions);
             response.metadata = {
               ...response.metadata,
@@ -1632,7 +1629,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
         });
 
         response = await this.getLLMResponse(message, enhancedOptions);
-        
+
         // Add classification info to metadata
         response.metadata = {
           ...response.metadata,
@@ -1708,7 +1705,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
             response,
             processingTimeMs
           );
-          
+
           this.logger.debug('Visualization tracking finalized', {
             requestId: visualizationContext.requestId.toString(),
             processingTimeMs,
@@ -1722,7 +1719,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       return response;
 
     } catch (error) {
-      this.logger.error('Error processing user input', { 
+      this.logger.error('Error processing user input', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
@@ -1757,31 +1754,31 @@ Please provide a helpful, contextual response based on this analysis and memory 
   private shouldCreateTaskFromIntent(thinkingResult: ThinkingResult, message: string): boolean {
     const intent = thinkingResult.intent.primary.toLowerCase();
     const messageContent = message.toLowerCase(); // Use actual message content
-    
+
     // Check for explicit scheduling/timing language
     const hasTimingKeywords = [
       'schedule', 'later', 'future', 'delay', 'after', 'in 10 seconds', 'in 5 minutes',
       'tomorrow', 'next week', 'when', 'defer', 'queue', 'wait'
     ].some(keyword => messageContent.includes(keyword));
-    
+
     // Check for multi-step complex requests that need scheduling
     const hasMultiStepKeywords = [
       'multiple steps', 'step 1', 'step 2', 'first', 'then', 'after that',
       'sequence', 'order', 'comprehensive report', 'create a report:'
     ].some(keyword => messageContent.includes(keyword));
-    
+
     // Check for external API/tool requirements that suggest async execution
     const requiresExternalTools = [
       'api call', 'external data', 'real-time', 'bitcoin price', 'coingecko',
       'search for', 'fetch', 'retrieve', 'get current', 'latest'
     ].some(keyword => messageContent.includes(keyword));
-    
+
     // EXPANDED: Check for action commands and imperative intents
     const actionIntents = [
       // Traditional scheduling/task intents
       'schedule', 'remind', 'monitor', 'track', 'watch', 'follow_up',
       'create_task', 'add_task', 'queue', 'defer', 'later',
-      
+
       // Core action verbs (imperatives that require doing something)
       'create', 'make', 'build', 'generate', 'produce', 'develop',
       'write', 'compose', 'draft', 'author', 'pen',
@@ -1800,7 +1797,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       'install', 'setup', 'configure', 'deploy', 'launch',
       'backup', 'restore', 'save', 'store', 'archive',
       'delete', 'remove', 'clear', 'clean', 'purge',
-      
+
       // Tool-specific actions
       'coda', 'document', 'spreadsheet', 'table', 'database',
       'twitter', 'tweet', 'post', 'social media',
@@ -1808,17 +1805,17 @@ Please provide a helpful, contextual response based on this analysis and memory 
       'report', 'summary', 'analysis', 'dashboard',
       'api', 'integration', 'webhook', 'automation'
     ];
-    
+
     // Check if the message starts with action verbs (imperative form)
     const messageWords = messageContent.split(/\s+/);
     const firstWord = messageWords[0];
     const startsWithAction = actionIntents.includes(firstWord);
-    
+
     // Check if intent or message contains action keywords
-    const hasActionIntent = actionIntents.some(actionIntent => 
+    const hasActionIntent = actionIntents.some(actionIntent =>
       intent.includes(actionIntent) || messageContent.includes(actionIntent)
     );
-    
+
     // Check for imperative sentence patterns (commands)
     const imperativePatterns = [
       /^(create|make|build|generate|write|plan|do|execute|perform|run)/i,
@@ -1826,29 +1823,29 @@ Please provide a helpful, contextual response based on this analysis and memory 
       /^(can you|could you|would you)\s+(create|make|build|generate|write|plan|do|execute|perform|run)/i,
       /^(i want you to|i need you to)\s+(create|make|build|generate|write|plan|do|execute|perform|run)/i
     ];
-    
+
     const hasImperativePattern = imperativePatterns.some(pattern => pattern.test(messageContent));
-    
+
     // Check for high priority or urgent requests that should be tracked
     const isUrgent = thinkingResult.isUrgent || thinkingResult.priority >= 9;
-    
+
     // Check for complex requests that benefit from task tracking
     const isComplex = thinkingResult.complexity >= 7;
-    
+
     // Enhanced logic: Schedule if:
     // 1. Explicit timing/scheduling language
     // 2. Multi-step processes
     // 3. Requires external tools/APIs
     // 4. Action intents or imperative commands
     // 5. High complexity + urgency combo
-    const shouldCreate = hasTimingKeywords || 
-                        hasMultiStepKeywords || 
-                        requiresExternalTools ||
-                        hasActionIntent ||
-                        startsWithAction ||
-                        hasImperativePattern ||
-                        (isUrgent && isComplex);
-    
+    const shouldCreate = hasTimingKeywords ||
+      hasMultiStepKeywords ||
+      requiresExternalTools ||
+      hasActionIntent ||
+      startsWithAction ||
+      hasImperativePattern ||
+      (isUrgent && isComplex);
+
     this.logger.info('Enhanced action intent detection', {
       intent: intent,
       message: message.substring(0, 100),
@@ -1864,16 +1861,16 @@ Please provide a helpful, contextual response based on this analysis and memory 
       shouldCreate,
       priority: thinkingResult.priority,
       complexity: thinkingResult.complexity,
-      detectionReason: shouldCreate ? 
+      detectionReason: shouldCreate ?
         (hasTimingKeywords ? 'timing keywords' :
-         hasMultiStepKeywords ? 'multi-step keywords' :
-         requiresExternalTools ? 'external tools needed' :
-         hasActionIntent ? 'action intent detected' :
-         startsWithAction ? 'starts with action verb' :
-         hasImperativePattern ? 'imperative pattern' :
-         'high complexity + urgency') : 'no triggers detected'
+          hasMultiStepKeywords ? 'multi-step keywords' :
+            requiresExternalTools ? 'external tools needed' :
+              hasActionIntent ? 'action intent detected' :
+                startsWithAction ? 'starts with action verb' :
+                  hasImperativePattern ? 'imperative pattern' :
+                    'high complexity + urgency') : 'no triggers detected'
     });
-    
+
     return shouldCreate;
   }
 
@@ -1883,17 +1880,17 @@ Please provide a helpful, contextual response based on this analysis and memory 
   private determinePriorityFromIntent(thinkingResult: ThinkingResult): number {
     // Use the priority from thinking result, with adjustments
     let priority = thinkingResult.priority || 5;
-    
+
     // Adjust based on urgency
     if (thinkingResult.isUrgent) {
       priority = Math.max(priority, 9);
     }
-    
+
     // Adjust based on complexity (complex tasks get higher priority for proper handling)
     if (thinkingResult.complexity >= 8) {
       priority = Math.max(priority, 7);
     }
-    
+
     return Math.min(10, Math.max(1, priority));
   }
 
@@ -1913,7 +1910,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
         this.logger.info('Using ThinkingService for enhanced thought processing and storage', {
           message: message.substring(0, 100)
         });
-        
+
         // Add timeout wrapper to prevent hanging
         const thinkingPromise = this.thinkingService.processRequest(
           options?.userId || 'user',
@@ -1930,17 +1927,17 @@ Please provide a helpful, contextual response based on this analysis and memory 
             ...(options || {})
           }
         );
-        
+
         // Race against timeout (30 seconds for thinking - reasonable timeout for memory + LLM calls)
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => {
             reject(new Error('ThinkingService timeout after 30 seconds'));
           }, 30000);
         });
-        
+
         this.logger.info('Starting ThinkingService processing with complex analysis');
         const thinkingResult = await Promise.race([thinkingPromise, timeoutPromise]);
-        
+
         this.logger.info('=== THINKINGSERVICE SUCCESS ===', {
           intent: thinkingResult.intent.primary,
           confidence: thinkingResult.intent.confidence,
@@ -1950,7 +1947,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
           entities: thinkingResult.entities?.length || 0,
           detailedReasoning: thinkingResult.reasoning
         });
-        
+
         return thinkingResult;
       } catch (error) {
         this.logger.warn('=== THINKINGSERVICE FAILED - FALLBACK TO PROCESSOR ===', {
@@ -1960,7 +1957,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
         // Fall through to ThinkingProcessor fallback
       }
     }
-    
+
     // Fallback to ThinkingProcessor (original behavior)
     if (!this.thinkingProcessor) {
       // If no ThinkingProcessor, create a minimal thinking result
@@ -1991,11 +1988,11 @@ Please provide a helpful, contextual response based on this analysis and memory 
         planSteps: []
       };
     }
-    
+
     this.logger.info('=== USING THINKINGPROCESSOR FALLBACK ===', {
       message: message.substring(0, 100)
     });
-    
+
     try {
       // Add timeout to ThinkingProcessor as well (10 seconds)
       const processingPromise = this.thinkingProcessor.processThinking(message, options);
@@ -2004,9 +2001,9 @@ Please provide a helpful, contextual response based on this analysis and memory 
           reject(new Error('ThinkingProcessor timeout after 10 seconds'));
         }, 10000);
       });
-      
+
       const processingResult = await Promise.race([processingPromise, processingTimeoutPromise]);
-      
+
       this.logger.info('=== THINKINGPROCESSOR SUCCESS ===', {
         confidence: processingResult.confidence,
         conclusion: processingResult.finalConclusion,
@@ -2017,7 +2014,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       const isSchedulingRequest = this.detectSchedulingRequest(message);
       const requestType = isSchedulingRequest ? 'SCHEDULED_TASK' : 'PURE_LLM_TASK';
       const confidence = isSchedulingRequest ? 0.8 : 0.5;
-      const reasoning = isSchedulingRequest 
+      const reasoning = isSchedulingRequest
         ? 'ThinkingProcessor fallback detected scheduling keywords'
         : 'ThinkingProcessor fallback, defaulting to pure LLM task';
 
@@ -2051,7 +2048,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       this.logger.warn('=== THINKINGPROCESSOR ALSO FAILED - ULTIMATE FALLBACK ===', {
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       // Ultimate fallback - always return a valid thinking result
       return {
         intent: {
@@ -2089,11 +2086,11 @@ Please provide a helpful, contextual response based on this analysis and memory 
     if (!schedulerManager || typeof schedulerManager !== 'object' || !('createTask' in schedulerManager)) {
       throw new Error('Scheduler manager not available');
     }
-    
+
     try {
       // Use the scheduler manager's createTask method
       const result = await (schedulerManager as any).createTask(options);
-      
+
       // Transform the result to match TaskCreationResult interface
       if (result && result.id) {
         // If the scheduler manager returned a Task object directly
@@ -2106,19 +2103,19 @@ Please provide a helpful, contextual response based on this analysis and memory 
         return result;
       } else {
         // Fallback: assume success if we got any result
-      return {
+        return {
           success: !!result,
           task: result
         };
       }
     } catch (error) {
       this.logger.error('Error creating task:', { error: error instanceof Error ? error.message : String(error) });
-      
+
       // Return proper error format - throw the error since TaskCreationResult doesn't support error field
-        throw error;
+      throw error;
     }
   }
-  
+
   /**
    * Execute a task - delegates to SchedulerManager
    */
@@ -2129,21 +2126,21 @@ Please provide a helpful, contextual response based on this analysis and memory 
       this.logger.info("Executing task via scheduler manager", { taskId });
       return (schedulerManager as any).executeTaskNow(taskId);
     }
-    
+
     // Fallback to execution engine if no scheduler manager
     if (!this.executionEngine) {
       throw new Error('Neither scheduler manager nor execution engine available');
     }
-    
+
     this.logger.warn("No scheduler manager available, falling back to execution engine", { taskId });
-    
+
     const startTime = new Date();
-    
+
     try {
       // Execute the task using the execution engine
       const result = await this.executionEngine.executeTask(`Task execution: ${taskId}`);
       const endTime = new Date();
-      
+
       // Convert AgentResponse to TaskExecutionResult
       return {
         taskId,
@@ -2178,24 +2175,24 @@ Please provide a helpful, contextual response based on this analysis and memory 
       };
     }
   }
-  
+
   /**
    * Plan and execute - delegates to PlanningManager
    */
   async planAndExecute(goal: string, options: Record<string, unknown> = {}): Promise<PlanExecutionResult> {
-    this.logger.info('planAndExecute called', { 
+    this.logger.info('planAndExecute called', {
       goal: typeof goal === 'string' ? goal.substring(0, 100) : `[${typeof goal}] ${JSON.stringify(goal).substring(0, 100)}`,
       options,
       managersCount: this.managers.size,
       availableManagers: Array.from(this.managers.keys()).map(key => key.toString())
     });
-    
+
     const planningManager = this.getManager(ManagerType.PLANNING);
-    
+
     // Check if planning manager exists and has planAndExecute method (including prototype chain)
-    const hasPlanAndExecuteMethod = planningManager && 
+    const hasPlanAndExecuteMethod = planningManager &&
       (typeof (planningManager as any).planAndExecute === 'function');
-    
+
     this.logger.info('Planning manager lookup result', {
       planningManagerExists: !!planningManager,
       planningManagerType: planningManager?.constructor.name,
@@ -2204,7 +2201,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       goalType: typeof goal,
       goalIsString: typeof goal === 'string'
     });
-    
+
     if (!planningManager || !hasPlanAndExecuteMethod) {
       this.logger.error('Planning manager not available', {
         planningManagerExists: !!planningManager,
@@ -2217,13 +2214,13 @@ Please provide a helpful, contextual response based on this analysis and memory 
       });
       throw new Error('Planning manager not available');
     }
-    
+
     // Ensure goal is a string
-    const goalString = typeof goal === 'string' ? goal : 
-      (typeof goal === 'object' && goal && 'goalPrompt' in goal) ? 
-        (goal as any).goalPrompt : 
+    const goalString = typeof goal === 'string' ? goal :
+      (typeof goal === 'object' && goal && 'goalPrompt' in goal) ?
+        (goal as any).goalPrompt :
         JSON.stringify(goal);
-    
+
     this.logger.info('Calling planning manager planAndExecute', {
       goalString: goalString.substring(0, 100),
       options,
@@ -2242,7 +2239,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
     if (!reflectionManager || typeof reflectionManager !== 'object' || !('reflect' in reflectionManager)) {
       throw new Error('Reflection manager not available');
     }
-    
+
     // Use the reflection manager's reflect method
     return (reflectionManager as any).reflect(options);
   }
@@ -2322,9 +2319,9 @@ Please provide a helpful, contextual response based on this analysis and memory 
     if (schedulerManager && typeof schedulerManager === 'object' && 'getPendingTasks' in schedulerManager) {
       return (schedulerManager as any).getPendingTasks();
     }
-      return [];
-    }
-    
+    return [];
+  }
+
   // ===== RESOURCE USAGE LISTENER METHODS =====
 
   updateTaskUtilization(
@@ -2342,7 +2339,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
   updateTaskCounts(activeTasks: number, pendingTasks: number): void {
     this.resourceTracker?.updateTaskCounts(activeTasks, pendingTasks);
   }
-  
+
   getResourceUtilization() {
     return this.resourceTracker?.getCurrentUtilization() || {
       cpuUtilization: 0,
@@ -2361,9 +2358,9 @@ Please provide a helpful, contextual response based on this analysis and memory 
     limit?: number;
   }) {
     // Return empty history for now
-      return [];
-    }
-    
+    return [];
+  }
+
   onResourceWarning(metric: string, value: number, limit: number): void {
     this.logger.warn("Resource warning", { metric, value, limit });
   }
@@ -2376,7 +2373,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
     this.logger.info("Resource usage normalized", { metric });
   }
 
-    // ===== CLEAN SLATE IMPLEMENTATION =====
+  // ===== CLEAN SLATE IMPLEMENTATION =====
   // No legacy compatibility methods - clean break from old patterns
 
   /**
@@ -2387,16 +2384,16 @@ Please provide a helpful, contextual response based on this analysis and memory 
     try {
       // Import PromptFormatter dynamically
       const { PromptFormatter } = await import('./messaging/PromptFormatter');
-      
+
       // Extract system prompt from agent configuration
-      const baseSystemPrompt = this.agentConfig.systemPrompt || 
-                               `You are a helpful assistant. Provide concise, accurate, and helpful responses.
+      const baseSystemPrompt = this.agentConfig.systemPrompt ||
+        `You are a helpful assistant. Provide concise, accurate, and helpful responses.
 
 🚨 CRITICAL: NEVER invent, fabricate, or guess factual information. If you don't have specific information, explicitly state "I don't have that information". Only provide factual claims that are explicitly present in your context or well-established general knowledge.`;
-      
+
       // Extract persona from agent configuration
       const persona = this.agentConfig.persona;
-      
+
       // Build agent context for dynamic tool discovery
       const agentContext = {
         agentPersona: {
@@ -2407,7 +2404,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
           tools: this.getRegisteredTools()
         }
       };
-      
+
       // Format the system prompt with persona information and dynamic capabilities
       const formattedPrompt = await PromptFormatter.formatSystemPrompt({
         basePrompt: baseSystemPrompt,
@@ -2415,23 +2412,23 @@ Please provide a helpful, contextual response based on this analysis and memory 
         includeCapabilities: true,
         agentContext: agentContext
       });
-      
+
       this.logger.info('Generated formatted system prompt with dynamic capabilities', {
         hasPersona: !!persona,
         basePromptLength: baseSystemPrompt.length,
         formattedPromptLength: formattedPrompt.length,
         toolsDiscovered: agentContext.availableTools?.length || 0
       });
-      
+
       return formattedPrompt;
     } catch (error) {
       this.logger.warn('Failed to generate formatted system prompt, using base prompt', {
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       // Fallback to base system prompt or default
-      return this.agentConfig.systemPrompt || 
-             `You are a helpful assistant. Provide concise, accurate, and helpful responses.
+      return this.agentConfig.systemPrompt ||
+        `You are a helpful assistant. Provide concise, accurate, and helpful responses.
 
 🚨 CRITICAL: NEVER invent, fabricate, or guess factual information. If you don't have specific information, explicitly state "I don't have that information".`;
     }
@@ -2449,15 +2446,15 @@ Please provide a helpful, contextual response based on this analysis and memory 
           return tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
         }
       }
-      
+
       // Fallback: check for registered tools in this agent
       const registeredTools = this.getRegisteredTools();
       if (Array.isArray(registeredTools)) {
-        return registeredTools.map((tool: any) => 
+        return registeredTools.map((tool: any) =>
           typeof tool === 'string' ? tool : tool.name || tool.id || 'unknown_tool'
         );
       }
-      
+
       // If we still don't have an array, return the fallback
       return ['send_message', 'general_llm_capabilities'];
     } catch (error) {
@@ -2488,7 +2485,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
             return ['send_message', 'general_llm_capabilities'];
           }
         }
-        
+
         if (typeof (toolManager as any).getAllTools === 'function') {
           const tools = (toolManager as any).getAllTools();
           // Handle both sync and async returns, and ensure it's an array
@@ -2500,7 +2497,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
             return ['send_message', 'general_llm_capabilities'];
           }
         }
-        
+
         if ((toolManager as any).tools) {
           const tools = (toolManager as any).tools;
           if (Array.isArray(tools)) {
@@ -2512,12 +2509,12 @@ Please provide a helpful, contextual response based on this analysis and memory 
           }
         }
       }
-      
+
       // Try to get from agent configuration
       if (this.agentConfig.componentsConfig?.toolManager) {
         return []; // Will be populated by tool manager
       }
-      
+
       // Default tools that are typically available
       return ['send_message', 'schedule_task', 'general_capabilities'];
     } catch (error) {
@@ -2534,7 +2531,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
    */
   private isSimpleSummaryRequest(message: string): boolean {
     const lowerMessage = message.toLowerCase();
-    
+
     // Common summary patterns
     const summaryPatterns = [
       // Direct summary requests
@@ -2543,7 +2540,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       'give me an overview', 'what topics', 'main points',
       'key takeaways', 'highlights', 'review our',
       'what we discussed', 'what we talked about',
-      
+
       // Context-based summary requests (new patterns)
       'based on our recent messages', 'based on previous messages',
       'based on our recent conversation', 'based on our conversation',
@@ -2556,7 +2553,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       'from the context above', 'based on the context',
       'according to our conversation', 'per our discussion'
     ];
-    
+
     return summaryPatterns.some(pattern => lowerMessage.includes(pattern));
   }
 
@@ -2564,19 +2561,19 @@ Please provide a helpful, contextual response based on this analysis and memory 
   private needsToolExecution(thinkingResult: ThinkingResult, message: string): boolean {
     const intent = thinkingResult.intent.primary.toLowerCase();
     const messageContent = message.toLowerCase(); // Use actual message content
-    
+
     // Check for external API/tool requirements that suggest async execution
     const requiresExternalTools = [
       'api call', 'external data', 'real-time', 'bitcoin price', 'coingecko',
       'search for', 'fetch', 'retrieve', 'get current', 'latest'
     ].some(keyword => messageContent.includes(keyword));
-    
+
     // EXPANDED: Use the same action intents as shouldCreateTaskFromIntent
     const actionIntents = [
       // Traditional scheduling/task intents
       'schedule', 'remind', 'monitor', 'track', 'watch', 'follow_up',
       'create_task', 'add_task', 'queue', 'defer', 'later',
-      
+
       // Core action verbs (imperatives that require doing something)
       'create', 'make', 'build', 'generate', 'produce', 'develop',
       'write', 'compose', 'draft', 'author', 'pen',
@@ -2595,7 +2592,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       'install', 'setup', 'configure', 'deploy', 'launch',
       'backup', 'restore', 'save', 'store', 'archive',
       'delete', 'remove', 'clear', 'clean', 'purge',
-      
+
       // Tool-specific actions
       'coda', 'document', 'spreadsheet', 'table', 'database',
       'twitter', 'tweet', 'post', 'social media',
@@ -2603,17 +2600,17 @@ Please provide a helpful, contextual response based on this analysis and memory 
       'report', 'summary', 'analysis', 'dashboard',
       'api', 'integration', 'webhook', 'automation'
     ];
-    
+
     // Check if the message starts with action verbs (imperative form)
     const messageWords = messageContent.split(/\s+/);
     const firstWord = messageWords[0];
     const startsWithAction = actionIntents.includes(firstWord);
-    
+
     // Check if intent or message contains action keywords
-    const hasActionIntent = actionIntents.some(actionIntent => 
+    const hasActionIntent = actionIntents.some(actionIntent =>
       intent.includes(actionIntent) || messageContent.includes(actionIntent)
     );
-    
+
     // Check for imperative sentence patterns (commands)
     const imperativePatterns = [
       /^(create|make|build|generate|write|plan|do|execute|perform|run)/i,
@@ -2621,25 +2618,25 @@ Please provide a helpful, contextual response based on this analysis and memory 
       /^(can you|could you|would you)\s+(create|make|build|generate|write|plan|do|execute|perform|run)/i,
       /^(i want you to|i need you to)\s+(create|make|build|generate|write|plan|do|execute|perform|run)/i
     ];
-    
+
     const hasImperativePattern = imperativePatterns.some(pattern => pattern.test(messageContent));
-    
+
     // Check for high priority or urgent requests that should be tracked
     const isUrgent = thinkingResult.isUrgent || thinkingResult.priority >= 9;
-    
+
     // Check for complex requests that benefit from task tracking
     const isComplex = thinkingResult.complexity >= 7;
-    
+
     // Tool execution needed if:
     // 1. Requires external tools/APIs
     // 2. Action intents or imperative commands
     // 3. High complexity + urgency combo
     const needsExecution = requiresExternalTools ||
-                          hasActionIntent ||
-                          startsWithAction ||
-                          hasImperativePattern ||
-                          (isUrgent && isComplex);
-    
+      hasActionIntent ||
+      startsWithAction ||
+      hasImperativePattern ||
+      (isUrgent && isComplex);
+
     this.logger.info('Tool execution need assessment', {
       intent: intent,
       message: message.substring(0, 100),
@@ -2653,14 +2650,14 @@ Please provide a helpful, contextual response based on this analysis and memory 
       needsExecution,
       priority: thinkingResult.priority,
       complexity: thinkingResult.complexity,
-      executionReason: needsExecution ? 
+      executionReason: needsExecution ?
         (requiresExternalTools ? 'external tools needed' :
-         hasActionIntent ? 'action intent detected' :
-         startsWithAction ? 'starts with action verb' :
-         hasImperativePattern ? 'imperative pattern' :
-         'high complexity + urgency') : 'no execution triggers'
+          hasActionIntent ? 'action intent detected' :
+            startsWithAction ? 'starts with action verb' :
+              hasImperativePattern ? 'imperative pattern' :
+                'high complexity + urgency') : 'no execution triggers'
     });
-    
+
     return needsExecution;
   }
 
@@ -2671,7 +2668,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       'create_task', 'add_task', 'queue', 'defer', 'later',
       'tomorrow', 'next week', 'when', 'defer', 'queue', 'wait'
     ];
-    
+
     // Check if any of the scheduling keywords are present in the message
     return schedulingKeywords.some(keyword => message.toLowerCase().includes(keyword));
   }
@@ -2682,30 +2679,30 @@ Please provide a helpful, contextual response based on this analysis and memory 
   private generateSchedulingConfirmation(originalMessage: string, timeExpression: string, taskId: string): string {
     // Extract the intent from the message for personalized response
     const lowerMessage = originalMessage.toLowerCase();
-    
+
     // Safely handle task ID - provide fallback if undefined/empty
-    const safeTaskId = taskId && taskId !== 'unknown' && taskId !== 'not_found' 
-      ? taskId.substring(0, 8) + '...' 
+    const safeTaskId = taskId && taskId !== 'unknown' && taskId !== 'not_found'
+      ? taskId.substring(0, 8) + '...'
       : 'generated';
-    
+
     if (lowerMessage.includes('joke')) {
       return `Perfect! I'll send you a surprise developer joke ${timeExpression}. Get ready for some coding humor! 😄⏰
 
 Task scheduled successfully (ID: ${safeTaskId})`;
     }
-    
+
     if (lowerMessage.includes('reminder') || lowerMessage.includes('remind')) {
       return `Got it! I'll send you a reminder ${timeExpression} as requested. ✅⏰
 
 Task scheduled successfully (ID: ${safeTaskId})`;
     }
-    
+
     if (lowerMessage.includes('message')) {
       return `Understood! I'll deliver your message ${timeExpression}. The task has been scheduled and will execute automatically. 📅✨
 
 Task scheduled successfully (ID: ${safeTaskId})`;
     }
-    
+
     // Generic scheduling confirmation
     return `Perfect! I've scheduled your request to be handled ${timeExpression}. The task will execute automatically when the time comes. ⏰✅
 
@@ -2721,7 +2718,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
   }
 
   // ====== Multi-Agent Delegation Methods ======
-  
+
   /**
    * Generic tool delegation - can delegate any tool to any capable agent
    */
@@ -2739,14 +2736,14 @@ Task scheduled successfully (ID: ${safeTaskId})`;
     if (!this.multiAgentDelegationService) {
       throw new Error('Multi-agent delegation service not available. Communication manager may be disabled.');
     }
-    
+
     const priorityEnum = options.priority === 'high' ? ToolDelegationPriority.HIGH :
-                        options.priority === 'low' ? ToolDelegationPriority.LOW :
-                        ToolDelegationPriority.NORMAL;
-    
+      options.priority === 'low' ? ToolDelegationPriority.LOW :
+        ToolDelegationPriority.NORMAL;
+
     // Auto-detect tool category if not provided
     const toolCategory = options.toolCategory || this.detectToolCategory(toolName, parameters);
-    
+
     return await this.multiAgentDelegationService.delegateToolRequest(
       this.agentId,
       toolName,
@@ -2760,7 +2757,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
       }
     );
   }
-  
+
   /**
    * Find agents that can handle a specific tool
    */
@@ -2776,7 +2773,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
     if (!this.multiAgentDelegationService) {
       throw new Error('Multi-agent delegation service not available. Communication manager may be disabled.');
     }
-    
+
     const criteria = {
       toolName,
       toolCategory: toolCategory || this.detectToolCategory(toolName),
@@ -2784,11 +2781,11 @@ Task scheduled successfully (ID: ${safeTaskId})`;
       minReliability: options.minReliability,
       maxExecutionTime: options.maxExecutionTime
     };
-    
+
     const agentResults = await this.multiAgentDelegationService.findCapableAgents(criteria as any);
     return Array.from(agentResults);
   }
-  
+
   /**
    * Register this agent's capabilities dynamically based on available tools
    */
@@ -2796,11 +2793,11 @@ Task scheduled successfully (ID: ${safeTaskId})`;
     if (!this.multiAgentDelegationService) {
       throw new Error('Multi-agent delegation service not available. Communication manager may be disabled.');
     }
-    
+
     try {
       // Get all available tools from this agent
       const tools = await this.getTools();
-      
+
       // Convert tools to capabilities
       const capabilities = tools.map(tool => ({
         name: tool.name || tool.id,
@@ -2811,26 +2808,26 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         estimatedExecutionTime: 5000,
         reliability: 0.95
       }));
-      
+
       await this.multiAgentDelegationService.registerAgentCapabilities(
         this.agentId,
         capabilities
       );
-      
+
       this.logger.info('Registered agent capabilities from available tools', {
         agentId: this.agentId,
         capabilitiesCount: capabilities.length,
         toolNames: capabilities.map(c => c.name)
       });
-      
+
     } catch (error) {
-      this.logger.warn('Failed to register capabilities from tools', { 
+      this.logger.warn('Failed to register capabilities from tools', {
         agentId: this.agentId,
         error: error instanceof Error ? error.message : String(error)
       });
     }
   }
-  
+
   /**
    * Intelligently detect if a user request requires delegation
    */
@@ -2846,9 +2843,9 @@ Task scheduled successfully (ID: ${safeTaskId})`;
     const socialKeywords = ['post to', 'share on', 'tweet', 'linkedin post', 'social media'];
     const analysisKeywords = ['analyze', 'report', 'calculate', 'data analysis', 'generate report'];
     const fileKeywords = ['create file', 'save to', 'export', 'download', 'upload'];
-    
+
     const message = userMessage.toLowerCase();
-    
+
     // Check for email delegation
     if (emailKeywords.some(keyword => message.includes(keyword))) {
       return {
@@ -2858,7 +2855,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         reasoning: 'User request mentions email functionality'
       };
     }
-    
+
     // Check for social media delegation
     if (socialKeywords.some(keyword => message.includes(keyword))) {
       return {
@@ -2868,7 +2865,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         reasoning: 'User request mentions social media functionality'
       };
     }
-    
+
     // Check for analysis delegation
     if (analysisKeywords.some(keyword => message.includes(keyword))) {
       return {
@@ -2878,7 +2875,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         reasoning: 'User request mentions data analysis functionality'
       };
     }
-    
+
     // Check for file operations
     if (fileKeywords.some(keyword => message.includes(keyword))) {
       return {
@@ -2888,7 +2885,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         reasoning: 'User request mentions file operations'
       };
     }
-    
+
     // Check if message mentions other agents directly
     if (message.includes('agent') && (message.includes('ask') || message.includes('tell') || message.includes('have'))) {
       return {
@@ -2898,66 +2895,66 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         reasoning: 'User request mentions delegating to other agents'
       };
     }
-    
+
     return {
       needsDelegation: false,
       reasoning: 'No delegation patterns detected'
     };
   }
-  
+
   /**
    * Auto-detect tool category based on tool name and context
    */
   private detectToolCategory(toolName: string, context?: any): ToolCapabilityCategory {
     const name = toolName.toLowerCase();
     const contextStr = context ? String(context).toLowerCase() : '';
-    
+
     // Email patterns
     if (name.includes('email') || name.includes('mail') || name.includes('send_message')) {
       return ToolCapabilityCategory.EMAIL;
     }
-    
+
     // Social media patterns
-    if (name.includes('post') || name.includes('tweet') || name.includes('social') || 
-        name.includes('linkedin') || name.includes('facebook') || name.includes('instagram')) {
+    if (name.includes('post') || name.includes('tweet') || name.includes('social') ||
+      name.includes('linkedin') || name.includes('facebook') || name.includes('instagram')) {
       return ToolCapabilityCategory.SOCIAL_MEDIA;
     }
-    
+
     // Analytics patterns
     if (name.includes('analyze') || name.includes('report') || name.includes('calculate') ||
-        name.includes('data') || name.includes('metric') || name.includes('chart')) {
+      name.includes('data') || name.includes('metric') || name.includes('chart')) {
       return ToolCapabilityCategory.ANALYTICS;
     }
-    
+
     // File processing patterns
     if (name.includes('file') || name.includes('upload') || name.includes('download') ||
-        name.includes('export') || name.includes('import') || name.includes('process')) {
+      name.includes('export') || name.includes('import') || name.includes('process')) {
       return ToolCapabilityCategory.FILE_PROCESSING;
     }
-    
+
     // Communication patterns
     if (name.includes('message') || name.includes('notify') || name.includes('alert') ||
-        name.includes('communicate') || contextStr.includes('send') || contextStr.includes('message')) {
+      name.includes('communicate') || contextStr.includes('send') || contextStr.includes('message')) {
       return ToolCapabilityCategory.COMMUNICATION;
     }
-    
+
     // Workspace patterns
     if (name.includes('workspace') || name.includes('project') || name.includes('task') ||
-        name.includes('calendar') || name.includes('schedule')) {
+      name.includes('calendar') || name.includes('schedule')) {
       return ToolCapabilityCategory.WORKSPACE;
     }
-    
+
     // Default to custom
     return ToolCapabilityCategory.CUSTOM;
   }
-  
+
   /**
    * Extract parameters from user message for tool delegation
    */
   private extractParametersFromMessage(message: string, toolName: string): Record<string, any> {
     const lowerMessage = message.toLowerCase();
     const parameters: Record<string, any> = {};
-    
+
     // Tool-specific parameter extraction
     switch (toolName.toLowerCase()) {
       case 'sendemail':
@@ -2967,7 +2964,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         if (emailMatch) {
           parameters.to = [emailMatch[1]];
         }
-        
+
         // Extract subject
         const subjectMatch = message.match(/(?:subject|about|regarding)[\s:]+([^.!?]+)/i);
         if (subjectMatch) {
@@ -2975,7 +2972,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         } else {
           parameters.subject = `Message from ${this.getName()}`;
         }
-        
+
         // Extract body content
         const bodyMatch = message.match(/(?:saying|tell them|message|content)[\s:]+["']?([^"']+)["']?/i);
         if (bodyMatch) {
@@ -2983,10 +2980,10 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         } else {
           parameters.body = message; // Use entire message as fallback
         }
-        
+
         parameters.priority = lowerMessage.includes('urgent') || lowerMessage.includes('asap') ? 'high' : 'normal';
         break;
-        
+
       case 'createpost':
       case 'post':
         // Extract social media content
@@ -2996,23 +2993,23 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         } else {
           parameters.content = message;
         }
-        
+
         // Extract platforms
         const platforms = [];
         if (lowerMessage.includes('twitter') || lowerMessage.includes('tweet')) platforms.push('twitter');
         if (lowerMessage.includes('linkedin')) platforms.push('linkedin');
         if (lowerMessage.includes('facebook')) platforms.push('facebook');
         if (lowerMessage.includes('instagram')) platforms.push('instagram');
-        
+
         parameters.platforms = platforms.length > 0 ? platforms : ['twitter']; // Default to twitter
-        
+
         // Extract hashtags
         const hashtagMatches = message.match(/#[\w]+/g);
         if (hashtagMatches) {
           parameters.hashtags = hashtagMatches;
         }
         break;
-        
+
       case 'analyzedata':
       case 'analyze':
         // Extract data source
@@ -3020,14 +3017,14 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         if (dataMatch) {
           parameters.dataSource = dataMatch[1].trim();
         }
-        
+
         // Extract analysis type
         if (lowerMessage.includes('performance')) parameters.analysisType = 'performance';
         else if (lowerMessage.includes('trend')) parameters.analysisType = 'trend';
         else if (lowerMessage.includes('summary')) parameters.analysisType = 'summary';
         else parameters.analysisType = 'general';
         break;
-        
+
       case 'processfile':
       case 'file':
         // Extract file path or name
@@ -3035,7 +3032,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         if (fileMatch) {
           parameters.fileName = fileMatch[1].trim();
         }
-        
+
         // Extract operation type
         if (lowerMessage.includes('upload')) parameters.operation = 'upload';
         else if (lowerMessage.includes('download')) parameters.operation = 'download';
@@ -3043,7 +3040,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         else if (lowerMessage.includes('convert')) parameters.operation = 'convert';
         else parameters.operation = 'process';
         break;
-        
+
       default:
         // Generic parameter extraction
         // Extract any quoted strings as content
@@ -3051,23 +3048,23 @@ Task scheduled successfully (ID: ${safeTaskId})`;
         if (quotedMatches) {
           parameters.content = quotedMatches[0].replace(/['"]/g, '');
         }
-        
+
         // Extract any @mentions as targets
         const mentionMatches = message.match(/@[\w]+/g);
         if (mentionMatches) {
           parameters.mentions = mentionMatches;
         }
-        
+
         // Use the entire message as a general parameter
         parameters.request = message;
         break;
     }
-    
+
     // Add common metadata
     parameters.timestamp = Date.now();
     parameters.requestedBy = this.agentId;
     parameters.originalMessage = message;
-    
+
     return parameters;
   }
-  }
+}

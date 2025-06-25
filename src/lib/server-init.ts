@@ -4,10 +4,10 @@
  */
 
 // Import agent bootstrap system
-import { bootstrapAgents } from './agent-bootstrap';
-import { createLogger } from './logging/winston-logger';
 import { TokenRefreshService } from '../services/workspace/TokenRefreshService';
+import { bootstrapAgents } from './agent-bootstrap';
 import { unifiedConfig } from './core/unified-config';
+import { createLogger } from './logging/winston-logger';
 
 // Create a logger for server initialization
 const serverLogger = createLogger({ moduleId: 'server-init' });
@@ -69,8 +69,8 @@ export async function initializeServer() {
       // Start the token refresh service
       try {
         const tokenRefreshService = TokenRefreshService.getInstance();
-        tokenRefreshService.start();
-        serverLogger.info('Token refresh service started successfully');
+        await tokenRefreshService.start();
+        serverLogger.info('Enhanced token refresh service started successfully');
       } catch (tokenError) {
         serverLogger.error('Failed to start token refresh service', { error: tokenError });
         // Continue with initialization even if token service fails

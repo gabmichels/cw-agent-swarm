@@ -150,6 +150,7 @@ export class UnifiedTokenManager {
   private lifecycleListeners: TokenLifecycleListener[] = [];
   private refreshTimers = new Map<string, NodeJS.Timeout>();
   private configInitialized = false;
+  private startupRecoveryCompleted = false;
 
   private constructor() {
     // Don't load configuration in constructor - use lazy loading
@@ -435,7 +436,7 @@ export class UnifiedTokenManager {
       return; // Can't schedule without expiry or refresh token
     }
 
-    const refreshTime = tokenData.expiresAt.getTime() - (this.refreshConfig.refreshBuffer * 1000);
+    const refreshTime = tokenData.expiresAt.getTime() - (this.refreshConfig?.refreshBuffer ?? 300) * 1000;
     const delay = Math.max(0, refreshTime - Date.now());
 
     if (delay > 0) {
@@ -571,6 +572,139 @@ export class UnifiedTokenManager {
       }
     });
   }
+
+  /**
+   * Recover existing connections and set up token refresh scheduling
+   * This should be called on server startup to restore timer-based refreshes
+   */
+  async recoverExistingConnections(): Promise<void> {
+    if (this.startupRecoveryCompleted) {
+      logger.debug('Startup token recovery already completed, skipping');
+      return;
+    }
+
+    await this.ensureConfigLoaded();
+
+    const context = createErrorContext('UnifiedTokenManager', 'recoverExistingConnections', {
+      severity: ErrorSeverity.MEDIUM,
+      retryable: true,
+    });
+
+    const result = await handleAsync(async () => {
+      logger.info('Starting token recovery for existing connections...');
+
+      // Import DatabaseService dynamically to avoid circular dependencies
+      const { DatabaseService } = await import('../../services/database/DatabaseService');
+      const { ConnectionStatus } = await import('../../services/database/types');
+
+      const db = DatabaseService.getInstance();
+      const activeConnections = await db.findWorkspaceConnections({
+        status: ConnectionStatus.ACTIVE
+      });
+
+      let recoveredCount = 0;
+      let scheduledCount = 0;
+      let errorCount = 0;
+
+      for (const connection of activeConnections) {
+        try {
+          // Skip connections without refresh tokens or expiry dates
+          if (!connection.refreshToken || !connection.tokenExpiresAt) {
+            continue;
+          }
+
+          recoveredCount++;
+
+          // Convert provider enum to string for unified manager
+          const providerKey = this.getProviderKey(connection.provider);
+
+          // Create token data from database connection
+          const tokenData: OAuthTokenData = {
+            accessToken: connection.accessToken,
+            refreshToken: connection.refreshToken,
+            expiresAt: connection.tokenExpiresAt,
+            scopes: connection.scopes?.split(' ') || [],
+          };
+
+          // Check if token needs immediate refresh (within 2 hours)
+          const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000);
+          if (connection.tokenExpiresAt && connection.tokenExpiresAt < twoHoursFromNow) {
+            logger.info('Token expires soon, scheduling immediate refresh', {
+              connectionId: connection.id,
+              provider: providerKey,
+              email: connection.email,
+              expiresAt: connection.tokenExpiresAt,
+            });
+
+            // Schedule for immediate refresh (in 30 seconds to avoid startup overload)
+            setTimeout(async () => {
+              try {
+                await this.refreshTokens(providerKey, connection.id, tokenData);
+                logger.info('Startup token refresh completed', {
+                  connectionId: connection.id,
+                  email: connection.email
+                });
+              } catch (error) {
+                logger.error('Startup token refresh failed', {
+                  connectionId: connection.id,
+                  email: connection.email,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+            }, 30000);
+          } else {
+            // Schedule normal refresh timing
+            this.scheduleTokenRefresh(providerKey, connection.id, tokenData);
+            scheduledCount++;
+          }
+
+        } catch (error) {
+          errorCount++;
+          logger.error('Error recovering connection', {
+            connectionId: connection.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      this.startupRecoveryCompleted = true;
+
+      logger.info('Token recovery completed', {
+        totalConnections: activeConnections.length,
+        recoveredCount,
+        scheduledCount,
+        errorCount,
+      });
+
+      return {
+        totalConnections: activeConnections.length,
+        recoveredCount,
+        scheduledCount,
+        errorCount,
+      };
+    }, context);
+
+    if (!result.success) {
+      logger.error('Token recovery failed', {
+        error: result.error?.message,
+      });
+      // Don't throw - we want the server to continue even if recovery fails
+    }
+  }
+
+  /**
+   * Convert database provider enum to unified manager provider key
+   */
+  private getProviderKey(provider: string): string {
+    const providerMap: Record<string, string> = {
+      'GOOGLE_WORKSPACE': 'google-workspace',
+      'ZOHO_WORKSPACE': 'zoho-workspace',
+      'MICROSOFT_OFFICE': 'microsoft-office',
+      'SLACK': 'slack',
+    };
+
+    return providerMap[provider] || provider.toLowerCase().replace('_', '-');
+  }
 }
 
 /**
@@ -619,4 +753,11 @@ export async function refreshConnectionTokens(
   currentTokenData: OAuthTokenData
 ): Promise<OAuthTokenData> {
   return unifiedTokenManager.refreshTokens(provider, connectionId, currentTokenData);
+}
+
+/**
+ * Recover existing connections on startup
+ */
+export async function recoverExistingConnections(): Promise<void> {
+  return unifiedTokenManager.recoverExistingConnections();
 } 
