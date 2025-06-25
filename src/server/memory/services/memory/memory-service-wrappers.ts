@@ -7,42 +7,38 @@
  * consistent metadata usage across the codebase.
  */
 
-import { v4 as uuidv4 } from 'uuid';
-import { 
-  MessageMetadata, 
-  ThreadInfo, 
-  CognitiveProcessMetadata,
-  ThoughtMetadata,
-  ReflectionMetadata,
-  InsightMetadata,
-  PlanningMetadata,
-  DocumentMetadata,
-  TaskMetadata,
-  CognitiveProcessType,
-  DocumentSource,
-  TaskStatus,
-  TaskPriority
-} from '../../../../types/metadata';
-import { generateSystemUserId } from '../../../../lib/core/id-generation';
+import { ImportanceLevel, MemoryType } from '@/server/memory/config/types';
 import { MessageRole } from '../../../../agents/shared/types/MessageTypes';
-import { MemoryType } from '@/server/memory/config/types';
-import { ImportanceLevel } from '@/server/memory/config/types';
-import { MemoryService } from './memory-service';
+import { createEnumEntityIdentifier, EntityIdentifier, EntityNamespace, EntityType } from '../../../../types/entity-identifier';
+import {
+  CognitiveProcessMetadata,
+  CognitiveProcessType,
+  DocumentMetadata,
+  DocumentSource,
+  InsightMetadata,
+  MessageMetadata,
+  PlanningMetadata,
+  ReflectionMetadata,
+  TaskMetadata,
+  TaskPriority,
+  TaskStatus,
+  ThoughtMetadata,
+  ThreadInfo
+} from '../../../../types/metadata';
+import { BaseMemorySchema, MemoryPoint } from '../../models';
+import {
+  createDocumentMetadata,
+  createInsightMetadata,
+  createMessageMetadata,
+  createPlanningMetadata,
+  createReflectionMetadata,
+  createTaskMetadata,
+  createThoughtMetadata
+} from '../helpers/metadata-helpers';
 import { EnhancedMemoryService } from '../multi-agent/enhanced-memory-service';
 import { isEnhancedMemoryService } from '../multi-agent/migration-helpers';
-import {
-  createMessageMetadata,
-  createThreadInfo,
-  createThoughtMetadata,
-  createReflectionMetadata,
-  createInsightMetadata,
-  createPlanningMetadata,
-  createDocumentMetadata,
-  createTaskMetadata
-} from '../helpers/metadata-helpers';
-import { BaseMemorySchema, MemoryPoint } from '../../models';
+import { MemoryService } from './memory-service';
 import { MemoryResult } from './types';
-import { EntityIdentifier, createEnumEntityIdentifier, EntityNamespace, EntityType } from '../../../../types/entity-identifier';
 
 
 /**
@@ -122,7 +118,7 @@ export async function addMessageMemory(
       ...options.metadata
     }
   );
-  
+
   // Add to memory
   return memoryService.addMemory({
     type: MemoryType.MESSAGE,
@@ -145,7 +141,7 @@ export async function addCognitiveProcessMemory(
   memoryService: AnyMemoryService,
   content: string,
   processType: CognitiveProcessType,
-  agentId: string,
+  agentId: EntityIdentifier,
   options: {
     contextId?: string;
     relatedTo?: string[];
@@ -157,7 +153,7 @@ export async function addCognitiveProcessMemory(
 ): Promise<MemoryResult> {
   // Create metadata with proper structure based on process type
   let metadata: CognitiveProcessMetadata;
-  
+
   switch (processType) {
     case CognitiveProcessType.THOUGHT:
       metadata = createThoughtMetadata(
@@ -224,10 +220,10 @@ export async function addCognitiveProcessMemory(
         ...options.metadata
       } as CognitiveProcessMetadata;
   }
-  
+
   // Get the appropriate memory type based on the process type
   const memoryType = getCognitiveProcessMemoryType(processType);
-  
+
   // Add to memory
   return memoryService.addMemory({
     type: memoryType,
@@ -294,7 +290,7 @@ export async function addDocumentMemory(
       ...options.metadata
     }
   );
-  
+
   // Add to memory
   return memoryService.addMemory({
     type: MemoryType.DOCUMENT,
@@ -356,7 +352,7 @@ export async function addTaskMemory(
       ...options.metadata
     }
   );
-  
+
   // Add to memory
   return memoryService.addMemory({
     type: MemoryType.TASK,
@@ -398,65 +394,65 @@ export async function searchMessages(
 ): Promise<MemoryPoint<BaseMemorySchema>[]> {
   // Convert filters to metadata filters
   const metadataFilters: Record<string, any> = {};
-  
+
   if (filters.userId) {
     metadataFilters['userId.id'] = filters.userId;
   }
-  
+
   if (filters.agentId) {
     metadataFilters['agentId.id'] = filters.agentId;
   }
-  
+
   if (filters.chatId) {
     metadataFilters['chatId.id'] = filters.chatId;
   }
-  
+
   if (filters.role) {
     metadataFilters['role'] = filters.role;
   }
-  
+
   if (filters.threadId) {
     metadataFilters['thread.id'] = filters.threadId;
   }
-  
+
   if (filters.messageType) {
     metadataFilters['messageType'] = filters.messageType;
   }
-  
+
   if (filters.importance) {
     metadataFilters['importance'] = filters.importance;
   }
-  
+
   // Create optimized filters for EnhancedMemoryService
   let optimizedFilter: Record<string, any> = {};
-  
+
   // Check if we're using EnhancedMemoryService which can use top-level fields
   if (isEnhancedMemoryService(memoryService)) {
     // Use the top-level fields for frequently accessed properties
     if (filters.userId) {
       optimizedFilter.userId = filters.userId;
     }
-    
+
     if (filters.agentId) {
       optimizedFilter.agentId = filters.agentId;
     }
-    
+
     if (filters.chatId) {
       optimizedFilter.chatId = filters.chatId;
     }
-    
+
     if (filters.threadId) {
       optimizedFilter.threadId = filters.threadId;
     }
-    
+
     if (filters.messageType) {
       optimizedFilter.messageType = filters.messageType;
     }
-    
+
     if (filters.importance) {
       optimizedFilter.importance = filters.importance;
     }
-    
+
     // Add remaining metadata filters
     if (filters.role) {
       optimizedFilter.metadata = { role: filters.role };
@@ -465,7 +461,7 @@ export async function searchMessages(
     // For base MemoryService, just use metadata filters
     optimizedFilter = { metadata: metadataFilters };
   }
-  
+
   return memoryService.searchMemories({
     type: MemoryType.MESSAGE,
     query: options.query,
@@ -509,68 +505,68 @@ export async function searchCognitiveProcesses(
 ): Promise<MemoryPoint<BaseMemorySchema>[]> {
   // Convert filters to metadata filters
   const metadataFilters: Record<string, any> = {};
-  
+
   if (filters.agentId) {
     metadataFilters['agentId.id'] = filters.agentId;
   }
-  
+
   if (filters.processType) {
     metadataFilters['processType'] = filters.processType;
   }
-  
+
   if (filters.contextId) {
     metadataFilters['contextId'] = filters.contextId;
   }
-  
+
   if (filters.relatedTo) {
     metadataFilters['relatedTo'] = filters.relatedTo;
   }
-  
+
   if (filters.influences) {
     metadataFilters['influences'] = filters.influences;
   }
-  
+
   if (filters.influencedBy) {
     metadataFilters['influencedBy'] = filters.influencedBy;
   }
-  
+
   if (filters.importance) {
     metadataFilters['importance'] = filters.importance;
   }
-  
+
   // Create optimized filters for EnhancedMemoryService
   let optimizedFilter: Record<string, any> = {};
-  
+
   // Check if we're using EnhancedMemoryService which can use top-level fields
   if (isEnhancedMemoryService(memoryService)) {
     // Use the top-level fields for frequently accessed properties
     if (filters.agentId) {
       optimizedFilter.agentId = filters.agentId;
     }
-    
+
     if (filters.importance) {
       optimizedFilter.importance = filters.importance;
     }
-    
+
     // Add remaining metadata filters
     optimizedFilter.metadata = {};
-    
+
     if (filters.processType) {
       optimizedFilter.metadata.processType = filters.processType;
     }
-    
+
     if (filters.contextId) {
       optimizedFilter.metadata.contextId = filters.contextId;
     }
-    
+
     if (filters.relatedTo) {
       optimizedFilter.metadata.relatedTo = filters.relatedTo;
     }
-    
+
     if (filters.influences) {
       optimizedFilter.metadata.influences = filters.influences;
     }
-    
+
     if (filters.influencedBy) {
       optimizedFilter.metadata.influencedBy = filters.influencedBy;
     }
@@ -578,13 +574,13 @@ export async function searchCognitiveProcesses(
     // For base MemoryService, just use metadata filters
     optimizedFilter = { metadata: metadataFilters };
   }
-  
+
   // Determine memory type based on process type
   let memoryType: MemoryType | undefined;
   if (filters.processType) {
     memoryType = getCognitiveProcessMemoryType(filters.processType);
   }
-  
+
   return memoryService.searchMemories({
     type: memoryType || MemoryType.THOUGHT,
     query: options.query,
@@ -630,84 +626,84 @@ export async function searchDocuments(
 ): Promise<MemoryPoint<BaseMemorySchema>[]> {
   // Convert filters to metadata filters
   const metadataFilters: Record<string, any> = {};
-  
+
   if (filters.source) {
     metadataFilters['source'] = filters.source;
   }
-  
+
   if (filters.userId) {
     metadataFilters['userId'] = filters.userId;
   }
-  
+
   if (filters.agentId) {
     metadataFilters['agentId'] = filters.agentId;
   }
-  
+
   if (filters.title) {
     metadataFilters['title'] = filters.title;
   }
-  
+
   if (filters.fileName) {
     metadataFilters['fileName'] = filters.fileName;
   }
-  
+
   if (filters.contentType) {
     metadataFilters['contentType'] = filters.contentType;
   }
-  
+
   if (filters.fileType) {
     metadataFilters['fileType'] = filters.fileType;
   }
-  
+
   if (filters.author) {
     metadataFilters['author'] = filters.author;
   }
-  
+
   if (filters.importance) {
     metadataFilters['importance'] = filters.importance;
   }
-  
+
   // Create optimized filters for EnhancedMemoryService
   let optimizedFilter: Record<string, any> = {};
-  
+
   // Check if we're using EnhancedMemoryService which can use top-level fields
   if (isEnhancedMemoryService(memoryService)) {
     // Use the top-level fields for frequently accessed properties
     if (filters.userId) {
       optimizedFilter.userId = filters.userId;
     }
-    
+
     if (filters.agentId) {
       optimizedFilter.agentId = filters.agentId;
     }
-    
+
     if (filters.importance) {
       optimizedFilter.importance = filters.importance;
     }
-    
+
     // Add remaining metadata filters
     optimizedFilter.metadata = {};
-    
+
     if (filters.source) {
       optimizedFilter.metadata.source = filters.source;
     }
-    
+
     if (filters.title) {
       optimizedFilter.metadata.title = filters.title;
     }
-    
+
     if (filters.fileName) {
       optimizedFilter.metadata.fileName = filters.fileName;
     }
-    
+
     if (filters.contentType) {
       optimizedFilter.metadata.contentType = filters.contentType;
     }
-    
+
     if (filters.fileType) {
       optimizedFilter.metadata.fileType = filters.fileType;
     }
-    
+
     if (filters.author) {
       optimizedFilter.metadata.author = filters.author;
     }
@@ -715,7 +711,7 @@ export async function searchDocuments(
     // For base MemoryService, just use metadata filters
     optimizedFilter = { metadata: metadataFilters };
   }
-  
+
   return memoryService.searchMemories({
     type: MemoryType.DOCUMENT,
     query: options.query,
@@ -760,76 +756,76 @@ export async function searchTasks(
 ): Promise<MemoryPoint<BaseMemorySchema>[]> {
   // Convert filters to metadata filters
   const metadataFilters: Record<string, any> = {};
-  
+
   if (filters.title) {
     metadataFilters['title'] = filters.title;
   }
-  
+
   if (filters.status) {
     metadataFilters['status'] = filters.status;
   }
-  
+
   if (filters.priority) {
     metadataFilters['priority'] = filters.priority;
   }
-  
+
   if (filters.createdBy) {
     metadataFilters['createdBy'] = filters.createdBy;
   }
-  
+
   if (filters.assignedTo) {
     metadataFilters['assignedTo'] = filters.assignedTo;
   }
-  
+
   if (filters.dueDate) {
     metadataFilters['dueDate'] = filters.dueDate;
   }
-  
+
   if (filters.parentTaskId) {
     metadataFilters['parentTaskId'] = filters.parentTaskId;
   }
-  
+
   if (filters.importance) {
     metadataFilters['importance'] = filters.importance;
   }
-  
+
   // Create optimized filters for EnhancedMemoryService
   let optimizedFilter: Record<string, any> = {};
-  
+
   // Check if we're using EnhancedMemoryService which can use top-level fields
   if (isEnhancedMemoryService(memoryService)) {
     // Use the top-level fields for frequently accessed properties
     if (filters.importance) {
       optimizedFilter.importance = filters.importance;
     }
-    
+
     // Add remaining metadata filters
     optimizedFilter.metadata = {};
-    
+
     if (filters.title) {
       optimizedFilter.metadata.title = filters.title;
     }
-    
+
     if (filters.status) {
       optimizedFilter.metadata.status = filters.status;
     }
-    
+
     if (filters.priority) {
       optimizedFilter.metadata.priority = filters.priority;
     }
-    
+
     if (filters.createdBy) {
       optimizedFilter.metadata.createdBy = filters.createdBy;
     }
-    
+
     if (filters.assignedTo) {
       optimizedFilter.metadata.assignedTo = filters.assignedTo;
     }
-    
+
     if (filters.dueDate) {
       optimizedFilter.metadata.dueDate = filters.dueDate;
     }
-    
+
     if (filters.parentTaskId) {
       optimizedFilter.metadata.parentTaskId = filters.parentTaskId;
     }
@@ -837,7 +833,7 @@ export async function searchTasks(
     // For base MemoryService, just use metadata filters
     optimizedFilter = { metadata: metadataFilters };
   }
-  
+
   return memoryService.searchMemories({
     type: MemoryType.TASK,
     query: options.query,
@@ -885,19 +881,19 @@ export async function sendAgentToAgentMessage(
 ): Promise<MemoryResult> {
   // Import thread helper to avoid circular dependencies
   const { getOrCreateThreadInfo } = require('../../../../app/api/chat/thread/helper');
-  
+
   // Get appropriate thread info
   const threadInfo = getOrCreateThreadInfo(
-    chatId, 
+    chatId,
     'assistant', // Agent-to-agent is always an assistant role
     options.parentMessageId
   );
-  
+
   // Create EntityIdentifier objects from string parameters
   const systemUserStructuredId = createEnumEntityIdentifier(EntityNamespace.SYSTEM, EntityType.USER, 'system');
   const senderAgentStructuredId = createEnumEntityIdentifier(EntityNamespace.AGENT, EntityType.AGENT, senderAgentId);
   const chatStructuredId = createEnumEntityIdentifier(EntityNamespace.CHAT, EntityType.CHAT, chatId);
-  
+
   // Add to memory using addMessageMemory with agent-to-agent metadata
   return addMessageMemory(
     memoryService,
@@ -922,4 +918,3 @@ export async function sendAgentToAgentMessage(
   );
 }
 
- 

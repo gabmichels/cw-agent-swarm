@@ -5,12 +5,11 @@ import { COLLECTION_NAMES, DEFAULTS } from '@/server/memory/config/constants';
 import { MemoryFilter, MemoryType } from '@/server/memory/config/types';
 import { BaseMemorySchema, MemoryPoint } from '../../models';
 import { handleMemoryError } from '../../utils';
-import { IMemoryClient } from '../client/types';
 import { EmbeddingService } from '../client/embedding-service';
+import { IMemoryClient } from '../client/types';
 import { EnhancedMemoryService } from '../multi-agent/enhanced-memory-service';
-import { FilterBuilderOptions, HybridSearchOptions, SearchOptions, SearchResult, FilterOptions, MemoryContext, MemoryContextOptions, MemoryContextGroup, TypedMemoryContextGroup } from './types';
 import { IQueryOptimizer, QueryOptimizationStrategy } from '../query/types';
-import { FilterOperator } from '../filters/types';
+import { FilterBuilderOptions, FilterOptions, HybridSearchOptions, MemoryContext, MemoryContextGroup, MemoryContextOptions, SearchOptions, SearchResult, TypedMemoryContextGroup } from './types';
 
 /**
  * Causal relationship type in memory metadata
@@ -51,7 +50,7 @@ interface CausalChainResult {
 export interface SearchServiceOptions {
   // Default timestamp function
   getTimestamp?: () => number;
-  
+
   // Query optimizer
   queryOptimizer?: IQueryOptimizer;
 }
@@ -64,23 +63,23 @@ export class SearchService {
   private embeddingService: EmbeddingService;
   private memoryService: EnhancedMemoryService;
   private queryOptimizer: IQueryOptimizer | null = null;
-  
+
   /**
    * Helper method to safely get collection name from memory type
    */
   private getCollectionNameForType(type: MemoryType): string {
     // Handle both string and enum values by trying multiple lookup approaches
     let result = '';
-    
+
     // First try direct lookup (for enum values)
     result = (COLLECTION_NAMES as Record<string, string>)[type] || '';
-    
+
     // If not found and type is a string, try uppercase version (for string values)
     if (!result && typeof type === 'string') {
       const upperCaseType = type.toUpperCase();
       result = (COLLECTION_NAMES as Record<string, string>)[upperCaseType] || '';
     }
-    
+
     // If still not found, try matching by enum values
     if (!result) {
       for (const [enumKey, collectionName] of Object.entries(COLLECTION_NAMES)) {
@@ -90,15 +89,15 @@ export class SearchService {
         }
       }
     }
-    
+
     return result;
   }
-  
+
   /**
    * Create a new search service
    */
   constructor(
-    client: IMemoryClient, 
+    client: IMemoryClient,
     embeddingService: EmbeddingService,
     memoryService: EnhancedMemoryService,
     options?: SearchServiceOptions
@@ -106,12 +105,12 @@ export class SearchService {
     this.client = client;
     this.embeddingService = embeddingService;
     this.memoryService = memoryService;
-    
+
     if (options?.queryOptimizer) {
       this.queryOptimizer = options.queryOptimizer;
     }
   }
-  
+
   /**
    * Set the query optimizer for optimized searches
    * 
@@ -120,7 +119,7 @@ export class SearchService {
   setQueryOptimizer(optimizer: IQueryOptimizer): void {
     this.queryOptimizer = optimizer;
   }
-  
+
   /**
    * Search across all or specified memory types
    */
@@ -130,15 +129,15 @@ export class SearchService {
   ): Promise<SearchResult<T>[]> {
     try {
       const { types = [], limit = 10, filter } = options;
-      
+
       // Handle case where query is an object or null/undefined (incorrect usage)
       if (query === null || query === undefined || typeof query !== 'string') {
-        console.warn('Invalid query provided to search:', { 
+        console.warn('Invalid query provided to search:', {
           queryType: typeof query,
           queryValue: query,
           filter: options.filter
         });
-        
+
         // Use filter-based approach when no valid query string is provided
         return await this.handleEmptyQuerySearch<T>(
           types.length > 0
@@ -149,16 +148,16 @@ export class SearchService {
           options.offset || 0
         );
       }
-      
+
       // Normalize and validate query
       const normalizedQuery = query.trim() || '';
       const isEmptyQuery = normalizedQuery.length === 0;
-      
+
       // Log query information
       if (process.env.MEMORY_DEBUG === 'true') {
         console.debug(`Memory search - Query: "${normalizedQuery}", Empty: ${isEmptyQuery}, Types: ${types.join(', ') || 'all'}`);
       }
-      
+
       // Check if this is a causal chain search request
       if (options.maxDepth !== undefined || options.direction || options.analyze) {
         // Handle causal chain search as a special case
@@ -168,20 +167,20 @@ export class SearchService {
           console.debug('Causal chain search requested - using standard search as fallback');
         }
       }
-      
+
       // If no specific types requested, search all collections
       const collectionsToSearch = types.length > 0
         ? types.map(type => this.getCollectionNameForType(type as MemoryType))
         : Object.values(COLLECTION_NAMES);
-      
+
       // Filter out undefined collection names
       const validCollections = collectionsToSearch.filter(name => !!name) as string[];
-      
+
       if (validCollections.length === 0) {
         console.warn('No valid collections to search');
         return [];
       }
-      
+
       // If query is empty, use filter-based search instead of vector search
       if (isEmptyQuery) {
         if (process.env.MEMORY_DEBUG === 'true') {
@@ -189,7 +188,7 @@ export class SearchService {
         }
         return await this.handleEmptyQuerySearch<T>(validCollections, filter, limit, options.offset || 0);
       }
-      
+
       // If query optimizer is available and this is a single collection search,
       // use the optimizer for better performance
       if (this.queryOptimizer && types.length === 1) {
@@ -198,14 +197,14 @@ export class SearchService {
           const collectionName = this.getCollectionNameForType(type);
           if (collectionName) {
             console.log(`Using query optimizer for ${collectionName}`);
-            
+
             // Determine best optimization strategy
-            const strategy = options.highQuality 
-              ? QueryOptimizationStrategy.HIGH_QUALITY 
-              : options.highSpeed 
-                ? QueryOptimizationStrategy.HIGH_SPEED 
+            const strategy = options.highQuality
+              ? QueryOptimizationStrategy.HIGH_QUALITY
+              : options.highSpeed
+                ? QueryOptimizationStrategy.HIGH_SPEED
                 : undefined; // Use default strategy
-            
+
             // Execute optimized query
             const queryResponse = await this.queryOptimizer.query<T>(
               {
@@ -216,7 +215,7 @@ export class SearchService {
               },
               strategy
             );
-            
+
             // Map query results to search results
             return queryResponse.results.map(item => {
               const type = this.getTypeFromCollectionName(collectionName);
@@ -237,45 +236,45 @@ export class SearchService {
           // Fall back to standard search
         }
       }
-      
+
       // Standard search when optimizer is not available or failed
-      
+
       // Get an embedding for the query
       const embeddingResult = await this.embeddingService.getEmbedding(normalizedQuery);
       const vector = embeddingResult.embedding; // Extract the actual vector array
-      
+
       // Log if we're using a fallback embedding
       if (embeddingResult.usedFallback) {
         console.log(`Using fallback embedding for search: ${embeddingResult.model || 'unknown fallback'}`);
       }
-      
+
       const results: SearchResult<T>[] = [];
       const missingCollections: string[] = [];
-      
+
       // Search each collection
       for (const collectionName of validCollections) {
         if (!collectionName) continue;
-        
+
         try {
           // Check if collection exists before searching
           const collectionExists = await this.client.collectionExists(collectionName);
-          
+
           if (!collectionExists) {
             missingCollections.push(collectionName);
             console.warn(`Collection ${collectionName} does not exist, skipping search`);
             continue;
           }
-          
+
           const collectionResults = await this.client.searchPoints<T>(collectionName, {
             vector,
             query: normalizedQuery, // Pass the normalized query for potential fallback
             limit,
             filter: filter ? this.buildQdrantFilter(filter) : undefined
           });
-          
+
           // Add type and collection info to results
           const type = this.getTypeFromCollectionName(collectionName);
-          
+
           if (collectionResults.length > 0 && type) {
             const mappedResults = collectionResults.map(result => ({
               point: {
@@ -287,16 +286,16 @@ export class SearchService {
               type: type as MemoryType,
               collection: collectionName
             }));
-            
+
             results.push(...mappedResults);
           }
         } catch (error) {
           // Log error but continue with other collections
           const errorMessage = error instanceof Error ? error.message : String(error);
-          const isNotFoundError = errorMessage.includes('not found') || 
-                                 errorMessage.includes('404') || 
-                                 errorMessage.includes('does not exist');
-          
+          const isNotFoundError = errorMessage.includes('not found') ||
+            errorMessage.includes('404') ||
+            errorMessage.includes('does not exist');
+
           if (isNotFoundError) {
             missingCollections.push(collectionName);
             console.warn(`Collection ${collectionName} not found or inaccessible, skipping search`);
@@ -306,12 +305,12 @@ export class SearchService {
           continue;
         }
       }
-      
+
       // If there were missing collections, log a warning but don't fail the search
       if (missingCollections.length > 0) {
         console.warn(`Skipped ${missingCollections.length} missing collections during search: ${missingCollections.join(', ')}`);
       }
-      
+
       // Sort by score descending
       return results.sort((a, b) => b.score - a.score);
     } catch (error) {
@@ -320,7 +319,7 @@ export class SearchService {
       throw handleMemoryError(error, 'search');
     }
   }
-  
+
   /**
    * Handle searches with empty queries by using filter-based approach
    * @private
@@ -332,43 +331,43 @@ export class SearchService {
     offset: number = 0
   ): Promise<SearchResult<T>[]> {
     const results: SearchResult<T>[] = [];
-    
+
     // If no collections to search, return empty results
     if (!collections || collections.length === 0) {
       return results;
     }
-    
+
     // Enhanced logging for debugging
     if (process.env.MEMORY_DEBUG === 'true') {
       console.debug('Empty query search with filter:', JSON.stringify(filter));
     }
-    
+
     // Special handling for task filters - check both places where task data might be stored
     if (filter && typeof filter === 'object') {
       // Check if this appears to be a task filter by looking for common patterns
-      const isTaskFilter = 
+      const isTaskFilter =
         // Case 1: Explicit type field
-        ('type' in filter && filter.type === 'task') || 
+        ('type' in filter && filter.type === 'task') ||
         // Case 2: Looking for specific status values typically used for tasks
-        ('status' in filter && 
-          (typeof filter.status === 'object' && 
-           '$in' in filter.status && 
-           Array.isArray(filter.status.$in) &&
-           filter.status.$in.some((s: string) => ['pending', 'scheduled', 'in_progress'].includes(s))));
-      
+        ('status' in filter &&
+          (typeof filter.status === 'object' &&
+            '$in' in filter.status &&
+            Array.isArray(filter.status.$in) &&
+            filter.status.$in.some((s: string) => ['pending', 'scheduled', 'in_progress'].includes(s))));
+
       if (isTaskFilter) {
         if (process.env.MEMORY_DEBUG === 'true') {
           console.debug('Detected task filter - enhancing to check both metadata and root paths');
         }
-        
+
         // Create a more flexible filter that checks both possible locations of fields
         const enhancedFilter: any = { should: [] };
-        
+
         // Add option to check status at root level
         if ('status' in filter) {
           const rootFilter: any = { must: [] };
           rootFilter.must.push({ key: 'type', match: { value: 'task' } });
-          
+
           const statusValue = filter.status;
           if (Array.isArray(statusValue)) {
             rootFilter.must.push({ key: 'status', match: { any: statusValue } });
@@ -377,15 +376,15 @@ export class SearchService {
           } else {
             rootFilter.must.push({ key: 'status', match: { value: statusValue } });
           }
-          
+
           enhancedFilter.should.push(rootFilter);
         }
-        
+
         // Add option to check status in metadata path
         if ('status' in filter) {
           const metadataFilter: any = { must: [] };
           metadataFilter.must.push({ key: 'metadata.type', match: { value: 'task' } });
-          
+
           const statusValue = filter.status;
           if (Array.isArray(statusValue)) {
             metadataFilter.must.push({ key: 'metadata.status', match: { any: statusValue } });
@@ -394,19 +393,19 @@ export class SearchService {
           } else {
             metadataFilter.must.push({ key: 'metadata.status', match: { value: statusValue } });
           }
-          
+
           enhancedFilter.should.push(metadataFilter);
         }
-        
+
         if (process.env.MEMORY_DEBUG === 'true') {
           console.debug('Enhanced task filter:', JSON.stringify(enhancedFilter));
         }
-        
+
         // Use the enhanced filter
         filter = enhancedFilter;
       }
     }
-    
+
     // Validate filter before passing to client
     let qdrantFilter = undefined;
     if (filter) {
@@ -417,12 +416,12 @@ export class SearchService {
         } else {
           qdrantFilter = this.buildQdrantFilter(filter);
         }
-        
+
         // Log the transformed filter for debugging
         if (process.env.MEMORY_DEBUG === 'true') {
           console.debug('Transformed filter for Qdrant:', JSON.stringify(qdrantFilter));
         }
-        
+
         // If filter builds to empty object, set to undefined
         if (qdrantFilter && typeof qdrantFilter === 'object' && Object.keys(qdrantFilter).length === 0) {
           qdrantFilter = undefined;
@@ -432,11 +431,11 @@ export class SearchService {
         // Continue with undefined filter
       }
     }
-    
+
     // Search each collection using scrollPoints instead of vector search
     for (const collectionName of collections) {
       if (!collectionName) continue;
-      
+
       try {
         // Check if collection exists
         const collectionExists = await this.client.collectionExists(collectionName);
@@ -444,7 +443,7 @@ export class SearchService {
           console.warn(`Collection ${collectionName} does not exist, skipping empty query search`);
           continue;
         }
-        
+
         // Use scrollPoints with correct parameters (no sorting support in this method)
         const scrolledPoints = await this.client.scrollPoints<T>(
           collectionName,
@@ -452,22 +451,22 @@ export class SearchService {
           limit,
           offset
         );
-        
+
         // Add type and collection info to results
         const type = this.getTypeFromCollectionName(collectionName);
-        
+
         if (scrolledPoints.length > 0 && type) {
           if (process.env.MEMORY_DEBUG === 'true') {
             console.debug(`Found ${scrolledPoints.length} results in collection ${collectionName}`);
           }
-          
+
           const mappedResults = scrolledPoints.map(point => ({
             point: point as MemoryPoint<T>,
             score: 1.0, // No relevance score for pure filtering
             type: type as MemoryType,
             collection: collectionName
           }));
-          
+
           results.push(...mappedResults);
         }
       } catch (error) {
@@ -475,10 +474,10 @@ export class SearchService {
         continue;
       }
     }
-    
+
     return results;
   }
-  
+
   /**
    * Map from collection name back to memory type
    */
@@ -490,7 +489,7 @@ export class SearchService {
     }
     return null;
   }
-  
+
   /**
    * Build a Qdrant-compatible filter from our memory filter
    */
@@ -499,19 +498,19 @@ export class SearchService {
     if (typeof filter === 'object' && (filter.must || filter.should || filter.must_not)) {
       return filter as Record<string, any>;
     }
-    
+
     // Check if filter is empty
     if (!filter || (typeof filter === 'object' && Object.keys(filter).length === 0)) {
       return {};
     }
-    
+
     // Convert to Qdrant filter format with proper field conditions
     const conditions: any[] = [];
-    
+
     // Process filter entries
     Object.entries(filter).forEach(([key, value]) => {
       if (value === undefined) return;
-      
+
       // Special handling for array values - convert to "any" match condition
       if (Array.isArray(value)) {
         if (process.env.MEMORY_DEBUG === 'true') {
@@ -527,7 +526,7 @@ export class SearchService {
         // Process each metadata field as separate condition
         Object.entries(value as Record<string, any>).forEach(([metaKey, metaValue]) => {
           const fullKey = `metadata.${metaKey}`;
-          
+
           if (Array.isArray(metaValue)) {
             conditions.push({
               key: fullKey,
@@ -581,32 +580,55 @@ export class SearchService {
             key,
             range: value
           });
-        } 
-        // Handle match conditions with special care for $in operator
+        }
+        // Handle match conditions - convert to valid Qdrant format
         else if ('$in' in value || '$nin' in value || '$eq' in value || '$ne' in value) {
-          // Special handling for $in with array
-          if ('$in' in value && Array.isArray(value.$in)) {
-            if (process.env.MEMORY_DEBUG === 'true') {
-              console.debug(`Converting $in condition for key ${key}:`, value.$in);
-            }
+          if ('$in' in value) {
             conditions.push({
               key,
-              match: { any: value.$in }
+              match: { any: (value as any).$in }
             });
-          } else {
+          } else if ('$nin' in value) {
+            conditions.push({
+              must_not: [{
+                key,
+                match: { any: (value as any).$nin }
+              }]
+            });
+          } else if ('$eq' in value) {
             conditions.push({
               key,
-              match: value
+              match: { value: (value as any).$eq }
+            });
+          } else if ('$ne' in value) {
+            conditions.push({
+              must_not: [{
+                key,
+                match: { value: (value as any).$ne }
+              }]
             });
           }
         }
-        // Handle text conditions
+        // Handle text conditions - convert to valid Qdrant format
         else if ('$contains' in value || '$startsWith' in value || '$endsWith' in value) {
-          conditions.push({
-            key,
-            match: { text: value }
-          });
-        } 
+          // Extract the actual text value and use exact match as fallback
+          if ('$contains' in value) {
+            conditions.push({
+              key,
+              match: { value: (value as any).$contains }
+            });
+          } else if ('$startsWith' in value) {
+            conditions.push({
+              key,
+              match: { value: (value as any).$startsWith }
+            });
+          } else if ('$endsWith' in value) {
+            conditions.push({
+              key,
+              match: { value: (value as any).$endsWith }
+            });
+          }
+        }
         // Default to passing through the object
         else {
           conditions.push({
@@ -623,11 +645,11 @@ export class SearchService {
         });
       }
     });
-    
+
     // Return must clause with conditions
     return conditions.length > 0 ? { must: conditions } : {};
   }
-  
+
   /**
    * Search within a single memory type
    */
@@ -639,11 +661,11 @@ export class SearchService {
   ): Promise<SearchResult<T>[]> {
     try {
       const collectionName = this.getCollectionNameForType(type);
-      
+
       if (!collectionName) {
         return []; // Skip invalid collections
       }
-      
+
       // Search the collection
       const results = await this.client.searchPoints<T>(collectionName, {
         vector,
@@ -653,7 +675,7 @@ export class SearchService {
         includeVectors: options.includeVectors,
         scoreThreshold: options.minScore
       });
-      
+
       // Transform to standardized search results
       return results.map(result => {
         // Create memory point from search result
@@ -662,7 +684,7 @@ export class SearchService {
           vector: options.includeVectors ? [] : [], // Vector data is typically not included
           payload: result.payload
         };
-        
+
         return {
           point,
           score: result.score,
@@ -675,7 +697,7 @@ export class SearchService {
       return []; // Return empty array for this type instead of failing the entire search
     }
   }
-  
+
   /**
    * Perform hybrid search (combining vector search and text search)
    */
@@ -687,18 +709,18 @@ export class SearchService {
       // Set default weights
       const textWeight = options.textWeight ?? 0.3;
       const vectorWeight = options.vectorWeight ?? 0.7;
-      
+
       // Get an embedding for the query
       const embeddingResult = await this.embeddingService.getEmbedding(query);
       const vector = embeddingResult.embedding;
-      
+
       // Get vector search results
       const vectorResults = await this.search<T>(query, {
         ...options,
         limit: options.limit ? options.limit * 2 : DEFAULTS.DEFAULT_LIMIT * 2 // Get more results to rerank
       });
-      
-            // For now, skip text search portion as it's causing Qdrant compatibility issues
+
+      // For now, skip text search portion as it's causing Qdrant compatibility issues
       // Instead, use vector search results only but with different weights
       const textSearchPromises = (options.types || Object.values(MemoryType)).map(type => {
         const memType = type as MemoryType;
@@ -712,19 +734,19 @@ export class SearchService {
           Math.min(options.limit ? options.limit : DEFAULTS.DEFAULT_LIMIT, 50) // Limit to avoid too many results
         );
       });
-      
+
       const textResultsArrays = await Promise.all(textSearchPromises);
       const textPoints = textResultsArrays.flat();
-      
+
       // Create map of vector results for quick lookup
       const vectorResultsMap = new Map<string, SearchResult<T>>();
       vectorResults.forEach(result => {
         vectorResultsMap.set(result.point.id, result);
       });
-      
+
       // Create combined results with hybrid scoring
       const hybridResults: SearchResult<T>[] = [];
-      
+
       // Process vector results first
       vectorResults.forEach(result => {
         hybridResults.push({
@@ -732,16 +754,16 @@ export class SearchService {
           score: result.score * vectorWeight // Apply vector weight
         });
       });
-      
+
       // Process text results
       textPoints.forEach(point => {
         const id = point.id;
-        
+
         // If already in vector results, blend scores
         if (vectorResultsMap.has(id)) {
           const existingResult = vectorResultsMap.get(id)!;
           const idx = hybridResults.findIndex(r => r.point.id === id);
-          
+
           // Blend scores: existing vector score + text match score
           hybridResults[idx].score = (existingResult.score * vectorWeight) + textWeight;
         } else {
@@ -761,7 +783,7 @@ export class SearchService {
           }
         }
       });
-      
+
       // Normalize scores if requested
       if (options.normalizeScores) {
         const maxScore = Math.max(...hybridResults.map(r => r.score));
@@ -769,77 +791,73 @@ export class SearchService {
           result.score = result.score / maxScore;
         });
       }
-      
+
       // Sort by score and apply limit
       hybridResults.sort((a, b) => b.score - a.score);
       const limit = options.limit || DEFAULTS.DEFAULT_LIMIT;
-      
+
       return hybridResults.slice(0, limit);
     } catch (error) {
       console.error('Error performing hybrid search:', error);
       throw handleMemoryError(error, 'hybridSearch');
     }
   }
-  
+
   /**
    * Build a structured filter from options
    */
   buildFilter(options: FilterBuilderOptions): Record<string, any> {
     const filter: Record<string, any> = {};
-    
+
     // Date range filter
     if (options.startDate || options.endDate) {
       const timeRange: Record<string, any> = {};
-      
+
       if (options.startDate) {
-        const startTime = options.startDate instanceof Date 
-          ? options.startDate.getTime() 
+        const startTime = options.startDate instanceof Date
+          ? options.startDate.getTime()
           : options.startDate;
-        
+
         timeRange.$gte = startTime;
       }
-      
+
       if (options.endDate) {
         const endTime = options.endDate instanceof Date
           ? options.endDate.getTime()
           : options.endDate;
-        
+
         timeRange.$lte = endTime;
       }
-      
+
       filter.timestamp = timeRange;
     }
-    
+
     // Types filter
     if (options.types && options.types.length > 0) {
-      filter.type = options.types.length === 1 
-        ? options.types[0] 
+      filter.type = options.types.length === 1
+        ? options.types[0]
         : { $in: options.types };
     }
-    
+
     // Metadata filters
     if (options.metadata && Object.keys(options.metadata).length > 0) {
       Object.entries(options.metadata).forEach(([key, value]) => {
         filter[`metadata.${key}`] = value;
       });
     }
-    
-    // Text contains filter
+
+    // Text contains filter - converted to content field matching 
+    // since Qdrant doesn't support $text queries directly
     if (options.textContains) {
-      if (options.exactMatch) {
-        filter.$text = options.caseSensitive
-          ? { $eq: options.textContains }
-          : { $eq_ignore_case: options.textContains };
-      } else {
-        filter.$text = options.caseSensitive
-          ? { $contains: options.textContains }
-          : { $contains_ignore_case: options.textContains };
-      }
+      // For text contains, search in the content field instead of using unsupported $text
+      filter.content = options.exactMatch
+        ? options.textContains  // Exact match on content field
+        : { $contains: options.textContains };  // Contains match (will be converted to exact match in buildQdrantFilter)
     }
-    
+
     return filter;
   }
-  
+
   /**
    * Search for causal chain (causes and effects) related to a memory
    * 
@@ -866,21 +884,21 @@ export class SearchService {
         id: memoryId,
         type: MemoryType.MESSAGE // Default to message type, but will work with any type
       });
-      
+
       if (!originMemory) {
         throw new Error(`Memory with ID ${memoryId} not found`);
       }
-      
+
       // Safely extract the content from the memory result using any casting
       // This is necessary because TypeScript doesn't know about the content property
       const originContent = (originMemory as any).content || 'No content available';
-      
+
       // Get related memories using the content as search query
       const relatedMemories = await this.search<T>(originContent, {
         limit: 10,
         types: [MemoryType.THOUGHT, MemoryType.MESSAGE]
       });
-      
+
       // Create simulated causal chain result
       const result: CausalChainResult = {
         origin: {
@@ -890,20 +908,20 @@ export class SearchService {
         causes: [],
         effects: []
       };
-      
+
       // Simulated causal relationships
       // In future, these would be retrieved from actual causal relations in database
       // For now, we just split related memories in half for "causes" and "effects"
       const midPoint = Math.floor(relatedMemories.length / 2);
-      
+
       // Create simulated causes
       for (let i = 0; i < midPoint && i < relatedMemories.length; i++) {
         const memory = relatedMemories[i];
         // Access content from payload since point.content doesn't exist directly
-        const content = memory.point.payload?.text || 
-                        (memory.point.payload as any)?.content || 
-                        'No content available';
-                       
+        const content = memory.point.payload?.text ||
+          (memory.point.payload as any)?.content ||
+          'No content available';
+
         result.causes.push({
           memory: {
             id: memory.point.id,
@@ -917,15 +935,15 @@ export class SearchService {
           depth: 1
         });
       }
-      
+
       // Create simulated effects
       for (let i = midPoint; i < relatedMemories.length; i++) {
         const memory = relatedMemories[i];
         // Access content from payload since point.content doesn't exist directly
-        const content = memory.point.payload?.text || 
-                        (memory.point.payload as any)?.content || 
-                        'No content available';
-                       
+        const content = memory.point.payload?.text ||
+          (memory.point.payload as any)?.content ||
+          'No content available';
+
         result.effects.push({
           memory: {
             id: memory.point.id,
@@ -939,7 +957,7 @@ export class SearchService {
           depth: 1
         });
       }
-      
+
       return result;
     } catch (error) {
       console.error('Error in causal chain search:', error);
@@ -963,50 +981,50 @@ export class SearchService {
     options: FilterOptions = {}
   ): Promise<SearchResult<T>[]> {
     try {
-      const { 
-        types = [], 
-        limit = 50, 
+      const {
+        types = [],
+        limit = 50,
         offset = 0,
         filter = {},
         sortBy = 'timestamp',
         sortOrder = 'desc'
       } = options;
-      
+
       // If no specific types requested, search all collections
       const collectionsToSearch = types.length > 0
         ? types.map((type: MemoryType) => this.getCollectionNameForType(type))
         : Object.values(COLLECTION_NAMES);
-        
+
       // Filter out undefined collection names
       const validCollections = collectionsToSearch.filter(Boolean) as string[];
-      
+
       if (validCollections.length === 0) {
         console.warn('No valid collections to filter');
         return [];
       }
-      
+
       const results: SearchResult<T>[] = [];
       const missingCollections: string[] = [];
-      
+
       // Process each collection
       for (const collectionName of validCollections) {
         if (!collectionName) continue;
-        
+
         try {
           // Check if collection exists before filtering
           const collectionExists = await this.client.collectionExists(collectionName);
-          
+
           if (!collectionExists) {
             missingCollections.push(collectionName);
             console.warn(`Collection ${collectionName} does not exist, skipping filter`);
             continue;
           }
-          
+
           // Convert the filter to Qdrant format
           let qdrantFilter;
           try {
             qdrantFilter = filter ? this.buildQdrantFilter(filter) : undefined;
-            
+
             // Validate the filter
             if (qdrantFilter && typeof qdrantFilter === 'object' && Object.keys(qdrantFilter).length === 0) {
               qdrantFilter = undefined;
@@ -1016,7 +1034,7 @@ export class SearchService {
             // Continue with undefined filter
             qdrantFilter = undefined;
           }
-          
+
           // Use scrollPoints with correct parameters (no sorting support in this method)
           const scrolledPoints = await this.client.scrollPoints<T>(
             collectionName,
@@ -1024,10 +1042,10 @@ export class SearchService {
             limit,
             offset
           );
-          
+
           if (scrolledPoints && scrolledPoints.length > 0) {
             const type = this.getTypeFromCollectionName(collectionName);
-            
+
             if (type) {
               // Convert to search result format
               const collectionResults = scrolledPoints.map((point: MemoryPoint<T>) => ({
@@ -1036,7 +1054,7 @@ export class SearchService {
                 type: type as MemoryType,
                 collection: collectionName
               }));
-              
+
               results.push(...collectionResults);
             }
           }
@@ -1045,31 +1063,31 @@ export class SearchService {
           // Continue with other collections despite errors
         }
       }
-      
+
       // If we have missing collections and no results, throw error
       if (missingCollections.length > 0 && results.length === 0) {
         const errorMessage = `Collections not found: ${missingCollections.join(', ')}`;
         throw handleMemoryError(errorMessage, 'NOT_FOUND');
       }
-      
+
       // Sort combined results if we searched multiple collections
       if (validCollections.length > 1 && sortBy) {
         results.sort((a, b) => {
           const aValue = a.point.payload[sortBy as keyof T];
           const bValue = b.point.payload[sortBy as keyof T];
-          
+
           // Handle string comparisons
           if (typeof aValue === 'string' && typeof bValue === 'string') {
-            return sortOrder === 'asc' 
-              ? aValue.localeCompare(bValue) 
+            return sortOrder === 'asc'
+              ? aValue.localeCompare(bValue)
               : bValue.localeCompare(aValue);
           }
-          
+
           // Handle numeric comparisons
           if (typeof aValue === 'number' && typeof bValue === 'number') {
             return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
           }
-          
+
           // Handle date comparisons (stored as strings)
           if (sortBy === 'timestamp') {
             const aTime = parseInt(String(aValue), 10);
@@ -1078,16 +1096,16 @@ export class SearchService {
               return sortOrder === 'asc' ? aTime - bTime : bTime - aTime;
             }
           }
-          
+
           return 0;
         });
       }
-      
+
       // Apply the pagination at the combined results level if we had multiple collections
       if (validCollections.length > 1) {
         return results.slice(0, limit);
       }
-      
+
       return results;
     } catch (error) {
       throw handleMemoryError(error, 'SEARCH_ERROR');
@@ -1118,20 +1136,20 @@ export class SearchService {
         includedGroups = [],
         groupingStrategy = 'topic'
       } = options;
-      
+
       if (!query && Object.keys(filter).length === 0) {
         throw handleMemoryError(
           'Either query or filter must be provided for memory context retrieval',
           'VALIDATION_ERROR'
         );
       }
-      
+
       // Generate a context ID based on query/filter
       const contextId = `ctx_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      
+
       // Step 1: Retrieve relevant memories
       let memories: SearchResult<T>[] = [];
-      
+
       if (query) {
         // Get memories via semantic search if query provided
         memories = await this.search<T>(query, {
@@ -1148,7 +1166,7 @@ export class SearchService {
           limit: maxTotalMemories
         });
       }
-      
+
       if (memories.length === 0) {
         // Return empty context if no memories found
         return {
@@ -1158,15 +1176,15 @@ export class SearchService {
           summary: includeSummary ? 'No relevant memories found.' : undefined
         };
       }
-      
+
       // Apply time weighting if requested
       if (timeWeighted) {
         memories = this.applyTimeWeighting(memories);
       }
-      
+
       // Step 2: Group memories based on selected strategy
       let groups: MemoryContextGroup<T>[] = [];
-      
+
       switch (groupingStrategy) {
         case 'time':
           groups = this.groupMemoriesByTime(memories, numGroups);
@@ -1187,22 +1205,22 @@ export class SearchService {
           groups = await this.groupMemoriesByTopic(memories, numGroups);
           break;
       }
-      
+
       // Step 3: Limit memories per group
       groups = groups.map(group => ({
         ...group,
         memories: group.memories.slice(0, maxMemoriesPerGroup)
       }));
-      
+
       // Order groups by relevance
       groups.sort((a, b) => b.relevance - a.relevance);
-      
+
       // Step 4: Generate summary if requested
       let summary: string | undefined;
       if (includeSummary) {
         summary = await this.generateContextSummary(memories, query);
       }
-      
+
       // Return the complete memory context
       return {
         contextId,
@@ -1219,7 +1237,7 @@ export class SearchService {
       throw handleMemoryError(error, 'CONTEXT_ERROR');
     }
   }
-  
+
   /**
    * Apply time-based weighting to memory relevance scores
    * Recent memories get boosted scores
@@ -1231,26 +1249,26 @@ export class SearchService {
     const DAY_MS = 86400000; // 24 hours in milliseconds
     const MAX_DAYS = 30; // Maximum days to consider for time weighting
     const TIME_WEIGHT = 0.3; // Weight of time factor (0-1)
-    
+
     return memories.map(memory => {
       // Get memory timestamp
       const timestampStr = memory.point.payload.timestamp as unknown as string;
       const timestamp = parseInt(timestampStr, 10);
-      
+
       if (isNaN(timestamp)) {
         return memory; // Return unchanged if timestamp invalid
       }
-      
+
       // Calculate days difference
       const daysDiff = Math.min(MAX_DAYS, Math.max(0, (now - timestamp) / DAY_MS));
-      
+
       // Calculate time decay factor (1.0 for newest, decreasing with age)
       const timeFactor = 1 - (daysDiff / MAX_DAYS);
-      
+
       // Calculate weighted score
       const originalScore = memory.score;
       const timeWeightedScore = (originalScore * (1 - TIME_WEIGHT)) + (timeFactor * TIME_WEIGHT);
-      
+
       // Return memory with adjusted score
       return {
         ...memory,
@@ -1258,7 +1276,7 @@ export class SearchService {
       };
     }).sort((a, b) => b.score - a.score); // Resort by new scores
   }
-  
+
   /**
    * Group memories by time periods
    */
@@ -1272,11 +1290,11 @@ export class SearchService {
       const bTime = parseInt(b.point.payload.timestamp as unknown as string, 10);
       return bTime - aTime; // Descending order (newest first)
     });
-    
+
     // Define time periods
     const now = Date.now();
     const DAY_MS = 86400000; // 24 hours in milliseconds
-    
+
     const timeGroups: MemoryContextGroup<T>[] = [
       {
         name: 'Recent',
@@ -1303,16 +1321,16 @@ export class SearchService {
         relevance: 0.4
       }
     ];
-    
+
     // Assign memories to time groups
     for (const memory of sortedMemories) {
       const timestamp = parseInt(memory.point.payload.timestamp as unknown as string, 10);
       if (isNaN(timestamp)) {
         continue; // Skip if timestamp invalid
       }
-      
+
       const daysDiff = (now - timestamp) / DAY_MS;
-      
+
       if (daysDiff < 1) {
         timeGroups[0].memories.push(memory);
       } else if (daysDiff < 7) {
@@ -1323,13 +1341,13 @@ export class SearchService {
         timeGroups[3].memories.push(memory);
       }
     }
-    
+
     // Filter out empty groups and limit to requested number
     return timeGroups
       .filter(group => group.memories.length > 0)
       .slice(0, numGroups);
   }
-  
+
   /**
    * Group memories by their memory type
    */
@@ -1338,14 +1356,14 @@ export class SearchService {
   ): TypedMemoryContextGroup<T>[] {
     // Group by memory type
     const typeGroups = new Map<MemoryType, SearchResult<T>[]>();
-    
+
     for (const memory of memories) {
       if (!typeGroups.has(memory.type)) {
         typeGroups.set(memory.type, []);
       }
       typeGroups.get(memory.type)!.push(memory);
     }
-    
+
     // Create groups with descriptions
     const typeDescriptions: Partial<Record<MemoryType, string>> = {
       [MemoryType.MESSAGE]: 'Chat messages and conversations',
@@ -1357,7 +1375,7 @@ export class SearchService {
       [MemoryType.MEMORY_EDIT]: 'Memory modifications',
       [MemoryType.ANALYSIS]: 'Detailed analysis records'
     };
-    
+
     // Convert to array of groups
     return Array.from(typeGroups.entries())
       .map(([type, typeMemories]) => ({
@@ -1369,7 +1387,7 @@ export class SearchService {
       }))
       .sort((a, b) => b.memories.length - a.memories.length); // Sort by number of memories
   }
-  
+
   /**
    * Group memories by custom categories
    */
@@ -1386,7 +1404,7 @@ export class SearchService {
         relevance: 1.0
       }];
     }
-    
+
     // Create a group for each category
     const groups: MemoryContextGroup<T>[] = categories.map(category => ({
       name: category,
@@ -1394,17 +1412,17 @@ export class SearchService {
       memories: [],
       relevance: 0.9
     }));
-    
+
     // Assign memories to categories based on content and metadata
     // This is a simple implementation; in practice, would use more sophisticated matching
     for (const memory of memories) {
       const text = memory.point.payload.text as string || '';
       const tags = (memory.point.payload.metadata?.tags || []) as string[];
-      
+
       // Check each category
       for (let i = 0; i < categories.length; i++) {
         const category = categories[i].toLowerCase();
-        
+
         // Check if category matches text or tags
         if (
           text.toLowerCase().includes(category) ||
@@ -1414,16 +1432,16 @@ export class SearchService {
         }
       }
     }
-    
+
     // Add an "Other" category for unmatched memories
     const categorizedMemoryIds = new Set(
       groups.flatMap(g => g.memories.map(m => m.point.id))
     );
-    
+
     const uncategorizedMemories = memories.filter(
       m => !categorizedMemoryIds.has(m.point.id)
     );
-    
+
     if (uncategorizedMemories.length > 0) {
       groups.push({
         name: 'Other',
@@ -1432,11 +1450,11 @@ export class SearchService {
         relevance: 0.5
       });
     }
-    
+
     // Remove empty groups and return
     return groups.filter(group => group.memories.length > 0);
   }
-  
+
   /**
    * Group memories by topic using embeddings similarity
    * This is more sophisticated than the other grouping methods and uses
@@ -1448,14 +1466,14 @@ export class SearchService {
   ): Promise<MemoryContextGroup<T>[]> {
     // For simplicity in this implementation, we'll use a basic approach
     // In a full implementation, this would use clustering algorithms
-    
+
     // Use the first few memories as "centroids"
     const topMemories = memories.slice(0, Math.min(numGroups, memories.length));
-    
+
     if (topMemories.length === 0) {
       return [];
     }
-    
+
     // If only one group, return all memories
     if (topMemories.length === 1 || numGroups === 1) {
       return [{
@@ -1465,13 +1483,13 @@ export class SearchService {
         relevance: 1.0
       }];
     }
-    
+
     // Create initial groups from top memories
     const groups: MemoryContextGroup<T>[] = topMemories.map((memory, index) => {
       // Extract a topic name from the memory text
       const text = memory.point.payload.text as string || '';
       const topicName = this.extractTopicName(text, `Topic ${index + 1}`);
-      
+
       return {
         name: topicName,
         description: this.generateTopicDescription(text),
@@ -1479,14 +1497,14 @@ export class SearchService {
         relevance: 1.0 - (index * 0.1) // Decreasing relevance
       };
     });
-    
+
     // Assign remaining memories to the closest group
     const remainingMemories = memories.slice(numGroups);
-    
+
     for (const memory of remainingMemories) {
       let bestGroupIndex = 0;
       let bestSimilarity = -1;
-      
+
       // Find the group with the most similar centroid
       for (let i = 0; i < groups.length; i++) {
         const centroid = groups[i].memories[0];
@@ -1494,21 +1512,21 @@ export class SearchService {
           memory.point.payload.text as string || '',
           centroid.point.payload.text as string || ''
         );
-        
+
         if (similarity > bestSimilarity) {
           bestSimilarity = similarity;
           bestGroupIndex = i;
         }
       }
-      
+
       // Add to best matching group
       groups[bestGroupIndex].memories.push(memory);
     }
-    
+
     // Remove empty groups
     return groups.filter(group => group.memories.length > 0);
   }
-  
+
   /**
    * Simple text similarity calculation based on word overlap
    * In a real implementation, this would use vector similarity
@@ -1516,11 +1534,11 @@ export class SearchService {
   private calculateTextSimilarity(text1: string, text2: string): number {
     const words1 = new Set(text1.toLowerCase().split(/\W+/).filter(w => w.length > 0));
     const words2 = new Set(text2.toLowerCase().split(/\W+/).filter(w => w.length > 0));
-    
+
     if (words1.size === 0 || words2.size === 0) {
       return 0;
     }
-    
+
     // Count common words
     let commonCount = 0;
     const words1Array = Array.from(words1);
@@ -1529,28 +1547,28 @@ export class SearchService {
         commonCount++;
       }
     }
-    
+
     // Jaccard similarity: intersection / union
     return commonCount / (words1.size + words2.size - commonCount);
   }
-  
+
   /**
    * Extract a topic name from text
    */
   private extractTopicName(text: string, fallback: string): string {
     // Simple heuristic: get first few words of text
     const words = text.split(/\W+/).filter(w => w.length > 0);
-    
+
     if (words.length >= 2) {
       // Use first few words (capitalized)
       return words.slice(0, Math.min(3, words.length))
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
         .join(' ');
     }
-    
+
     return fallback;
   }
-  
+
   /**
    * Generate a description for a topic based on sample text
    */
@@ -1558,17 +1576,17 @@ export class SearchService {
     if (!text || text.length === 0) {
       return 'Group of related memories';
     }
-    
+
     // Use first sentence or truncate
     const firstSentence = text.split(/[.!?]/, 1)[0].trim();
-    
+
     if (firstSentence.length < 100) {
       return `Memories related to: "${firstSentence}"`;
     }
-    
+
     return `Memories related to: "${firstSentence.substring(0, 97)}..."`;
   }
-  
+
   /**
    * Generate a summary for the entire memory context
    */
@@ -1578,43 +1596,43 @@ export class SearchService {
   ): Promise<string> {
     // In a real implementation, this would use an LLM to generate a summary
     // For this implementation, we'll create a simple summary
-    
+
     const count = memories.length;
     let summary = `Found ${count} relevant ${count === 1 ? 'memory' : 'memories'}`;
-    
+
     if (query) {
       summary += ` related to "${query}"`;
     }
-    
+
     // Add memory types breakdown
     const typeCount = new Map<MemoryType, number>();
     for (const memory of memories) {
       typeCount.set(memory.type, (typeCount.get(memory.type) || 0) + 1);
     }
-    
+
     if (typeCount.size > 1) {
       summary += ', including ';
       summary += Array.from(typeCount.entries())
         .map(([type, count]) => `${count} ${type}${count !== 1 ? 's' : ''}`)
         .join(', ');
     }
-    
+
     // Add time range if available
     try {
       const timestamps = memories
         .map(m => parseInt(m.point.payload.timestamp as unknown as string, 10))
         .filter(t => !isNaN(t));
-      
+
       if (timestamps.length > 0) {
         const oldest = new Date(Math.min(...timestamps));
         const newest = new Date(Math.max(...timestamps));
-        
+
         summary += `, spanning from ${oldest.toLocaleDateString()} to ${newest.toLocaleDateString()}`;
       }
     } catch (e) {
       // Ignore timestamp errors
     }
-    
+
     return summary;
   }
 
@@ -1625,7 +1643,7 @@ export class SearchService {
     if (!this.client) {
       throw new Error('Memory client not available');
     }
-    
+
     console.log('Providing direct access to Qdrant client');
     return this.client;
   }
@@ -1654,11 +1672,11 @@ export class SearchService {
         console.log(`Using client's dedicated getTasksByStatus method for ${taskCollection}`);
         return await (this.client as any).getTasksByStatus(taskCollection, statuses);
       }
-      
+
       // Second try: Use direct Qdrant filter optimized for task retrieval
       try {
         console.log(`Using direct Qdrant filter to find tasks in ${taskCollection}`);
-        
+
         // Filter for tasks with matching status
         const filter = {
           must: [
@@ -1676,7 +1694,7 @@ export class SearchService {
             }
           ]
         };
-        
+
         // Use client's scroll method with this filter
         if (typeof (this.client as any).scroll === 'function') {
           const scrollRequest = {
@@ -1684,10 +1702,10 @@ export class SearchService {
             limit: 1000,
             with_payload: true
           };
-          
+
           const response = await (this.client as any).scroll(taskCollection, scrollRequest);
           console.log(`Found ${response.points.length} tasks with direct filter`);
-          
+
           // Format the points to match task structure
           return response.points.map((point: any) => {
             const payload = point.payload || {};
@@ -1710,23 +1728,23 @@ export class SearchService {
         console.warn(`Error using direct filter for tasks:`, filterError);
         // Continue to fallback approach
       }
-      
+
       // Final try: Use standard search approach as fallback
       console.log(`Falling back to standard filter for tasks in ${taskCollection}`);
-      
+
       // Standard approach: Build filter and use client search
       const filter = this.buildQdrantFilter({
         type: 'task',
         status: { $in: statuses }
       });
-      
+
       const standardResponse = await (this.client as any).search(taskCollection, {
         vector: new Array(1536).fill(0.01), // Random vector
         filter,
         limit: 1000,
         with_payload: true
       });
-      
+
       // Format the results to match task structure
       return standardResponse.map((result: any) => {
         const payload = result.payload || {};

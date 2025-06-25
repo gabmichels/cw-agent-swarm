@@ -6,23 +6,20 @@
  * thought schema with a more comprehensive and strongly-typed structure.
  */
 
-import { MemoryType } from '../config';
-import { BaseMemorySchema } from './base-schema';
-import { 
-  CognitiveProcessMetadata, 
-  ThoughtMetadata,
-  ReflectionMetadata,
-  InsightMetadata,
-  PlanningMetadata,
-  CognitiveProcessType
-} from '../../../types/metadata';
-import { StructuredId, createEnumStructuredId, EntityNamespace, EntityType, structuredIdToString } from '../../../types/entity-identifier';
-import { z } from 'zod';
-import { 
+import {
   ImportanceLevel
 } from '../../../constants/memory';
-import { MessageRole } from '../../../agents/shared/types/MessageTypes';
-import { generateSystemAgentId } from '../../../lib/core/id-generation';
+import { createEnumStructuredId, EntityNamespace, EntityType } from '../../../types/entity-identifier';
+import {
+  CognitiveProcessMetadata,
+  CognitiveProcessType,
+  InsightMetadata,
+  PlanningMetadata,
+  ReflectionMetadata,
+  ThoughtMetadata
+} from '../../../types/metadata';
+import { MemoryType } from '../config';
+import { BaseMemorySchema } from './base-schema';
 
 /**
  * Base cognitive process metadata schema
@@ -104,8 +101,8 @@ export interface PlanningSchema extends CognitiveProcessSchema {
   metadata: PlanningMetadataSchema;
 }
 
-// Default agent ID for system assistant
-const DEFAULT_AGENT_ID = generateSystemAgentId('default-agent');
+// Default agent EntityIdentifier for system assistant
+const DEFAULT_AGENT_ID = createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.AGENT, 'default-agent');
 
 /**
  * Default values for thought schema

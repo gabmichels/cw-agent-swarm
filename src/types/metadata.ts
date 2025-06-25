@@ -6,9 +6,9 @@
  * when creating or consuming metadata.
  */
 
-import { EntityIdentifier } from './entity-identifier';
-import { ImportanceLevel } from '../constants/memory';
 import { MessageRole as ImportedMessageRole } from '../agents/shared/types/MessageTypes';
+import { ImportanceLevel } from '../constants/memory';
+import { EntityIdentifier } from './entity-identifier';
 
 // Re-export MessageRole for use by other modules
 export { ImportedMessageRole as MessageRole };
@@ -75,39 +75,39 @@ export interface CausalRelationship {
 export interface BaseMetadata {
   // Schema version (required)
   schemaVersion: string;
-  
+
   // Source information
   source?: string;
-  
+
   // Temporal fields
   timestamp?: string | number;
-  
+
   // Importance info - Both fields consistently defined
   importance?: ImportanceLevel;
   importance_score?: number; // Numeric importance score from 0-1
   critical?: boolean;
-  
+
   // Usage tracking
   usage_count?: number;
   last_used?: string;
-  
+
   // Tags
   tags?: string[];
   tag_confidence?: number;
-  
+
   // Deletion marking
   is_deleted?: boolean;
   deletion_time?: string;
-  
+
   // Authentication and tenant context
   authContext?: AuthContext;
   tenant?: TenantContext;
   performanceDirectives?: PerformanceDirectives;
-  
+
   // Causal relationships
   led_to?: CausalRelationship[];
   caused_by?: CausalRelationship;
-  
+
   // Version info
   current?: boolean;
   previous_version_id?: string;
@@ -187,24 +187,24 @@ export interface MessageMetadata extends BaseMetadata {
   agentId: EntityIdentifier; // Changed back to EntityIdentifier object  
   chatId: EntityIdentifier; // Changed back to EntityIdentifier object
   messageType?: string;
-  
+
   // Thread information (required, not optional)
   thread: ThreadInfo;
-  
+
   // Reply context for message threading
   replyTo?: MessageReplyContext;
-  
+
   // Attachments
   attachments?: MessageAttachment[];
-  
+
   // Source tracking
   source?: string;
   category?: string;
-  
+
   // Bookmark functionality
   isBookmark?: boolean;
   bookmarkedAt?: string; // ISO date string when bookmarked
-  
+
   // Enhanced fields for multi-agent communication
   senderAgentId?: EntityIdentifier; // Changed back to EntityIdentifier object
   receiverAgentId?: EntityIdentifier; // Changed back to EntityIdentifier object
@@ -217,7 +217,7 @@ export interface MessageMetadata extends BaseMetadata {
     purpose: string;
     sharedContext: Record<string, unknown>;
   };
-  
+
   /**
    * Content summary for message retrieval optimization
    * Generated automatically from message content
@@ -244,21 +244,21 @@ export enum CognitiveProcessType {
 export interface CognitiveProcessMetadata extends BaseMetadata {
   // Core fields
   processType: CognitiveProcessType;
-  agentId: string; // ULID
-  
+  agentId: EntityIdentifier; // EntityIdentifier object for consistency with MessageMetadata
+
   // Context and relationships
   contextId?: string;     // Task, conversation, or other context ID
   relatedTo?: string[];   // IDs of related memories
   influences?: string[];  // IDs of memories this process influenced
   influencedBy?: string[]; // IDs of memories that influenced this process
-  
+
   // Cognitive importance (consistently defined as in BaseMetadata)
   // importance?: ImportanceLevel;            // Already in BaseMetadata
   // importance_score?: number;               // Already in BaseMetadata
-  
+
   // Summary for better cognitive memory retrieval
   contentSummary?: string; // Brief summary of the content
-  
+
   // Source and category
   source?: string;
   category?: string;
@@ -271,7 +271,7 @@ export interface ThoughtMetadata extends CognitiveProcessMetadata {
   processType: CognitiveProcessType.THOUGHT;
   intention?: string;     // Purpose of the thought
   confidenceScore?: number; // Confidence level (0-1)
-  
+
   // Contextual relevance for search enhancement
   topics?: string[];      // Key topics this thought relates to
 }
@@ -283,7 +283,7 @@ export interface ReflectionMetadata extends CognitiveProcessMetadata {
   processType: CognitiveProcessType.REFLECTION;
   reflectionType?: 'experience' | 'behavior' | 'strategy' | 'performance';
   timeScope?: 'immediate' | 'short-term' | 'long-term';
-  
+
   // Reflection-specific importance
   reflectionDepth?: number;  // How deep this reflection goes (1-10)
 }
@@ -299,7 +299,7 @@ export interface InsightMetadata extends CognitiveProcessMetadata {
     from?: string;  // ISO date string
     to?: string;    // ISO date string
   };
-  
+
   // Insight-specific importance indicators
   noveltyScore?: number;    // How novel this insight is (0-1)
   applicabilityScore?: number; // How applicable this insight is (0-1)
@@ -313,7 +313,7 @@ export interface PlanningMetadata extends CognitiveProcessMetadata {
   planType?: 'task' | 'strategy' | 'contingency';
   estimatedSteps?: number;
   dependsOn?: string[];  // IDs of prerequisites
-  
+
   // Planning-specific importance indicators
   complexityScore?: number;   // Complexity of this plan (0-1)
   urgencyScore?: number;      // Urgency of this plan (0-1)
@@ -338,45 +338,45 @@ export interface AgentMetadata extends BaseMetadata {
   agentId: string; // ULID
   name: string;
   description: string;
-  
+
   // Agent state
   status: AgentStatus;
   lastActive?: string;  // ISO date string
-  
+
   // Agent configuration
   version: string;
   isPublic: boolean;
-  
+
   // Categorization
   domain: string[];
   specialization: string[];
-  
+
   // Performance tracking
   performanceMetrics: {
     successRate: number;        // 0-1
     averageResponseTime: number; // milliseconds
     taskCompletionRate: number; // 0-1
   };
-  
+
   // Relationships
   chatIds?: string[];
   teamIds?: string[];
   createdBy?: string; // ULID
-  
+
   // Content summary for agent retrieval optimization
   contentSummary?: string;
-  
+
   // Capabilities (added to match template usage)
   capabilities?: unknown[]; // Agent capabilities array
-  
+
   // Temporal fields (added to match actual usage)
   createdAt?: Date;
   updatedAt?: Date;
-  
+
   // Organizational and categorization properties (mode-aware)
   // Universal properties (both modes)
   category?: string; // For personal mode: "Finance", "Health", "Productivity"
-  
+
   // Organizational properties (organizational mode only)
   department?: {
     id: string; // ULID - Prisma department ID
@@ -389,7 +389,7 @@ export interface AgentMetadata extends BaseMetadata {
   reportingTo?: string; // ULID of manager agent (organizational mode only)
   managedAgents?: string[]; // ULIDs of direct reports (organizational mode only)
   organizationLevel?: number; // Hierarchy depth, 0 = top level (organizational mode only)
-  
+
   // Template metadata (for spawned agents)
   metadata?: {
     templateId?: string; // ULID of template used to create this agent
@@ -422,36 +422,36 @@ export interface DocumentMetadata extends BaseMetadata {
   contentType?: string;
   fileType?: string;
   url?: string;
-  
+
   // Owner info
   userId?: string; // ULID
   agentId?: string; // ULID
-  
+
   // Chunking info for large documents
   chunkIndex?: number;
   totalChunks?: number;
   parentDocumentId?: string;
-  
+
   // File-specific metadata
   fileSize?: number;
   fileName?: string;
   lastModified?: string;
-  
+
   // Web-specific metadata
   siteName?: string;
   author?: string;
   publishDate?: string;
-  
+
   // Document-specific importance and retrieval enhancements
   contentSummary?: string;    // Brief summary of document contents for better retrieval
   keyTerms?: string[];        // Extracted key terms for better semantic search
   retrievalCount?: number;    // Number of times this document has been retrieved
   lastRetrieved?: string;     // Last time this document was retrieved
-  
+
   // Domain-specific categorization
   domain?: string;            // Domain this document belongs to
   subDomain?: string;         // Sub-domain categorization
-  
+
   // Related documents
   relatedDocuments?: string[]; // IDs of related documents
 }
@@ -465,22 +465,22 @@ export interface FileMetadata extends BaseMetadata {
   filePath?: string;
   fileType: string;
   mimeType?: string;
-  
+
   // File properties
   fileSize: number;           // Size in bytes
   createdAt: string | Date;   // Creation timestamp
   lastModified?: string | Date; // Last modification timestamp
-  
+
   // Content analysis
   contentSnippets: string[];  // Text snippets from the file
   keyTerms?: string[];        // Extracted key terms
   contentSummary?: string;    // Brief summary of file contents
-  
+
   // Processing metadata
   processingStatus?: 'pending' | 'processed' | 'failed';
   indexedAt?: string;         // When file was indexed
   lastScanned?: string;       // Last time file was scanned
-  
+
   // User feedback and scoring
   userFeedback?: {
     upvotes: number;
@@ -488,19 +488,19 @@ export interface FileMetadata extends BaseMetadata {
     relevanceScore?: number;
     lastFeedbackAt?: string;
   };
-  
+
   // File relationships
   relatedFiles?: string[];    // IDs of related files
   duplicateOf?: string;       // ID if this is a duplicate
-  
+
   // Domain-specific categorization
   domain?: string;
   subDomain?: string;
-  
+
   // Access and usage tracking
   accessCount?: number;
   lastAccessed?: string;
-  
+
   // File-specific tags for organization
   tags?: string[];
 }
@@ -549,16 +549,16 @@ export interface TaskMetadata extends BaseMetadata {
   description?: string;
   status: TaskStatus;
   priority: TaskPriority;
-  
+
   // Assignment
   assignedTo?: string; // ULID
   createdBy: string; // ULID
-  
+
   // Timing
   dueDate?: string;  // ISO date string
   startDate?: string; // ISO date string
   completedDate?: string; // ISO date string
-  
+
   // Relationships
   parentTaskId?: string;
   subtaskIds?: string[];
@@ -579,7 +579,7 @@ export interface TaskMetadata extends BaseMetadata {
 export enum MetadataField {
   // Schema version
   SCHEMA_VERSION = 'schemaVersion',
-  
+
   // Common fields
   IMPORTANCE = 'importance',
   IMPORTANCE_SCORE = 'importance_score',
@@ -587,12 +587,12 @@ export enum MetadataField {
   IS_DELETED = 'is_deleted',
   DELETION_TIME = 'deletion_time',
   TIMESTAMP = 'timestamp',
-  
+
   // Authentication and tenant fields
   AUTH_CONTEXT = 'authContext',
   TENANT = 'tenant',
   PERFORMANCE_DIRECTIVES = 'performanceDirectives',
-  
+
   // Message-specific fields
   ROLE = 'role',
   USER_ID = 'userId',
@@ -603,17 +603,17 @@ export enum MetadataField {
   SOURCE = 'source',
   CATEGORY = 'category',
   ATTACHMENTS = 'attachments',
-  
+
   // Bookmark fields
   IS_BOOKMARK = 'isBookmark',
   BOOKMARKED_AT = 'bookmarkedAt',
-  
+
   // Thread fields
   THREAD = 'thread',
-  
+
   // Reply context field
   REPLY_TO = 'replyTo',
-  
+
   // Multi-agent communication fields
   SENDER_AGENT_ID = 'senderAgentId',
   RECEIVER_AGENT_ID = 'receiverAgentId',
@@ -622,7 +622,7 @@ export enum MetadataField {
   REQUIRES_RESPONSE = 'requiresResponse',
   RESPONSE_DEADLINE = 'responseDeadline',
   CONVERSATION_CONTEXT = 'conversationContext',
-  
+
   // Cognitive process fields
   PROCESS_TYPE = 'processType',
   CONTEXT_ID = 'contextId',
@@ -639,7 +639,7 @@ export enum MetadataField {
   PLAN_TYPE = 'planType',
   ESTIMATED_STEPS = 'estimatedSteps',
   DEPENDS_ON = 'dependsOn',
-  
+
   // Document fields
   TITLE = 'title',
   CONTENT_TYPE = 'contentType',
@@ -654,7 +654,7 @@ export enum MetadataField {
   SITE_NAME = 'siteName',
   AUTHOR = 'author',
   PUBLISH_DATE = 'publishDate',
-  
+
   // Task fields
   STATUS = 'status',
   ASSIGNED_TO = 'assignedTo',
@@ -665,7 +665,7 @@ export enum MetadataField {
   PARENT_TASK_ID = 'parentTaskId',
   SUBTASK_IDS = 'subtaskIds',
   BLOCKED_BY = 'blockedBy',
-  
+
   // Agent-specific fields
   AGENT_NAME = 'name',
   AGENT_DESCRIPTION = 'description',
@@ -698,17 +698,17 @@ export interface MemoryEditMetadata extends BaseMetadata {
   original_memory_id: string;
   original_type: string;
   original_timestamp: string;
-  
+
   // Edit information
   edit_type: EditType;
   editor_type: EditorType;
   editor_id?: string;
   diff_summary?: string;
-  
+
   // Version tracking
   current: boolean;
   previous_version_id?: string;
-  
+
   // Special flag to prevent recursion
   _skip_logging?: boolean;
 }
@@ -727,10 +727,10 @@ export interface CognitiveMemoryMetadata extends BaseMetadata {
   decayFactor?: number;
   retrievalCount?: number;
   lastRetrieved?: string;
-  
+
   // Emotional context
   emotions?: MemoryEmotion[];
-  
+
   // Episodic memory fields
   episodeId?: string;
   sequence?: number;

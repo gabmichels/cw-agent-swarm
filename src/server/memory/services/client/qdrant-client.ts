@@ -367,6 +367,24 @@ export class QdrantMemoryClient implements IMemoryClient {
       // Using type assertion to handle the BaseMemorySchema conversion
       const recordPayload = { ...(point.payload as unknown as Record<string, unknown>) };
 
+      // DEBUG: Validate payload before sending to Qdrant
+      try {
+        const serializedPayload = JSON.stringify(recordPayload);
+        console.log('🔍 PAYLOAD VALIDATION:', {
+          payloadSize: serializedPayload.length,
+          payloadKeys: Object.keys(recordPayload),
+          hasCircularRefs: false // If we get here, no circular refs
+        });
+      } catch (serializationError) {
+        console.error('🚨 PAYLOAD SERIALIZATION ERROR:', {
+          error: serializationError,
+          payloadKeys: Object.keys(recordPayload),
+          pointId: point.id,
+          vectorLength: point.vector?.length
+        });
+        throw new Error(`Invalid payload: cannot serialize to JSON: ${serializationError}`);
+      }
+
       // Insert point into Qdrant
       try {
         await this.client.upsert(collectionName, {
@@ -414,6 +432,20 @@ export class QdrantMemoryClient implements IMemoryClient {
       return point.id;
     } catch (error) {
       console.error(`Error adding point to ${collectionName}:`, error);
+
+      // DEBUG: Log detailed error information
+      if (error && typeof error === 'object') {
+        console.error('🚨 QDRANT ERROR DETAILS:', {
+          message: (error as any).message,
+          data: (error as any).data,
+          headers: (error as any).headers,
+          status: (error as any).status,
+          pointId: point.id,
+          vectorLength: point.vector?.length,
+          payloadKeys: Object.keys(point.payload || {}),
+          payloadSample: JSON.stringify(point.payload || {}).substring(0, 200)
+        });
+      }
 
       // Fallback to in-memory storage
       return this.fallbackStorage.addPoint(collectionName, point.id, point);
@@ -1171,25 +1203,69 @@ export class QdrantMemoryClient implements IMemoryClient {
             }
           });
         } else {
-          // Handle range conditions
+          // Handle range conditions - convert to valid Qdrant format
           if ('$gt' in value || '$gte' in value || '$lt' in value || '$lte' in value) {
+            const rangeCondition: any = {};
+            if ('$gt' in value) rangeCondition.gt = (value as any).$gt;
+            if ('$gte' in value) rangeCondition.gte = (value as any).$gte;
+            if ('$lt' in value) rangeCondition.lt = (value as any).$lt;
+            if ('$lte' in value) rangeCondition.lte = (value as any).$lte;
+
             conditions.push({
               key,
-              range: value
+              range: rangeCondition
             });
           }
-          // Handle match conditions
+          // Handle match conditions - convert to valid Qdrant format
           else if ('$in' in value || '$nin' in value || '$eq' in value || '$ne' in value) {
-            conditions.push({
-              key,
-              match: value
-            });
+            if ('$in' in value) {
+              conditions.push({
+                key,
+                match: { any: (value as any).$in }
+              });
+            } else if ('$nin' in value) {
+              conditions.push({
+                must_not: [{
+                  key,
+                  match: { any: (value as any).$nin }
+                }]
+              });
+            } else if ('$eq' in value) {
+              conditions.push({
+                key,
+                match: { value: (value as any).$eq }
+              });
+            } else if ('$ne' in value) {
+              conditions.push({
+                must_not: [{
+                  key,
+                  match: { value: (value as any).$ne }
+                }]
+              });
+            }
           }
-          // Handle text conditions
+          // Handle text conditions - convert to valid Qdrant format
           else if ('$contains' in value || '$startsWith' in value || '$endsWith' in value) {
-            // Skip text search filters for now as they are causing 400 errors
-            // Text search is not well supported by Qdrant in this format
-            console.debug(`Skipping text search filter for key ${key}:`, value);
+            // For text conditions, use the actual text value for matching
+            // Qdrant doesn't support $contains directly, so extract the value
+            if ('$contains' in value) {
+              conditions.push({
+                key,
+                match: { value: (value as any).$contains }
+              });
+            } else if ('$startsWith' in value) {
+              // For startsWith, use the value directly (exact match fallback)
+              conditions.push({
+                key,
+                match: { value: (value as any).$startsWith }
+              });
+            } else if ('$endsWith' in value) {
+              // For endsWith, use the value directly (exact match fallback)  
+              conditions.push({
+                key,
+                match: { value: (value as any).$endsWith }
+              });
+            }
           }
           // Default to passing through the object
           else {

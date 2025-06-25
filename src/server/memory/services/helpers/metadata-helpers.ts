@@ -265,15 +265,15 @@ export function createAgentToAgentMessageMetadata(
 // ================================
 
 /**
- * Create cognitive process metadata with string IDs
+ * Create cognitive process metadata with EntityIdentifier objects
  * @param processType Cognitive process type
- * @param agentId Agent ID string
+ * @param agentId Agent EntityIdentifier object
  * @param options Additional options
  * @returns Cognitive process metadata
  */
 export function createCognitiveProcessMetadata(
   processType: CognitiveProcessType,
-  agentId: string,
+  agentId: EntityIdentifier,
   options: {
     contextId?: string;
     relatedTo?: string[];
@@ -286,7 +286,7 @@ export function createCognitiveProcessMetadata(
   const baseMetadata: CognitiveProcessMetadata = {
     schemaVersion: '1.0.0',
     processType,
-    agentId,
+    agentId, // Now an EntityIdentifier object
     contextId: options.contextId,
     relatedTo: options.relatedTo || [],
     influences: options.influences || [],
@@ -310,7 +310,7 @@ export function createCognitiveProcessMetadata(
  * Create thought metadata
  */
 export function createThoughtMetadata(
-  agentId: string,
+  agentId: EntityIdentifier,
   options: Partial<ThoughtMetadata> = {}
 ): ThoughtMetadata {
   const baseMetadata = createCognitiveProcessMetadata(
@@ -339,7 +339,7 @@ export function createThoughtMetadata(
  * Create reflection metadata
  */
 export function createReflectionMetadata(
-  agentId: string,
+  agentId: EntityIdentifier,
   options: Partial<ReflectionMetadata> = {}
 ): ReflectionMetadata {
   const baseMetadata = createCognitiveProcessMetadata(
@@ -368,7 +368,7 @@ export function createReflectionMetadata(
  * Create insight metadata
  */
 export function createInsightMetadata(
-  agentId: string,
+  agentId: EntityIdentifier,
   options: Partial<InsightMetadata> = {}
 ): InsightMetadata {
   const baseMetadata = createCognitiveProcessMetadata(
@@ -401,7 +401,7 @@ export function createInsightMetadata(
  * Create planning metadata
  */
 export function createPlanningMetadata(
-  agentId: string,
+  agentId: EntityIdentifier,
   options: Partial<PlanningMetadata> = {}
 ): PlanningMetadata {
   const baseMetadata = createCognitiveProcessMetadata(

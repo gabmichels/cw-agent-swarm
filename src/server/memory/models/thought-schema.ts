@@ -3,13 +3,11 @@
  * 
  * This is the legacy schema for thoughts - prefer using cognitive-process-schema.ts
  */
+import { ImportanceLevel } from '../../../constants/memory';
+import { EntityNamespace, EntityType, createEnumStructuredId } from '../../../types/entity-identifier';
+import { CognitiveProcessType, ThoughtMetadata } from '../../../types/metadata';
 import { MemoryType } from '../config';
 import { BaseMemorySchema } from './base-schema';
-import { ThoughtMetadata, CognitiveProcessType } from '../../../types/metadata';
-import { EntityNamespace, EntityType, createEnumStructuredId, structuredIdToString } from '../../../types/entity-identifier';
-import { z } from 'zod';
-import { ImportanceLevel } from '../../../constants/memory';
-import { generateSystemAgentId } from '../../../lib/core/id-generation';
 
 /**
  * Thought metadata schema (legacy)
@@ -37,7 +35,7 @@ export const THOUGHT_DEFAULTS: Partial<ThoughtSchema> = {
     schemaVersion: "1.0.0",
     processType: CognitiveProcessType.THOUGHT,
     importance: ImportanceLevel.MEDIUM,
-    agentId: generateSystemAgentId('default-agent'),
+    agentId: createEnumStructuredId(EntityNamespace.SYSTEM, EntityType.AGENT, 'default-agent'),
     timestamp: new Date().toISOString()
   }
 }; 

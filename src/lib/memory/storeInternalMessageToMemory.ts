@@ -3,28 +3,24 @@
  * This ensures proper routing of internal messages with appropriate metadata
  */
 
-import { MessageType } from '../../constants/message';
+import { MessageRole } from '../../agents/shared/types/MessageTypes';
 import { ImportanceLevel } from '../../constants/memory';
-import { MemoryType } from '../../server/memory/config';
-import { 
-  createThoughtMetadata, 
-  createReflectionMetadata,
-  createMessageMetadata,
+import { MessageType } from '../../constants/message';
+import {
   createThreadInfo
 } from '../../server/memory/services/helpers/metadata-helpers';
-import { CognitiveProcessType } from '../../types/metadata';
-import { 
-  addMessageMemory, 
+import {
   addCognitiveProcessMemory,
+  addMessageMemory,
   AnyMemoryService
 } from '../../server/memory/services/memory/memory-service-wrappers';
-import { 
+import { createAgentId, createChatId, createUserId } from '../../types/entity-identifier';
+import { CognitiveProcessType } from '../../types/metadata';
+import {
   generateSystemAgentId,
-  generateSystemUserId,
-  generateSystemChatId
+  generateSystemChatId,
+  generateSystemUserId
 } from '../core/id-generation';
-import { MessageRole } from '../../agents/shared/types/MessageTypes';
-import { createUserId, createAgentId, createChatId } from '../../types/entity-identifier';
 
 /**
  * Store an internal message to memory with proper metadata and typing
@@ -51,12 +47,12 @@ export async function storeInternalMessageToMemory(
 ) {
   // Default importance
   const importance = metadata.importance || ImportanceLevel.MEDIUM;
-  
+
   // Use provided IDs or generate system defaults
   const agentId: string = metadata.agentId || generateSystemAgentId('system');
   const userId: string = metadata.userId || generateSystemUserId('system');
   const chatId: string = metadata.chatId || generateSystemChatId('system');
-  
+
   // Create thread info
   const threadInfo = createThreadInfo(
     metadata.threadId || `thread_${Date.now()}`,
@@ -71,7 +67,7 @@ export async function storeInternalMessageToMemory(
         memoryService,
         message,
         CognitiveProcessType.THOUGHT,
-        agentId,
+        createAgentId(agentId),
         {
           contextId: metadata.originTaskId,
           importance: importance,
@@ -81,14 +77,14 @@ export async function storeInternalMessageToMemory(
           }
         }
       );
-      
+
     case MessageType.REFLECTION:
       // Use cognitive process for reflections
       return addCognitiveProcessMemory(
         memoryService,
         message,
         CognitiveProcessType.REFLECTION,
-        agentId,
+        createAgentId(agentId),
         {
           contextId: metadata.originTaskId,
           importance: metadata.importance || ImportanceLevel.HIGH,
@@ -98,7 +94,7 @@ export async function storeInternalMessageToMemory(
           }
         }
       );
-      
+
     case MessageType.SYSTEM:
     case MessageType.TOOL_LOG:
     case MessageType.MEMORY_LOG:

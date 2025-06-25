@@ -18,6 +18,28 @@ import { MemoryService } from '../memory/memory-service';
 import { AddMemoryParams, MemoryResult, SearchMemoryParams } from '../memory/types';
 
 /**
+ * Agent communication types for multi-agent interactions
+ */
+export enum AgentCommunicationType {
+  DIRECT_MESSAGE = 'DIRECT_MESSAGE',
+  BROADCAST = 'BROADCAST',
+  TASK_DELEGATION = 'TASK_DELEGATION',
+  KNOWLEDGE_SHARING = 'KNOWLEDGE_SHARING',
+  STATUS_UPDATE = 'STATUS_UPDATE',
+  COLLABORATION_REQUEST = 'COLLABORATION_REQUEST'
+}
+
+/**
+ * Agent memory access levels for multi-agent systems
+ */
+export enum AgentMemoryAccessLevel {
+  PRIVATE = 'PRIVATE',     // Only the agent itself
+  TEAM = 'TEAM',          // Agent's team members
+  PUBLIC = 'PUBLIC',      // All agents
+  RESTRICTED = 'RESTRICTED' // Specific agents only
+}
+
+/**
  * Enhanced memory point with top-level indexable fields
  * This implements the dual-field approach for improved query performance
  */
@@ -157,6 +179,16 @@ export class EnhancedMemoryService extends MemoryService {
         } as unknown as T
       };
 
+      // DEBUG: Log the exact structure being sent to Qdrant
+      console.log('🐛 DEBUG: About to send to Qdrant:', {
+        collection: collectionConfig.name,
+        pointId: qdrantCompatiblePoint.id,
+        hasVector: Array.isArray(qdrantCompatiblePoint.vector),
+        vectorLength: qdrantCompatiblePoint.vector?.length,
+        payloadKeys: Object.keys(qdrantCompatiblePoint.payload || {}),
+        payloadStructure: JSON.stringify(qdrantCompatiblePoint, null, 2).substring(0, 500) + '...'
+      });
+
       // Add to collection using Qdrant-compatible structure
       await this.memoryClient.addPoint(collectionConfig.name, qdrantCompatiblePoint);
 
@@ -186,23 +218,36 @@ export class EnhancedMemoryService extends MemoryService {
 
     const fields: Record<string, string> = {};
 
-    // User and conversation context
-    if (metadata.userId && typeof metadata.userId === 'object') {
-      fields.userId = this.getIdString(metadata.userId);
-    }
-
-    // CRITICAL FIX: Handle both string and object forms of agentId
-    // Cognitive processes use string agentId, while messages use object agentId
-    if (metadata.agentId) {
-      if (typeof metadata.agentId === 'object') {
-        fields.agentId = this.getIdString(metadata.agentId);
-      } else if (typeof metadata.agentId === 'string') {
-        fields.agentId = metadata.agentId;
+    try {
+      // User and conversation context
+      if (metadata.userId && typeof metadata.userId === 'object') {
+        const userIdString = this.getIdString(metadata.userId);
+        console.log('🔍 DEBUG userId conversion:', { original: metadata.userId, converted: userIdString });
+        fields.userId = userIdString;
       }
-    }
 
-    if (metadata.chatId && typeof metadata.chatId === 'object') {
-      fields.chatId = this.getIdString(metadata.chatId);
+      // CRITICAL FIX: Handle both string and object forms of agentId
+      // Cognitive processes use string agentId, while messages use object agentId
+      if (metadata.agentId) {
+        if (typeof metadata.agentId === 'object') {
+          const agentIdString = this.getIdString(metadata.agentId);
+          console.log('🔍 DEBUG agentId conversion:', { original: metadata.agentId, converted: agentIdString });
+          fields.agentId = agentIdString;
+        } else if (typeof metadata.agentId === 'string') {
+          console.log('🔍 DEBUG agentId (string):', metadata.agentId);
+          fields.agentId = metadata.agentId;
+        }
+      }
+
+      if (metadata.chatId && typeof metadata.chatId === 'object') {
+        const chatIdString = this.getIdString(metadata.chatId);
+        console.log('🔍 DEBUG chatId conversion:', { original: metadata.chatId, converted: chatIdString });
+        fields.chatId = chatIdString;
+      }
+    } catch (error) {
+      console.error('🚨 ERROR in extractIndexableFields:', error, { metadata });
+      // Continue with empty fields rather than crashing
+      return {};
     }
 
     // Thread and message info
