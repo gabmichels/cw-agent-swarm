@@ -818,4 +818,243 @@ model SystemIntegrationConfig {
   
   @@index([providerId])
   @@index([isEnabled])
-} 
+}
+
+// ============================================================================
+// ERROR LOGGING AND COMMUNICATION SYSTEM
+// ============================================================================
+
+model ErrorType {
+  id          String   @id @default(uuid())
+  name        String   @unique // TOOL_EXECUTION, API_FAILURE, PERMISSION_DENIED, WORKSPACE_CONNECTION, DATABASE_ERROR, VALIDATION_ERROR, AUTHENTICATION_ERROR, RATE_LIMIT_ERROR, NETWORK_ERROR, EXTERNAL_SERVICE_ERROR
+  description String?
+  category    String   // SYSTEM, USER_ACTION, EXTERNAL, INTERNAL
+  severity    String   // References ErrorSeverity.name
+  isRetryable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+  @@index([category])
+  @@index([severity])
+  @@index([isRetryable])
+}
+
+model ErrorSeverity {
+  id          String   @id @default(uuid())
+  name        String   @unique // LOW, MEDIUM, HIGH, CRITICAL, EMERGENCY
+  description String?
+  priority    Int      @unique // Numeric priority for sorting (1=highest, 5=lowest)
+  color       String?  // Hex color for UI display
+  
+  // Notification settings
+  requiresImmediateNotification Boolean @default(false)
+  requiresEscalation           Boolean @default(false)
+  escalationTimeoutMinutes     Int?    // Minutes before escalation
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+  @@index([priority])
+}
+
+model ErrorStatus {
+  id          String   @id @default(uuid())
+  name        String   @unique // NEW, IN_PROGRESS, RETRYING, RESOLVED, IGNORED, ESCALATED, FAILED_PERMANENTLY
+  description String?
+  isFinal     Boolean  @default(false) // Cannot transition from final states
+  color       String?  // Hex color for UI display
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+  @@index([isFinal])
+}
+
+model ErrorLog {
+  id                String   @id @default(uuid()) // Using ULID in service layer
+  errorType         String   // References ErrorType.name
+  severity          String   // References ErrorSeverity.name  
+  status            String   // References ErrorStatus.name
+  
+  // Context information
+  agentId           String?
+  userId            String?
+  sessionId         String?
+  conversationId    String?
+  toolId            String?
+  operation         String?   // High-level operation being performed
+  component         String?   // System component where error occurred
+  
+  // Error details
+  message           String    // Primary error message
+  userMessage       String?   // User-friendly message (if different)
+  stackTrace        String?   // Technical stack trace
+  errorCode         String?   // Specific error code
+  errorData         String?   // JSON metadata
+  
+  // Request/Response context
+  requestId         String?   // Request ID for tracing
+  requestUrl        String?   // URL if applicable
+  httpStatusCode    Int?      // HTTP status if applicable
+  
+  // Retry tracking
+  retryAttempt      Int      @default(0)
+  maxRetries        Int      @default(3)
+  retryStrategy     String?  // EXPONENTIAL_BACKOFF, LINEAR, IMMEDIATE
+  lastRetryAt       DateTime?
+  nextRetryAt       DateTime?
+  
+  // Resolution tracking
+  resolvedAt        DateTime?
+  resolvedBy        String?   // User ID or system component
+  resolutionMethod  String?   // AUTO_RETRY, MANUAL_FIX, USER_ACTION, IGNORE
+  resolutionNotes   String?
+  
+  // User communication
+  userNotified      Boolean  @default(false)
+  notificationSent  DateTime?
+  notificationId    String?   // Reference to notification record
+  
+  // Related errors
+  parentErrorId     String?   // Parent error that caused this one
+  rootCauseErrorId  String?   // Root cause in error chain
+  
+  // Performance impact
+  impactedOperations String?  // JSON array of impacted operations
+  estimatedImpact   String?   // LOW, MEDIUM, HIGH, CRITICAL
+  
+  // System metadata
+  serverInstance    String?   // Server/container instance
+  version           String?   // Application version
+  environment       String?   // dev, staging, production
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  childErrors       ErrorLog[] @relation("ErrorHierarchy")
+  parentError       ErrorLog?  @relation("ErrorHierarchy", fields: [parentErrorId], references: [id])
+  resolutions       ErrorResolution[]
+  notifications     ErrorNotificationLog[]
+  
+  @@index([agentId])
+  @@index([userId])
+  @@index([sessionId])
+  @@index([conversationId])
+  @@index([errorType])
+  @@index([severity])
+  @@index([status])
+  @@index([operation])
+  @@index([component])
+  @@index([createdAt])
+  @@index([resolvedAt])
+  @@index([retryAttempt])
+  @@index([parentErrorId])
+  @@index([rootCauseErrorId])
+  @@index([requestId])
+  @@index([environment])
+}
+
+model ErrorResolution {
+  id              String   @id @default(uuid())
+  errorLogId      String
+  resolutionType  String   // AUTO_RETRY_SUCCESS, MANUAL_FIX, USER_WORKAROUND, SYSTEM_RECOVERY, ESCALATION
+  description     String
+  actionsTaken    String?  // JSON array of actions taken
+  success         Boolean  @default(true)
+  appliedBy       String?  // User ID or system component
+  timeToResolve   Int?     // Minutes to resolve
+  preventionNotes String?  // How to prevent in future
+  
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  errorLog        ErrorLog @relation(fields: [errorLogId], references: [id])
+  
+  @@index([errorLogId])
+  @@index([resolutionType])
+  @@index([success])
+  @@index([createdAt])
+}
+
+model ErrorPattern {
+  id                String   @id @default(uuid())
+  name              String   @unique
+  description       String
+  pattern           String   // Regex or JSON pattern definition
+  errorType         String   // References ErrorType.name
+  severity          String   // References ErrorSeverity.name
+  
+  // Pattern matching criteria
+  messagePattern    String?  // Regex for error message
+  componentPattern  String?  // Regex for component
+  operationPattern  String?  // Regex for operation
+  
+  // Auto-resolution settings
+  autoRetryEnabled  Boolean  @default(false)
+  maxAutoRetries    Int      @default(3)
+  retryStrategy     String?  // EXPONENTIAL_BACKOFF, LINEAR, IMMEDIATE
+  
+  // Notification settings
+  notifyUsers       Boolean  @default(true)
+  notifyAdmins      Boolean  @default(false)
+  escalateAfter     Int?     // Minutes before escalation
+  
+  // Pattern statistics
+  matchCount        Int      @default(0)
+  lastMatched       DateTime?
+  resolutionRate    Float?   // Percentage of successful resolutions
+  
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([errorType])
+  @@index([severity])
+  @@index([isActive])
+  @@index([lastMatched])
+}
+
+model ErrorNotificationLog {
+  id                String   @id @default(uuid())
+  errorLogId        String
+  notificationType  String   // USER_NOTIFICATION, ADMIN_ALERT, ESCALATION, RETRY_PROGRESS
+  recipientType     String   // USER, ADMIN, SYSTEM
+  recipientId       String?  // User ID or system identifier
+  
+  // Notification details
+  title             String
+  message           String
+  channel           String   // EMAIL, SMS, PUSH, WEBSOCKET, SLACK
+  sent              Boolean  @default(false)
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  
+  // Delivery tracking
+  attempts          Int      @default(0)
+  maxAttempts       Int      @default(3)
+  lastAttemptAt     DateTime?
+  failureReason     String?
+  
+  // Notification metadata
+  priority          String   // LOW, NORMAL, HIGH, URGENT
+  metadata          String?  // JSON metadata
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  errorLog          ErrorLog @relation(fields: [errorLogId], references: [id])
+  
+  @@index([errorLogId])
+  @@index([notificationType])
+  @@index([recipientType])
+  @@index([recipientId])
+  @@index([sent])
+  @@index([channel])
+  @@index([createdAt])
+}
+
