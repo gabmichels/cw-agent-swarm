@@ -337,6 +337,46 @@ export class ErrorFactory {
         return UserImpactLevel.MEDIUM;
     }
   }
+
+  /**
+   * Create a tool execution error
+   */
+  static createToolExecutionError(input: Omit<ErrorInput, 'type'>): BaseError {
+    return ErrorFactory.createError({
+      ...input,
+      type: ErrorType.TOOL_EXECUTION
+    });
+  }
+
+  /**
+   * Create a workspace permission error
+   */
+  static createWorkspacePermissionError(input: Omit<ErrorInput, 'type'>): BaseError {
+    return ErrorFactory.createError({
+      ...input,
+      type: ErrorType.PERMISSION_DENIED
+    });
+  }
+
+  /**
+   * Create an API failure error
+   */
+  static createApiFailureError(input: Omit<ErrorInput, 'type'>): BaseError {
+    return ErrorFactory.createError({
+      ...input,
+      type: ErrorType.API_FAILURE
+    });
+  }
+
+  /**
+   * Create a network error
+   */
+  static createNetworkError(input: Omit<ErrorInput, 'type'>): BaseError {
+    return ErrorFactory.createError({
+      ...input,
+      type: ErrorType.NETWORK_ERROR
+    });
+  }
 }
 
 /**

@@ -11,16 +11,15 @@
  */
 
 import { ulid } from 'ulid';
+import { ILogger } from '../../lib/core/logger';
 import {
   BaseError,
-  ErrorType,
-  ErrorSeverity,
-  ErrorStatus,
   ErrorCategory,
-  UserImpactLevel,
-  RetryStrategy
+  ErrorSeverity,
+  ErrorType,
+  RetryStrategy,
+  UserImpactLevel
 } from '../../lib/errors/types/BaseError';
-import { ILogger } from '../../lib/core/ILogger';
 
 /**
  * Error pattern interface for matching known errors
@@ -401,7 +400,7 @@ export class DefaultErrorClassificationEngine implements IErrorClassificationEng
     switch (error.type) {
       case ErrorType.TOOL_EXECUTION:
         suggestions.push('Try the operation again in a few moments');
-        if (error.context.toolName) {
+        if ('toolName' in error.context && error.context.toolName) {
           suggestions.push(`Check if ${error.context.toolName} service is accessible`);
         }
         break;

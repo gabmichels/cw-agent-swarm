@@ -184,6 +184,14 @@ export class ToolExecutionContextBuilder extends BaseErrorContextBuilder<ToolExe
   }
 
   /**
+   * Set timestamp
+   */
+  withTimestamp(timestamp: Date): this {
+    (this.context as any).timestamp = new Date(timestamp);
+    return this;
+  }
+
+  /**
    * Validate tool execution context
    */
   protected validate(): readonly string[] {
@@ -446,6 +454,14 @@ export class ToolExecutionMetadataBuilder {
    */
   withLastSuccessAt(successAt: Date): this {
     this.metadata.lastSuccessAt = successAt.toISOString();
+    return this;
+  }
+
+  /**
+   * Set execution time in milliseconds
+   */
+  withExecutionTime(timeMs: number): this {
+    this.metadata.executionTime = Math.max(0, timeMs);
     return this;
   }
 

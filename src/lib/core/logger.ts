@@ -4,6 +4,13 @@
 
 type LogArgument = string | number | boolean | object | null | undefined;
 
+export interface ILogger {
+  debug: (message: string, ...args: LogArgument[]) => void;
+  info: (message: string, ...args: LogArgument[]) => void;
+  warn: (message: string, ...args: LogArgument[]) => void;
+  error: (message: string, ...args: LogArgument[]) => void;
+}
+
 interface Logger {
   debug: (message: string, ...args: LogArgument[]) => void;
   info: (message: string, ...args: LogArgument[]) => void;

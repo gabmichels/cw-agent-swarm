@@ -6,22 +6,23 @@
  */
 
 import { ulid } from 'ulid';
-import { Task, TaskStatus, TaskScheduleType, createTask } from '../models/Task.model';
-import { TaskExecutionResult } from '../models/TaskExecutionResult.model';
-import { TaskFilter } from '../models/TaskFilter.model';
+import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
+import { BaseManager, ManagerConfig } from '../../../agents/shared/base/managers/BaseManager';
+import { ManagerHealth } from '../../../agents/shared/base/managers/ManagerHealth';
+import { ManagerType } from '../../../agents/shared/base/managers/ManagerType';
+import { createLogger } from '../../logging/winston-logger';
+import { getSchedulerCoordinator } from '../coordination/SchedulerCoordinator';
+import { SchedulerError } from '../errors/SchedulerError';
+import { DateTimeProcessor } from '../interfaces/DateTimeProcessor.interface';
 import { SchedulerManager } from '../interfaces/SchedulerManager.interface';
+import { TaskExecutor } from '../interfaces/TaskExecutor.interface';
 import { TaskRegistry } from '../interfaces/TaskRegistry.interface';
 import { TaskScheduler } from '../interfaces/TaskScheduler.interface';
-import { TaskExecutor } from '../interfaces/TaskExecutor.interface';
-import { DateTimeProcessor } from '../interfaces/DateTimeProcessor.interface';
-import { SchedulerConfig, DEFAULT_SCHEDULER_CONFIG } from '../models/SchedulerConfig.model';
+import { DEFAULT_SCHEDULER_CONFIG, SchedulerConfig } from '../models/SchedulerConfig.model';
 import { SchedulerMetrics } from '../models/SchedulerMetrics.model';
-import { SchedulerError } from '../errors/SchedulerError';
-import { BaseManager, ManagerConfig } from '../../../agents/shared/base/managers/BaseManager';
-import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
-import { ManagerType } from '../../../agents/shared/base/managers/ManagerType';
-import { ManagerHealth } from '../../../agents/shared/base/managers/ManagerHealth';
-import { createLogger, getManagerLogger } from '@/lib/logging/winston-logger';
+import { Task, TaskScheduleType, TaskStatus, createTask } from '../models/Task.model';
+import { TaskExecutionResult } from '../models/TaskExecutionResult.model';
+import { TaskFilter } from '../models/TaskFilter.model';
 
 /**
  * Implementation of the SchedulerManager interface that orchestrates
@@ -45,17 +46,17 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
   private agent!: AgentBase;
   private enabled = true;
   private logger: ReturnType<typeof createLogger>;
-  
+
   // Cache for frequently accessed metrics to reduce database queries
   private metricsCache: {
     lastUpdate: Date;
     data: Partial<SchedulerMetrics>;
     ttlMs: number;
   } = {
-    lastUpdate: new Date(0), // Initialize with epoch to force first update
-    data: {},
-    ttlMs: 30000 // Cache metrics for 30 seconds by default
-  };
+      lastUpdate: new Date(0), // Initialize with epoch to force first update
+      data: {},
+      ttlMs: 30000 // Cache metrics for 30 seconds by default
+    };
 
   /**
    * Create a new ModularSchedulerManager
@@ -86,13 +87,13 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     if (agent) {
       this.agent = agent;
     }
-    
+
     // Initialize logger
     this.logger = createLogger({
       moduleId: this.id,
       agentId: agent?.getId() ?? ''
     });
-    
+
     this.logger.info("ModularSchedulerManager constructor called", {
       managerId: this.id,
       agentId: agent?.getId(),
@@ -109,10 +110,10 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error during initialization
    */
   async initialize(configOrAgent?: Partial<SchedulerConfig> | AgentBase): Promise<boolean> {
-    this.logger.info("Initializing scheduler manager", { 
+    this.logger.info("Initializing scheduler manager", {
       managerId: this.id
     });
-    
+
     try {
       // Handle both agent and config parameters for compatibility with BaseManager
       if (configOrAgent instanceof Object && 'getAgentId' in configOrAgent) {
@@ -147,7 +148,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -174,26 +175,26 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       scheduledTime: task.scheduledTime,
       hasAgent: !!this.agent
     });
-    
+
     try {
       // If we have an agent, automatically scope the task to that agent
       if (this.agent) {
         const agentId = this.agent.getId();
         console.log(`🎯 createTask: Auto-scoping task to agent ${agentId}`);
-        
+
         // Process the task normally first (handle vague temporal expressions, etc.)
         const processedTask = await this.processTaskForCreation(task);
-        
+
         // Then create it for the specific agent
         return await this.createTaskForAgentInternal(processedTask, agentId);
       }
-      
+
       // No agent, create task normally
       console.log(`🌐 createTask: No agent set, creating task without agent scope`);
       const result = await this.processTaskForCreation(task);
       console.log(`✅ createTask completed successfully, task ID: ${result.id}`);
       return result;
-      
+
     } catch (error) {
       this.logger.error("Failed to create task", {
         taskId: task.id,
@@ -201,7 +202,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -217,13 +218,13 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * This is the core task processing logic extracted from the original createTask method.
    */
   private async processTaskForCreation(task: Task): Promise<Task> {
-      // Handle vague temporal expressions if present
-      let scheduledTime = task.scheduledTime;
-      let priority = task.priority ?? this.config.defaultPriority;
-      
-      if (task.scheduleType === TaskScheduleType.EXPLICIT && 
-          typeof task.scheduledTime === 'string') {
-      
+    // Handle vague temporal expressions if present
+    let scheduledTime = task.scheduledTime;
+    let priority = task.priority ?? this.config.defaultPriority;
+
+    if (task.scheduleType === TaskScheduleType.EXPLICIT &&
+      typeof task.scheduledTime === 'string') {
+
       // 🔍 DEBUG: Add comprehensive time parsing logs
       const currentTime = new Date();
       this.logger.info("🔍 TIMING DEBUG: Starting scheduled time parsing", {
@@ -232,19 +233,19 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         currentTime: currentTime.toISOString(),
         currentTimeMs: currentTime.getTime()
       });
-      
+
       this.logger.info("Processing vague temporal expression", {
         taskId: task.id,
         originalScheduledTime: task.scheduledTime
       });
-      
-        // Try to parse as vague temporal expression
-        const vagueResult = this.dateTimeProcessor.translateVagueTerm(task.scheduledTime);
-        
-        if (vagueResult) {
-          // Use the date and priority from the vague term
-          if (vagueResult.date) {
-            scheduledTime = vagueResult.date;
+
+      // Try to parse as vague temporal expression
+      const vagueResult = this.dateTimeProcessor.translateVagueTerm(task.scheduledTime);
+
+      if (vagueResult) {
+        // Use the date and priority from the vague term
+        if (vagueResult.date) {
+          scheduledTime = vagueResult.date;
           this.logger.info("✅ TIMING DEBUG: Vague term translated to date", {
             taskId: task.id,
             originalTerm: task.scheduledTime,
@@ -254,24 +255,24 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
             timeDifferenceMs: vagueResult.date.getTime() - currentTime.getTime(),
             timeDifferenceMin: (vagueResult.date.getTime() - currentTime.getTime()) / 60000
           });
-          }
-          priority = vagueResult.priority;
-        } else {
-          this.logger.info("❌ TIMING DEBUG: Vague term parsing failed, trying natural language", {
-            taskId: task.id,
-            originalTerm: task.scheduledTime
-          });
-          
-          // Try to parse as natural language date
-          let parsedDate = this.dateTimeProcessor.parseNaturalLanguage(task.scheduledTime);
-          
-          // Handle both sync and async versions
-          if (parsedDate instanceof Promise) {
-            parsedDate = await parsedDate;
-          }
-          
-          if (parsedDate) {
-            scheduledTime = parsedDate;
+        }
+        priority = vagueResult.priority;
+      } else {
+        this.logger.info("❌ TIMING DEBUG: Vague term parsing failed, trying natural language", {
+          taskId: task.id,
+          originalTerm: task.scheduledTime
+        });
+
+        // Try to parse as natural language date
+        let parsedDate = this.dateTimeProcessor.parseNaturalLanguage(task.scheduledTime);
+
+        // Handle both sync and async versions
+        if (parsedDate instanceof Promise) {
+          parsedDate = await parsedDate;
+        }
+
+        if (parsedDate) {
+          scheduledTime = parsedDate;
           this.logger.info("✅ TIMING DEBUG: Natural language date parsed", {
             taskId: task.id,
             originalTerm: task.scheduledTime,
@@ -280,76 +281,76 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
             timeDifferenceMs: parsedDate.getTime() - currentTime.getTime(),
             timeDifferenceMin: (parsedDate.getTime() - currentTime.getTime()) / 60000
           });
-          } else {
-            this.logger.info("❌ TIMING DEBUG: Natural language parsing failed, trying interval", {
-              taskId: task.id,
-              originalTerm: task.scheduledTime
-            });
-            
-            // Try to parse as interval (e.g. "2m", "5h", "1d")
-            try {
-              const intervalDate = this.dateTimeProcessor.calculateInterval(new Date(), task.scheduledTime);
-              if (intervalDate) {
-                scheduledTime = intervalDate;
-                this.logger.info("✅ TIMING DEBUG: Interval expression parsed", {
-                  taskId: task.id,
-                  originalTerm: task.scheduledTime,
-                  calculatedDate: intervalDate.toISOString(),
-                  calculatedDateMs: intervalDate.getTime(),
-                  timeDifferenceMs: intervalDate.getTime() - currentTime.getTime(),
-                  timeDifferenceMin: (intervalDate.getTime() - currentTime.getTime()) / 60000
-                });
-              } else {
-                this.logger.error("❌ TIMING DEBUG: Interval calculation returned null", {
-                  taskId: task.id,
-                  originalTerm: task.scheduledTime
-                });
-              }
-            } catch (error) {
-              this.logger.warn("❌ TIMING DEBUG: Failed to parse as interval", {
+        } else {
+          this.logger.info("❌ TIMING DEBUG: Natural language parsing failed, trying interval", {
+            taskId: task.id,
+            originalTerm: task.scheduledTime
+          });
+
+          // Try to parse as interval (e.g. "2m", "5h", "1d")
+          try {
+            const intervalDate = this.dateTimeProcessor.calculateInterval(new Date(), task.scheduledTime);
+            if (intervalDate) {
+              scheduledTime = intervalDate;
+              this.logger.info("✅ TIMING DEBUG: Interval expression parsed", {
                 taskId: task.id,
                 originalTerm: task.scheduledTime,
-                error: error instanceof Error ? error.message : String(error)
+                calculatedDate: intervalDate.toISOString(),
+                calculatedDateMs: intervalDate.getTime(),
+                timeDifferenceMs: intervalDate.getTime() - currentTime.getTime(),
+                timeDifferenceMin: (intervalDate.getTime() - currentTime.getTime()) / 60000
+              });
+            } else {
+              this.logger.error("❌ TIMING DEBUG: Interval calculation returned null", {
+                taskId: task.id,
+                originalTerm: task.scheduledTime
               });
             }
+          } catch (error) {
+            this.logger.warn("❌ TIMING DEBUG: Failed to parse as interval", {
+              taskId: task.id,
+              originalTerm: task.scheduledTime,
+              error: error instanceof Error ? error.message : String(error)
+            });
           }
         }
-        
-        // 🔍 DEBUG: Final scheduled time summary
-        this.logger.info("🎯 TIMING DEBUG: Final scheduled time result", {
-          taskId: task.id,
-          originalTerm: task.scheduledTime,
-          finalScheduledTime: scheduledTime instanceof Date ? scheduledTime.toISOString() : scheduledTime,
-          finalScheduledTimeMs: scheduledTime instanceof Date ? scheduledTime.getTime() : null,
-          isInFuture: scheduledTime instanceof Date ? scheduledTime > currentTime : null,
-          secondsFromNow: scheduledTime instanceof Date ? Math.round((scheduledTime.getTime() - currentTime.getTime()) / 1000) : null
-        });
       }
 
-      // Apply default values
-      const taskWithDefaults = createTask({
-        ...task,
-        scheduledTime,
-        priority
+      // 🔍 DEBUG: Final scheduled time summary
+      this.logger.info("🎯 TIMING DEBUG: Final scheduled time result", {
+        taskId: task.id,
+        originalTerm: task.scheduledTime,
+        finalScheduledTime: scheduledTime instanceof Date ? scheduledTime.toISOString() : scheduledTime,
+        finalScheduledTimeMs: scheduledTime instanceof Date ? scheduledTime.getTime() : null,
+        isInFuture: scheduledTime instanceof Date ? scheduledTime > currentTime : null,
+        secondsFromNow: scheduledTime instanceof Date ? Math.round((scheduledTime.getTime() - currentTime.getTime()) / 1000) : null
       });
-    
+    }
+
+    // Apply default values
+    const taskWithDefaults = createTask({
+      ...task,
+      scheduledTime,
+      priority
+    });
+
     this.logger.info("Task processed with defaults", {
       taskId: taskWithDefaults.id,
       finalScheduledTime: taskWithDefaults.scheduledTime,
       finalPriority: taskWithDefaults.priority,
       hasMetadata: !!taskWithDefaults.metadata
-      });
-      
-      // Store the task in the registry
+    });
+
+    // Store the task in the registry
     const storedTask = await this.registry.storeTask(taskWithDefaults);
-    
+
     this.logger.success("Task created successfully", {
       taskId: storedTask.id,
       taskName: storedTask.name,
       status: storedTask.status,
       createdAt: storedTask.createdAt
     });
-    
+
     return storedTask;
   }
 
@@ -360,7 +361,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
   private async createTaskForAgentInternal(task: Task, agentId: string): Promise<Task> {
     // Ensure metadata exists
     const metadata = task.metadata || {};
-    
+
     // Set the agent ID in metadata
     const taskWithAgentId: Task = {
       ...task,
@@ -373,22 +374,22 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         }
       }
     };
-    
+
     this.logger.info("Task prepared with agent metadata", {
       taskId: task.id,
       agentId,
       metadataKeys: Object.keys(taskWithAgentId.metadata || {})
     });
-    
+
     // Update the existing task with agent metadata instead of storing a new one
     const storedTask = await this.registry.updateTask(taskWithAgentId);
-    
+
     this.logger.success("Task updated for agent successfully", {
       taskId: storedTask.id,
       agentId,
       status: storedTask.status
     });
-    
+
     return storedTask;
   }
 
@@ -406,24 +407,24 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       status: task.status,
       priority: task.priority
     });
-    
+
     try {
       const updatedTask = await this.registry.updateTask(task);
-      
+
       this.logger.success("Task updated successfully", {
         taskId: updatedTask.id,
         taskName: updatedTask.name,
         status: updatedTask.status,
         updatedAt: updatedTask.updatedAt
       });
-      
+
       return updatedTask;
     } catch (error) {
       this.logger.error("Failed to update task", {
         taskId: task.id,
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -443,23 +444,23 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async deleteTask(taskId: string): Promise<boolean> {
     this.logger.info("Deleting task", { taskId });
-    
+
     try {
       const result = await this.registry.deleteTask(taskId);
-      
+
       if (result) {
         this.logger.success("Task deleted successfully", { taskId });
       } else {
         this.logger.warn("Task deletion returned false", { taskId });
       }
-      
+
       return result;
     } catch (error) {
       this.logger.error("Failed to delete task", {
         taskId,
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -479,10 +480,10 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async getTask(taskId: string): Promise<Task | null> {
     this.logger.info("Retrieving task", { taskId });
-    
+
     try {
       const task = await this.registry.getTaskById(taskId);
-      
+
       if (task) {
         this.logger.info("Task retrieved successfully", {
           taskId,
@@ -492,14 +493,14 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       } else {
         this.logger.info("Task not found", { taskId });
       }
-      
+
       return task;
     } catch (error) {
       this.logger.error("Failed to get task", {
         taskId,
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -523,7 +524,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       filterKeys: Object.keys(filter),
       hasAgent: !!this.agent
     });
-    
+
     try {
       // If we have an agent, automatically scope to that agent
       if (this.agent) {
@@ -531,24 +532,24 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         console.log(`🎯 findTasks: Auto-scoping to agent ${agentId}`);
         return await this.findTasksForAgent(agentId, filter);
       }
-      
+
       // No agent, find all tasks matching the filter
       console.log(`🌐 findTasks: No agent set, finding all tasks`);
       const tasks = await this.registry.findTasks(filter);
-      
+
       this.logger.info("Tasks found", {
         taskCount: tasks.length,
         filter,
         taskIds: tasks.map(t => t.id).slice(0, 10) // Log first 10 task IDs
       });
-      
+
       return tasks;
     } catch (error) {
       this.logger.error("Failed to find tasks", {
         filter,
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -570,13 +571,13 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
   async findTasksForAgent(agentId: string, filter: TaskFilter = {}): Promise<Task[]> {
     // Change frequent task checking log to debug level to reduce noise
     this.logger.debug(`Checking tasks for ${agentId}`);
-    
+
     // Change detailed logging to debug level
     this.logger.debug("Finding tasks for agent", {
       agentId,
       additionalFilter: filter
     });
-    
+
     try {
       const combinedFilter: TaskFilter = {
         ...filter,
@@ -587,16 +588,16 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           }
         }
       };
-      
+
       const tasks = await this.registry.findTasks(combinedFilter);
-      
+
       // Change detailed task results to debug level
       this.logger.debug("Agent tasks found", {
         agentId,
         taskCount: tasks.length,
         taskIds: tasks.map(t => t.id).slice(0, 5) // Log first 5 task IDs
       });
-      
+
       return tasks;
     } catch (error) {
       this.logger.error("Error finding tasks for agent", {
@@ -604,7 +605,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         filter,
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -627,21 +628,21 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       agentId,
       scheduleType: task.scheduleType
     });
-    
+
     try {
       // Process the task normally first (handle vague temporal expressions, etc.)
       const processedTask = await this.processTaskForCreation(task);
-      
+
       // Then create it for the specific agent
       return await this.createTaskForAgentInternal(processedTask, agentId);
-      
+
     } catch (error) {
       this.logger.error("Error creating task for agent", {
         taskId: task.id,
         agentId,
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -656,7 +657,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @throws {SchedulerError} If there's an error during scheduled execution
    */
   async executeDueTasks(): Promise<TaskExecutionResult[]> {
-      const startTime = Date.now();
+    const startTime = Date.now();
     this.logger.debug("Starting execution of due tasks", {
       schedulingIteration: this.schedulingIterations + 1
     });
@@ -694,19 +695,19 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         taskCount: dueTasks.length,
         maxConcurrentTasks: this.config.maxConcurrentTasks
       });
-      
+
       // CRITICAL FIX: Immediately mark tasks as RUNNING to prevent re-execution
       // This prevents race conditions where the same task gets picked up by multiple scheduler cycles
       this.logger.debug("Marking due tasks as RUNNING to prevent re-execution", {
         taskIds: dueTasks.map(t => t.id)
       });
-      
+
       const runningTasks = dueTasks.map(task => ({
         ...task,
         status: TaskStatus.RUNNING,
         updatedAt: new Date()
       }));
-      
+
       // Update tasks to RUNNING status immediately
       for (const task of runningTasks) {
         try {
@@ -718,16 +719,16 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           });
         }
       }
-      
+
       // Execute the due tasks (now marked as RUNNING)
       const results = await this.executor.executeTasks(
         runningTasks,
         this.config.maxConcurrentTasks
       );
 
-              // Log task completion details
-        results.forEach((result, index) => {
-          const task = runningTasks[index];
+      // Log task completion details
+      results.forEach((result, index) => {
+        const task = runningTasks[index];
         if (result.successful) {
           this.logger.info("Task completed successfully", {
             taskId: task.id,
@@ -817,7 +818,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -837,19 +838,19 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async executeDueTasksForAgent(agentId: string): Promise<TaskExecutionResult[]> {
     this.logger.debug("Executing due tasks for specific agent", { agentId });
-    
+
     try {
       // Find pending tasks for the agent
       const pendingTasks = await this.findTasksForAgent(agentId, {
         status: TaskStatus.PENDING
       });
-      
+
       // Change task fetch results to debug level to reduce console noise
       this.logger.debug("Tasks fetched for agent", {
         agentId,
         pendingTaskCount: pendingTasks.length
       });
-      
+
       // TEMPORARY DEBUG: Let's also check if there are ANY pending tasks (regardless of agent)
       if (pendingTasks.length === 0) {
         this.logger.debug("No tasks found for agent, checking all pending tasks", {
@@ -870,49 +871,49 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           taskNames: allPendingTasks.map(t => t.name).slice(0, 5)
         });
       }
-      
+
       if (!pendingTasks.length) {
         this.logger.debug("No pending tasks found for agent", { agentId });
         return [];
       }
-      
+
       // Get due tasks from the pending tasks
       const dueTasks = await this.scheduler.getDueTasks(pendingTasks);
-      
+
       this.logger.info("Tasks ready for execution", {
         agentId,
         totalPending: pendingTasks.length,
         dueTaskCount: dueTasks.length
       });
-      
+
       if (!dueTasks.length) {
         this.logger.debug("No tasks are due for agent", { agentId });
         return [];
       }
-      
+
       // SMART SCHEDULING: Order tasks by priority and limit by capacity
       const orderedTasks = this.orderTasksByPriority(dueTasks);
       const tasksToExecute = orderedTasks.slice(0, this.config.maxConcurrentTasks);
-      
+
       this.logger.debug("Smart scheduling applied", {
         agentId,
         totalDueTasks: dueTasks.length,
         tasksSelectedForExecution: tasksToExecute.length,
         maxConcurrentTasks: this.config.maxConcurrentTasks
       });
-      
+
       // CRITICAL FIX: Immediately mark tasks as RUNNING to prevent re-execution
       this.logger.debug("Marking due tasks as RUNNING to prevent re-execution", {
         agentId,
         taskIds: tasksToExecute.map(t => t.id)
       });
-      
+
       const runningTasks = tasksToExecute.map(task => ({
         ...task,
         status: TaskStatus.RUNNING,
         updatedAt: new Date()
       }));
-      
+
       // Update tasks to RUNNING status immediately
       for (const task of runningTasks) {
         try {
@@ -924,10 +925,10 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           });
         }
       }
-      
+
       // Execute the due tasks (now marked as RUNNING)
       const results = await this.executor.executeTasks(runningTasks, this.config.maxConcurrentTasks);
-      
+
       // Log task completion details for each task
       results.forEach((result, index) => {
         const task = runningTasks[index];
@@ -1009,7 +1010,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         agentId,
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -1026,11 +1027,11 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async executeTaskNow(taskId: string): Promise<TaskExecutionResult> {
     this.logger.info("Executing task immediately", { taskId });
-    
+
     try {
       // Get the task
       const task = await this.registry.getTaskById(taskId);
-      
+
       if (!task) {
         this.logger.error("Task not found for immediate execution", { taskId });
         throw new SchedulerError(`Task with ID ${taskId} not found`, 'TASK_NOT_FOUND');
@@ -1087,7 +1088,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -1109,7 +1110,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       schedulingIntervalMs: this.config.schedulingIntervalMs,
       maxConcurrentTasks: this.config.maxConcurrentTasks
     });
-    
+
     try {
       if (this.running) {
         this.logger.warn("Scheduler is already running");
@@ -1119,45 +1120,48 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       this.running = true;
       this.startTime = new Date();
 
-      // Execute the scheduling loop
-      const scheduleLoop = async () => {
-        if (!this.running) {
-          this.logger.info("Scheduler loop exiting - not running");
-          return;
-        }
+      // FIXED: Register with the centralized coordinator instead of creating our own timer
+      if (this.agent) {
+        const coordinator = getSchedulerCoordinator();
+        coordinator.registerScheduler(this.agent.getId(), this);
 
-        try {
-          this.logger.debug("Executing scheduling loop");
-          
-          // Execute tasks for the specific agent if we have one, otherwise execute all tasks
-          if (this.agent) {
-            const agentId = this.agent.getId();
-            await this.executeDueTasksForAgent(agentId);
-          } else {
-            await this.executeDueTasks();
+        this.logger.success("Scheduler registered with coordinator", {
+          agentId: this.agent.getId(),
+          startTime: this.startTime,
+          schedulingIntervalMs: this.config.schedulingIntervalMs
+        });
+      } else {
+        this.logger.warn("No agent set - cannot register with coordinator, falling back to individual timer");
+
+        // Fallback to individual timer only if no agent is set
+        const scheduleLoop = async () => {
+          if (!this.running) {
+            this.logger.info("Scheduler loop exiting - not running");
+            return;
           }
-        } catch (error) {
-          this.logger.error("Error in scheduling loop", {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined
-          });
-        }
-      };
 
-      // Set up the scheduling timer
-      this.schedulingTimer = setInterval(
-        scheduleLoop,
-        this.config.schedulingIntervalMs
-      );
+          try {
+            this.logger.debug("Executing scheduling loop");
+            await this.executeDueTasks();
+          } catch (error) {
+            this.logger.error("Error in scheduling loop", {
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined
+            });
+          }
+        };
 
-      this.logger.success("Scheduler started successfully", {
-        startTime: this.startTime,
-        schedulingIntervalMs: this.config.schedulingIntervalMs
-      });
+        // Set up the scheduling timer only as fallback
+        this.schedulingTimer = setInterval(
+          scheduleLoop,
+          this.config.schedulingIntervalMs
+        );
 
-      // Execute immediately on start
-      this.logger.info("Executing initial scheduling loop");
-      scheduleLoop();
+        this.logger.info("Fallback scheduler timer created");
+
+        // Execute immediately on start
+        scheduleLoop();
+      }
 
       return true;
     } catch (error) {
@@ -1166,7 +1170,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -1185,7 +1189,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async stopScheduler(): Promise<boolean> {
     this.logger.info("Stopping scheduler");
-    
+
     try {
       if (!this.running) {
         this.logger.warn("Scheduler is already stopped");
@@ -1194,10 +1198,20 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
 
       this.running = false;
 
+      // FIXED: Unregister from coordinator if we have an agent
+      if (this.agent) {
+        const coordinator = getSchedulerCoordinator();
+        coordinator.unregisterScheduler(this.agent.getId());
+        this.logger.info("Scheduler unregistered from coordinator", {
+          agentId: this.agent.getId()
+        });
+      }
+
+      // Clean up individual timer if it exists (fallback case)
       if (this.schedulingTimer) {
         clearInterval(this.schedulingTimer);
         this.schedulingTimer = null;
-        this.logger.info("Scheduling timer cleared");
+        this.logger.info("Individual scheduling timer cleared");
       }
 
       this.logger.success("Scheduler stopped successfully", {
@@ -1210,7 +1224,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
       this.logger.error("Failed to stop scheduler", {
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       throw new SchedulerError(
         `Failed to stop scheduler: ${(error as Error).message}`,
         'SCHEDULER_STOP_ERROR'
@@ -1236,17 +1250,17 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async getMetrics(): Promise<SchedulerMetrics> {
     this.logger.info("Collecting scheduler metrics");
-    
+
     try {
       const now = new Date();
-      
+
       // Check if cached metrics are still valid
       if ((now.getTime() - this.metricsCache.lastUpdate.getTime()) < this.metricsCache.ttlMs) {
         this.logger.info("Returning cached metrics", {
           cacheAge: now.getTime() - this.metricsCache.lastUpdate.getTime(),
           cacheTtl: this.metricsCache.ttlMs
         });
-        
+
         return {
           ...this.metricsCache.data,
           timestamp: now, // Always use current timestamp
@@ -1333,7 +1347,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         },
         currentlyRunningTasks: runningTasks
       };
-      
+
       // Update the cache
       this.metricsCache = {
         lastUpdate: now,
@@ -1349,7 +1363,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -1368,7 +1382,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    */
   async reset(): Promise<boolean> {
     this.logger.info("Resetting scheduler state");
-    
+
     try {
       // Stop the scheduler
       if (this.running) {
@@ -1399,7 +1413,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      
+
       if (error instanceof SchedulerError) {
         throw error;
       }
@@ -1456,7 +1470,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
   async getHealth(): Promise<ManagerHealth> {
     const now = new Date();
     const status = this.enabled ? 'healthy' : 'degraded';
-    
+
     return {
       status,
       message: this.enabled ? 'Scheduler is running normally' : 'Scheduler is disabled',
@@ -1475,8 +1489,8 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
           }
         ],
         metrics: {
-          averageSchedulingTimeMs: this.schedulingTimes.length 
-            ? this.schedulingTimes.reduce((sum, time) => sum + time, 0) / this.schedulingTimes.length 
+          averageSchedulingTimeMs: this.schedulingTimes.length
+            ? this.schedulingTimes.reduce((sum, time) => sum + time, 0) / this.schedulingTimes.length
             : 0
         }
       }
@@ -1487,9 +1501,9 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * Get the manager status
    */
   getStatus(): { status: string; health?: { status: string; message?: string } } {
-    return { 
+    return {
       status: this.isEnabled() ? 'available' : 'unavailable',
-      health: { 
+      health: {
         status: this.isEnabled() ? 'healthy' : 'degraded',
         message: this.isEnabled() ? undefined : 'Manager is disabled'
       }
@@ -1512,9 +1526,9 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     if (ttlMs < 0) {
       throw new Error('Cache TTL must be a non-negative value');
     }
-    
+
     this.metricsCache.ttlMs = ttlMs;
-    
+
     // Clear cache if TTL is set to 0 (disable caching)
     if (ttlMs === 0) {
       this.metricsCache.lastUpdate = new Date(0);
@@ -1535,7 +1549,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
     const timeBased: Task[] = [];
     const priorityBased: Task[] = [];
     const other: Task[] = [];
-    
+
     // Categorize tasks
     for (const task of tasks) {
       if (task.scheduleType === TaskScheduleType.EXPLICIT && task.scheduledTime) {
@@ -1546,31 +1560,31 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         other.push(task);
       }
     }
-    
+
     // Sort time-based tasks by scheduled time (earliest first)
     timeBased.sort((a, b) => {
       const timeA = a.scheduledTime ? a.scheduledTime.getTime() : Number.MAX_SAFE_INTEGER;
       const timeB = b.scheduledTime ? b.scheduledTime.getTime() : Number.MAX_SAFE_INTEGER;
       return timeA - timeB;
     });
-    
+
     // Sort priority-based tasks by priority (highest first)
     priorityBased.sort((a, b) => b.priority - a.priority);
-    
+
     // Sort other tasks by priority as well
     other.sort((a, b) => b.priority - a.priority);
-    
+
     // Combine in order: time-based, priority-based, other
     const orderedTasks = [...timeBased, ...priorityBased, ...other];
-    
+
     console.log("🎯 Task ordering applied:");
     console.log(`  📅 Time-based tasks: ${timeBased.length}`);
     console.log(`  🏆 Priority-based tasks: ${priorityBased.length}`);
     console.log(`  📝 Other tasks: ${other.length}`);
-    console.log(`  🔀 Final order (first 10):`, orderedTasks.slice(0, 10).map(t => 
+    console.log(`  🔀 Final order (first 10):`, orderedTasks.slice(0, 10).map(t =>
       `${t.name}(${t.scheduleType}:p${t.priority})`
     ));
-    
+
     return orderedTasks;
   }
 } 

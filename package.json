@@ -68,7 +68,10 @@
     "storage:start": "docker-compose up -d minio createbuckets",
     "storage:stop": "docker-compose down",
     "protect:files": "powershell -File scripts/protect-critical-files.ps1",
-    "unprotect:files": "powershell -File scripts/unprotect-critical-files.ps1"
+    "unprotect:files": "powershell -File scripts/unprotect-critical-files.ps1",
+
+    "validate:error-management": "tsx src/scripts/validate-error-management-system.ts",
+    "test:error-management": "npm test src/scripts/test-error-management-integration.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.812.0",

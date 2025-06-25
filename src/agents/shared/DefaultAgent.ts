@@ -75,6 +75,7 @@ import {
 // Removed problematic import from './types' as it doesn't exist
 
 // Import workspace integration
+import { EnhancedWorkspaceAgentIntegration } from '../../services/workspace/integration/EnhancedWorkspaceAgentIntegration';
 import { WorkspaceAgentIntegration } from '../../services/workspace/integration/WorkspaceAgentIntegration';
 
 // Import visualization components
@@ -87,6 +88,13 @@ import {
   VisualizationConfig,
   VisualizationRequestIdFactory
 } from '../../types/visualization-integration';
+
+// Import error management services
+import { AgentErrorIntegration } from '../../services/errors/AgentErrorIntegration';
+import { DefaultErrorManagementService } from '../../services/errors/DefaultErrorManagementService';
+import { DefaultErrorClassificationEngine } from '../../services/errors/ErrorClassificationEngine';
+import { DefaultErrorNotificationService } from '../../services/errors/ErrorNotificationService';
+import { DefaultRecoveryStrategyManager } from '../../services/errors/RecoveryStrategyManager';
 
 // Agent status constants
 const AGENT_STATUS = {
@@ -131,6 +139,16 @@ interface DefaultAgentConfig {
   enableCollaborationManager?: boolean;
   enableCommunicationManager?: boolean;
   enableNotificationManager?: boolean;
+
+  // Error management flags
+  enableErrorManagement?: boolean;
+  errorManagementConfig?: {
+    enableUserNotifications?: boolean;
+    enableAutoRetry?: boolean;
+    maxRetries?: number;
+    escalateAfterFailures?: number;
+    timeoutMs?: number;
+  };
 
   // Enhanced manager flags
   useEnhancedMemory?: boolean;
@@ -245,6 +263,14 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   protected initialized: boolean = false;
 
   private workspaceIntegration: WorkspaceAgentIntegration | null = null;
+  private enhancedWorkspaceIntegration: EnhancedWorkspaceAgentIntegration | null = null;
+
+  // Error management services
+  private errorManagementService: DefaultErrorManagementService | null = null;
+  private errorClassificationEngine: DefaultErrorClassificationEngine | null = null;
+  private recoveryStrategyManager: DefaultRecoveryStrategyManager | null = null;
+  private errorNotificationService: DefaultErrorNotificationService | null = null;
+  private agentErrorIntegration: AgentErrorIntegration | null = null;
 
   // Visualization components for agent decision tracking
   private visualizer: ThinkingVisualizer | null = null;
@@ -319,6 +345,9 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
 
     // Initialize workspace integration
     this.workspaceIntegration = new WorkspaceAgentIntegration();
+
+    // Initialize enhanced workspace integration (will be set up during initialization)
+    this.enhancedWorkspaceIntegration = null;
   }
 
   // getId() and getAgentId() inherited from AbstractAgentBase
@@ -563,7 +592,15 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         }
       }
 
-      // Step 7: Mark as initialized
+      // Step 7: Initialize error management system
+      if (this.agentConfig.enableErrorManagement !== false) { // Default to enabled
+        await this.initializeErrorManagement();
+        this.logger.system("Error management system initialized");
+      } else {
+        this.logger.system("Error management system disabled by configuration");
+      }
+
+      // Step 8: Mark as initialized
       this.initialized = true;
       this.logger.system("Agent initialization completed successfully", {
         agentId: this.agentId,
@@ -1085,6 +1122,26 @@ Please provide a helpful, contextual response based on this analysis and memory 
   async processUserInput(message: string, options?: MessageProcessingOptions): Promise<AgentResponse> {
     const startTime = Date.now();
     let visualizationContext: AgentVisualizationContext | null = null;
+    let operationId: string | undefined;
+
+    // Start tracking this operation with error management
+    if (this.agentErrorIntegration) {
+      try {
+        operationId = this.agentErrorIntegration.trackOperationStart({
+          agentId: this.agentId,
+          userId: options?.userId || 'anonymous',
+          conversationId: options?.chatId || 'unknown',
+          operation: 'process_user_input',
+          timestamp: new Date(),
+          metadata: {
+            messageLength: message.length,
+            hasOptions: !!options
+          }
+        });
+      } catch (error) {
+        this.logger.warn('Failed to start operation tracking', { error });
+      }
+    }
 
     try {
       this.logger.info('Processing user input', {
@@ -1724,6 +1781,28 @@ Please provide a helpful, contextual response based on this analysis and memory 
         stack: error instanceof Error ? error.stack : undefined
       });
 
+      // Track the error with agent error integration
+      if (this.agentErrorIntegration && operationId) {
+        try {
+          await this.agentErrorIntegration.handleAgentError(
+            error instanceof Error ? error : new Error(String(error)),
+            {
+              agentId: this.agentId,
+              userId: options?.userId || 'anonymous',
+              conversationId: options?.chatId || 'unknown',
+              operation: 'process_user_input',
+              timestamp: new Date(),
+              metadata: {
+                messageLength: message.length,
+                hasOptions: !!options
+              }
+            }
+          );
+        } catch (trackingError) {
+          this.logger.warn('Failed to track error with error management system', { trackingError });
+        }
+      }
+
       // Determine error type based on the error source
       let errorType = 'general';
       if (error instanceof Error) {
@@ -1745,6 +1824,15 @@ Please provide a helpful, contextual response based on this analysis and memory 
           timestamp: new Date().toISOString()
         }
       };
+    } finally {
+      // Stop tracking this operation if it was started
+      if (operationId && this.agentErrorIntegration) {
+        try {
+          await this.agentErrorIntegration.trackOperationSuccess(operationId);
+        } catch (finallyError) {
+          this.logger.warn('Failed to complete operation tracking', { finallyError });
+        }
+      }
     }
   }
 
@@ -3066,5 +3154,139 @@ Task scheduled successfully (ID: ${safeTaskId})`;
     parameters.originalMessage = message;
 
     return parameters;
+  }
+
+  /**
+   * Initialize error management system for the agent
+   */
+  private async initializeErrorManagement(): Promise<void> {
+    try {
+      // Create a mock database provider for now (in production, this would use Prisma)
+      const mockDatabaseProvider = {
+        async saveError(error: any): Promise<string> {
+          // Mock implementation - in production this would save to database
+          this.logger.info('Error saved to database', { errorId: error.id });
+          return error.id;
+        },
+        async getErrorById(errorId: string) {
+          return null; // Mock implementation
+        },
+        async searchErrors(criteria: any) {
+          return []; // Mock implementation
+        },
+        async updateErrorStatus(errorId: string, status: any, metadata?: any): Promise<boolean> {
+          return true; // Mock implementation
+        },
+        async saveErrorResolution(resolution: any): Promise<boolean> {
+          return true; // Mock implementation
+        },
+        async getErrorStatistics(criteria?: any) {
+          return {
+            totalErrors: 0,
+            errorsByType: new Map(),
+            errorsBySeverity: new Map(),
+            errorsByStatus: new Map(),
+            resolutionRate: 0.95,
+            averageResolutionTime: 3.2,
+            topFailingComponents: []
+          };
+        },
+        async getErrorsForRetry() {
+          return []; // Mock implementation
+        },
+        async getErrorsForEscalation() {
+          return []; // Mock implementation
+        },
+        async updateRetryInfo(errorId: string, retryAttempt: number, nextRetryAt?: Date): Promise<boolean> {
+          return true; // Mock implementation
+        },
+        async getErrorPatterns(timeWindowHours: number) {
+          return []; // Mock implementation
+        }
+      } as IErrorDatabaseProvider;
+
+      // Create notification service adapter
+      const notificationAdapter = {
+        async sendUserNotification(error: any, routing: any): Promise<boolean> {
+          try {
+            if (this.errorNotificationService) {
+              await this.errorNotificationService.sendErrorNotification(error);
+            }
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        async sendRetryNotification(error: any, attempt: number, maxAttempts: number): Promise<boolean> {
+          try {
+            if (this.errorNotificationService) {
+              await this.errorNotificationService.sendRetryNotification(error, attempt, maxAttempts);
+            }
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        async sendEscalationNotification(error: any, reason: string): Promise<boolean> {
+          try {
+            if (this.errorNotificationService) {
+              await this.errorNotificationService.sendEscalationNotification(error, reason);
+            }
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        async sendResolutionNotification(errorId: string, resolution: any): Promise<boolean> {
+          return true; // Mock implementation
+        }
+      } as IErrorNotificationService;
+
+      // Initialize error management services in correct dependency order
+      this.errorClassificationEngine = new DefaultErrorClassificationEngine(this.logger);
+      this.recoveryStrategyManager = new DefaultRecoveryStrategyManager(this.logger);
+      this.errorNotificationService = new DefaultErrorNotificationService(this.logger);
+
+      this.errorManagementService = new DefaultErrorManagementService(
+        this.logger,
+        mockDatabaseProvider,
+        notificationAdapter
+      );
+
+      // Initialize agent error integration
+      this.agentErrorIntegration = new AgentErrorIntegration(
+        this.logger,
+        this.errorManagementService,
+        this.errorClassificationEngine,
+        this.recoveryStrategyManager,
+        this.errorNotificationService
+      );
+
+      // Initialize agent error handling for this agent with configuration
+      const errorConfig = this.agentConfig.errorManagementConfig || {};
+      await this.agentErrorIntegration.initializeAgentErrorHandling(this, {
+        enableErrorRecovery: errorConfig.enableAutoRetry !== false,
+        enableUserNotifications: errorConfig.enableUserNotifications !== false,
+        maxRetries: errorConfig.maxRetries || 3,
+        timeoutMs: errorConfig.timeoutMs || 30000,
+        escalateAfterFailures: errorConfig.escalateAfterFailures || 5
+      });
+
+      this.logger.system("Error management services initialized successfully", {
+        agentId: this.agentId,
+        hasErrorManagement: !!this.errorManagementService,
+        hasClassificationEngine: !!this.errorClassificationEngine,
+        hasRecoveryManager: !!this.recoveryStrategyManager,
+        hasNotificationService: !!this.errorNotificationService,
+        hasAgentErrorIntegration: !!this.agentErrorIntegration
+      });
+
+    } catch (error) {
+      this.logger.error("Failed to initialize error management system", {
+        error: error instanceof Error ? error.message : String(error),
+        agentId: this.agentId
+      });
+      throw error;
+    }
   }
 }

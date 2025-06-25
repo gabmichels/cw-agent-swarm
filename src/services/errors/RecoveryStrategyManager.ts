@@ -8,13 +8,13 @@
  * - Graceful degradation patterns
  */
 
+import { ILogger } from '../../lib/core/logger';
 import {
   BaseError,
-  ErrorType,
   ErrorSeverity,
+  ErrorType,
   RetryStrategy
 } from '../../lib/errors/types/BaseError';
-import { ILogger } from '../../lib/core/ILogger';
 
 /**
  * Recovery strategy configuration

@@ -8,16 +8,16 @@
  * - User-friendly error explanations with actionable suggestions
  */
 
+import { ILogger } from '../../lib/core/logger';
 import {
   BaseError,
-  ErrorType,
   ErrorSeverity,
+  ErrorType,
   UserImpactLevel
 } from '../../lib/errors/types/BaseError';
 import {
   ErrorClassificationResult
 } from './ErrorClassificationEngine';
-import { ILogger } from '../../lib/core/ILogger';
 
 /**
  * Notification template interface
@@ -570,7 +570,7 @@ export class DefaultErrorNotificationService implements IErrorNotificationServic
       {
         id: 'api_failure_high',
         errorType: ErrorType.API_FAILURE,
-        severity: ErrorType.HIGH,
+        severity: ErrorSeverity.HIGH,
         title: 'Service Unavailable',
         message: 'An external service is temporarily unavailable. We\'re working to restore the connection.',
         dismissible: true,
@@ -581,7 +581,7 @@ export class DefaultErrorNotificationService implements IErrorNotificationServic
       {
         id: 'workspace_connection',
         errorType: ErrorType.WORKSPACE_CONNECTION,
-        severity: ErrorType.MEDIUM,
+        severity: ErrorSeverity.MEDIUM,
         title: 'Connection Issue',
         message: 'We\'re having trouble connecting to your workspace. Attempting to reconnect...',
         actionButton: {
@@ -596,7 +596,7 @@ export class DefaultErrorNotificationService implements IErrorNotificationServic
       {
         id: 'network_error',
         errorType: ErrorType.NETWORK_ERROR,
-        severity: ErrorType.LOW,
+        severity: ErrorSeverity.LOW,
         title: 'Connection Issue',
         message: 'Network connection is unstable. Retrying automatically.',
         dismissible: true,
@@ -608,7 +608,7 @@ export class DefaultErrorNotificationService implements IErrorNotificationServic
       {
         id: 'rate_limit',
         errorType: ErrorType.RATE_LIMIT_ERROR,
-        severity: ErrorType.MEDIUM,
+        severity: ErrorSeverity.MEDIUM,
         title: 'Service Busy',
         message: 'The service is currently busy. We\'ll retry your request shortly.',
         dismissible: true,
@@ -620,7 +620,7 @@ export class DefaultErrorNotificationService implements IErrorNotificationServic
       {
         id: 'default',
         errorType: ErrorType.EXTERNAL_SERVICE_ERROR,
-        severity: ErrorType.MEDIUM,
+        severity: ErrorSeverity.MEDIUM,
         title: 'Something Went Wrong',
         message: 'We encountered an unexpected issue. Please try again.',
         dismissible: true,
