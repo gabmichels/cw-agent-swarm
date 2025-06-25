@@ -1,9 +1,9 @@
-import React, { ReactNode, useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import React, { ReactNode, useEffect, useState } from 'react';
+import { AgentService } from '../../services/AgentService';
 import Header from '../Header';
 import Sidebar from '../Sidebar';
 import TabsNavigation from '../TabsNavigation';
-import { AgentService } from '../../services/AgentService';
-import { useRouter } from 'next/router';
 
 interface DashboardLayoutProps {
   children: ReactNode;
