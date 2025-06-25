@@ -668,11 +668,12 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
         status: TaskStatus.PENDING
       });
 
-      this.logger.info("Tasks fetched", {
-        pendingTaskCount: pendingTasks.length
-      });
-
-      if (!pendingTasks.length) {
+      // Only log at info level when we actually have tasks to process
+      if (pendingTasks.length > 0) {
+        this.logger.info("Tasks fetched", {
+          pendingTaskCount: pendingTasks.length
+        });
+      } else {
         this.logger.debug("No pending tasks found");
         return [];
       }
@@ -1238,7 +1239,7 @@ export class ModularSchedulerManager implements SchedulerManager, BaseManager {
    * @returns true if the scheduler is running
    */
   isSchedulerRunning(): boolean {
-    this.logger.info("Checking scheduler running status", { running: this.running });
+    this.logger.debug("Checking scheduler running status", { running: this.running });
     return this.running;
   }
 
