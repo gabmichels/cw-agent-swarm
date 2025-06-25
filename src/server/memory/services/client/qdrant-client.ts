@@ -367,23 +367,8 @@ export class QdrantMemoryClient implements IMemoryClient {
       // Using type assertion to handle the BaseMemorySchema conversion
       const recordPayload = { ...(point.payload as unknown as Record<string, unknown>) };
 
-      // DEBUG: Validate payload before sending to Qdrant
-      try {
-        const serializedPayload = JSON.stringify(recordPayload);
-        console.log('🔍 PAYLOAD VALIDATION:', {
-          payloadSize: serializedPayload.length,
-          payloadKeys: Object.keys(recordPayload),
-          hasCircularRefs: false // If we get here, no circular refs
-        });
-      } catch (serializationError) {
-        console.error('🚨 PAYLOAD SERIALIZATION ERROR:', {
-          error: serializationError,
-          payloadKeys: Object.keys(recordPayload),
-          pointId: point.id,
-          vectorLength: point.vector?.length
-        });
-        throw new Error(`Invalid payload: cannot serialize to JSON: ${serializationError}`);
-      }
+      // CRITICAL FIX: Convert ULID to UUID for Qdrant compatibility
+      const qdrantPointId = this.convertToQdrantId(point.id);
 
       // Insert point into Qdrant
       try {
@@ -391,7 +376,7 @@ export class QdrantMemoryClient implements IMemoryClient {
           wait: true,
           points: [
             {
-              id: point.id,
+              id: qdrantPointId, // Use converted UUID instead of original ULID
               vector: point.vector,
               payload: recordPayload
             }
@@ -414,7 +399,7 @@ export class QdrantMemoryClient implements IMemoryClient {
               wait: true,
               points: [
                 {
-                  id: point.id,
+                  id: qdrantPointId, // Use converted UUID instead of original ULID
                   vector: point.vector,
                   payload: recordPayload
                 }
@@ -433,22 +418,28 @@ export class QdrantMemoryClient implements IMemoryClient {
     } catch (error) {
       console.error(`Error adding point to ${collectionName}:`, error);
 
-      // DEBUG: Log detailed error information
-      if (error && typeof error === 'object') {
-        console.error('🚨 QDRANT ERROR DETAILS:', {
-          message: (error as any).message,
-          data: (error as any).data,
-          headers: (error as any).headers,
-          status: (error as any).status,
-          pointId: point.id,
-          vectorLength: point.vector?.length,
-          payloadKeys: Object.keys(point.payload || {}),
-          payloadSample: JSON.stringify(point.payload || {}).substring(0, 200)
-        });
-      }
-
       // Fallback to in-memory storage
       return this.fallbackStorage.addPoint(collectionName, point.id, point);
+    }
+  }
+
+  /**
+   * Convert any ID format to Qdrant-compatible UUID format
+   */
+  private convertToQdrantId(id: string): string {
+    if (id.match(/^[0-9A-HJKMNP-TV-Z]{26}$/)) {
+      // This is a ULID, convert to UUID format using deterministic hash
+      const crypto = require('crypto');
+      const hash = crypto.createHash('md5').update(id).digest('hex');
+      return `${hash.substring(0, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 32)}`;
+    } else if (id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+      // Already a UUID
+      return id;
+    } else {
+      // Use hash of the ID to create a UUID for any other format
+      const crypto = require('crypto');
+      const hash = crypto.createHash('md5').update(id).digest('hex');
+      return `${hash.substring(0, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 32)}`;
     }
   }
 
@@ -478,16 +469,19 @@ export class QdrantMemoryClient implements IMemoryClient {
         }
       }
 
+      // CRITICAL FIX: Convert ULID IDs to UUID IDs for Qdrant retrieval
+      const qdrantIds = ids.map(id => this.convertToQdrantId(id));
+
       // Get points from Qdrant using retrieve method
       try {
         const response = await this.client.retrieve(collectionName, {
-          ids,
+          ids: qdrantIds,
           with_payload: true,
           with_vector: true
         });
 
-        // Transform response to MemoryPoint objects
-        return response.map(point => {
+        // Transform response to MemoryPoint objects and map UUIDs back to original IDs
+        return response.map((point, index) => {
           // Ensure vector is an array and handle all possible types
           let vector: number[] = [];
           if (Array.isArray(point.vector)) {
@@ -500,7 +494,7 @@ export class QdrantMemoryClient implements IMemoryClient {
           }
 
           return {
-            id: String(point.id),
+            id: ids[index], // Use original ID instead of converted UUID
             vector,
             payload: point.payload as T
           };
@@ -927,12 +921,13 @@ export class QdrantMemoryClient implements IMemoryClient {
         // Using type assertion to handle the BaseMemorySchema conversion
         const recordPayload = { ...(updatedPoint.payload as unknown as Record<string, unknown>) };
 
-        // Replace the point
+        // Replace the point - convert ID to UUID for Qdrant
+        const qdrantId = this.convertToQdrantId(id);
         await this.client.upsert(collectionName, {
           wait: true,
           points: [
             {
-              id,
+              id: qdrantId,
               vector: updatedPoint.vector,
               payload: recordPayload
             }
@@ -948,8 +943,10 @@ export class QdrantMemoryClient implements IMemoryClient {
         // Using type assertion to handle the BaseMemorySchema conversion
         const recordPayload = { ...(updates.payload as unknown as Record<string, unknown>) };
 
+        // Convert ID to UUID for Qdrant
+        const qdrantId = this.convertToQdrantId(id);
         await this.client.setPayload(collectionName, {
-          points: [id],
+          points: [qdrantId],
           payload: recordPayload
         });
 
@@ -1004,9 +1001,10 @@ export class QdrantMemoryClient implements IMemoryClient {
     }
 
     try {
-      // Delete from Qdrant
+      // Delete from Qdrant - convert ID to UUID
+      const qdrantId = this.convertToQdrantId(id);
       await this.client.delete(collectionName, {
-        points: [id],
+        points: [qdrantId],
         wait: true
       });
 
@@ -1059,9 +1057,9 @@ export class QdrantMemoryClient implements IMemoryClient {
         }
       }
 
-      // Convert payload to standard record format
+      // Convert payload to standard record format and convert IDs to UUIDs
       const qdrantPoints = points.map(point => ({
-        id: point.id,
+        id: this.convertToQdrantId(point.id),
         vector: point.vector,
         payload: { ...(point.payload as unknown as Record<string, unknown>) }
       }));

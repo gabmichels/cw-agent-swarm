@@ -179,16 +179,6 @@ export class EnhancedMemoryService extends MemoryService {
         } as unknown as T
       };
 
-      // DEBUG: Log the exact structure being sent to Qdrant
-      console.log('🐛 DEBUG: About to send to Qdrant:', {
-        collection: collectionConfig.name,
-        pointId: qdrantCompatiblePoint.id,
-        hasVector: Array.isArray(qdrantCompatiblePoint.vector),
-        vectorLength: qdrantCompatiblePoint.vector?.length,
-        payloadKeys: Object.keys(qdrantCompatiblePoint.payload || {}),
-        payloadStructure: JSON.stringify(qdrantCompatiblePoint, null, 2).substring(0, 500) + '...'
-      });
-
       // Add to collection using Qdrant-compatible structure
       await this.memoryClient.addPoint(collectionConfig.name, qdrantCompatiblePoint);
 
@@ -222,7 +212,6 @@ export class EnhancedMemoryService extends MemoryService {
       // User and conversation context
       if (metadata.userId && typeof metadata.userId === 'object') {
         const userIdString = this.getIdString(metadata.userId);
-        console.log('🔍 DEBUG userId conversion:', { original: metadata.userId, converted: userIdString });
         fields.userId = userIdString;
       }
 
@@ -231,17 +220,14 @@ export class EnhancedMemoryService extends MemoryService {
       if (metadata.agentId) {
         if (typeof metadata.agentId === 'object') {
           const agentIdString = this.getIdString(metadata.agentId);
-          console.log('🔍 DEBUG agentId conversion:', { original: metadata.agentId, converted: agentIdString });
           fields.agentId = agentIdString;
         } else if (typeof metadata.agentId === 'string') {
-          console.log('🔍 DEBUG agentId (string):', metadata.agentId);
           fields.agentId = metadata.agentId;
         }
       }
 
       if (metadata.chatId && typeof metadata.chatId === 'object') {
         const chatIdString = this.getIdString(metadata.chatId);
-        console.log('🔍 DEBUG chatId conversion:', { original: metadata.chatId, converted: chatIdString });
         fields.chatId = chatIdString;
       }
     } catch (error) {

@@ -384,6 +384,33 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     }
   }, [pendingNavigateToMessage, selectedTab, messages.length, isLoading, isInitialLoading]);
 
+  // Add polling mechanism to check for new messages while thinking
+  useEffect(() => {
+    let pollInterval: NodeJS.Timeout | null = null;
+    
+    if (isLoading && chat?.id) {
+      console.log('Starting polling for agent response while thinking...');
+      
+      // Poll every 2 seconds while thinking
+      pollInterval = setInterval(async () => {
+        console.log('Polling for new messages...');
+        try {
+          await fetchMessages(chat.id, true); // shouldClearLoading = true to detect and clear thinking state
+        } catch (error) {
+          console.error('Polling fetch error:', error);
+        }
+      }, 2000);
+    }
+    
+    // Cleanup interval when loading stops or component unmounts
+    return () => {
+      if (pollInterval) {
+        console.log('Clearing polling interval');
+        clearInterval(pollInterval);
+      }
+    };
+  }, [isLoading, chat?.id]);
+
   // Convert MessageAttachment to UIFileAttachment
   const convertMessageToUIAttachment = (att: MessageAttachment): UIFileAttachment => {
     return {
@@ -795,23 +822,31 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         if (shouldClearLoading) {
           setIsInitialLoading(false);
           
-          // For polling: only clear AI thinking loading if we detect an agent response
-          const hasAgentResponse = formattedMessages.some(msg => 
+          // For polling: clear AI thinking loading if we detect an agent response
+          // Check for new assistant messages that weren't in the previous messages array
+          const currentMessageIds = new Set(messages.map(msg => msg.id));
+          const hasNewAgentResponse = formattedMessages.some(msg => 
             msg.sender.role === 'assistant' && 
-            !messages.find(existingMsg => existingMsg.id === msg.id)
+            !currentMessageIds.has(msg.id)
           );
+          
+          // Also check if we have any assistant messages and are currently loading (for simpler fallback)
+          const hasAnyAgentMessage = formattedMessages.some(msg => msg.sender.role === 'assistant');
+          const shouldClearThinking = hasNewAgentResponse || (isLoading && hasAnyAgentMessage && formattedMessages.length > messages.length);
           
           console.log('fetchMessages debug:', {
             shouldClearLoading,
             isLoading,
             formattedMessagesCount: formattedMessages.length,
             currentMessagesCount: messages.length,
-            hasAgentResponse,
+            hasNewAgentResponse,
+            hasAnyAgentMessage,
+            shouldClearThinking,
             lastFormattedMessage: formattedMessages[formattedMessages.length - 1]?.sender?.role
           });
           
-          // Clear AI thinking loading if we have agent response - temp messages are handled separately
-          if (hasAgentResponse) {
+          // Clear AI thinking loading if we detect agent response
+          if (shouldClearThinking) {
             console.log('Clearing AI thinking loading state due to agent response');
             setIsLoading(false);
           }
