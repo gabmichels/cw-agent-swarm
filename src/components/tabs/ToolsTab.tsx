@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { COLLECTIONS, DEFAULTS } from '../../constants/qdrant';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import MemoryToolsTab from './MemoryToolsTab';
+import AgentToolsTab from './AgentToolsTab';
+import SocialMediaPermissionsTab from './SocialMediaPermissionsTab';
 import useToolsMemory from '../../hooks/useToolsMemory';
 import useMemory from '../../hooks/useMemory';
 
@@ -18,6 +20,7 @@ interface ToolsTabProps {
   chloeCheckResults: Record<string, unknown>;
   fixInstructions: Record<string, unknown>;
   isDebugMode: boolean;
+  agentId?: string;
 }
 
 const ToolsTab: React.FC<ToolsTabProps> = ({
@@ -33,13 +36,14 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
   chloeCheckResults,
   fixInstructions,
   isDebugMode,
+  agentId,
 }) => {
   const [debugResults, setDebugResults] = useState<Record<string, unknown> | null>(null);
   const [isDebugLoading, setIsDebugLoading] = useState(false);
   const [codaResults, setCodaResults] = useState<Record<string, unknown> | null>(null);
   const [isCodaLoading, setIsCodaLoading] = useState(false);
   const [codaInputValue, setCodaInputValue] = useState('');
-  const [activeTab, setActiveTab] = useState<string>('legacy');
+  const [activeTab, setActiveTab] = useState<string>('tools');
   
   // Collection management state
   const [selectedCollections, setSelectedCollections] = useState<Set<string>>(new Set());
@@ -363,10 +367,20 @@ const ToolsTab: React.FC<ToolsTabProps> = ({
       <h1 className="text-2xl font-bold mb-6">Tools & Diagnostics</h1>
       
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
-        <TabsList className="grid grid-cols-2">
+        <TabsList className="grid grid-cols-4">
+          <TabsTrigger value="tools">Agent Tools</TabsTrigger>
+          <TabsTrigger value="social">Social Media</TabsTrigger>
           <TabsTrigger value="legacy">Legacy View</TabsTrigger>
           <TabsTrigger value="memory">Memory System</TabsTrigger>
         </TabsList>
+        
+        <TabsContent value="tools" className="mt-4">
+          <AgentToolsTab agentId={agentId} />
+        </TabsContent>
+
+        <TabsContent value="social" className="mt-4">
+          <SocialMediaPermissionsTab agentId={agentId} />
+        </TabsContent>
         
         <TabsContent value="legacy" className="mt-4">
           {/* Original Legacy Tools UI */}

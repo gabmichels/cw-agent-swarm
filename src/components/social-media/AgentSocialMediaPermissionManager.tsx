@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, ChevronDown, ChevronRight, Settings, AlertCircle } from 'lucide-react';
+import { CheckCircle, XCircle, ChevronDown, ChevronRight, Settings, AlertCircle, Shield } from 'lucide-react';
 import { 
   SocialMediaProvider, 
   SocialMediaConnection, 
   SocialMediaCapability, 
   AccessLevel 
 } from '../../services/social-media/database/ISocialMediaDatabase';
+import { SocialMediaToolApprovalService } from '../../services/approval/SocialMediaToolApprovalService';
 
 export interface AgentSocialMediaPermissionConfig {
   connectionId: string;
@@ -18,17 +19,20 @@ export interface AgentSocialMediaPermissionConfig {
       enabled: boolean;
       accessLevel: AccessLevel;
       restrictions?: Record<string, unknown>;
+      needsApproval?: boolean;
     };
   };
 }
 
 interface AgentSocialMediaPermissionManagerProps {
+  agentId?: string; // Optional for new agents  
   initialPermissions?: AgentSocialMediaPermissionConfig[];
-  onChange: (permissions: AgentSocialMediaPermissionConfig[]) => void;
+  onChange: (permissions: AgentSocialMediaPermissionConfig[], approvalSettings?: Record<string, boolean>) => void;
   className?: string;
 }
 
 export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermissionManagerProps> = ({
+  agentId,
   initialPermissions = [],
   onChange,
   className = ''
@@ -38,6 +42,8 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [approvalSettings, setApprovalSettings] = useState<Record<string, boolean>>({});
+  const [editedApprovalSettings, setEditedApprovalSettings] = useState<Record<string, boolean>>({});
 
   // Load available social media connections
   useEffect(() => {
@@ -49,10 +55,22 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
     setPermissions(initialPermissions);
   }, [initialPermissions]);
 
+  // Load approval settings when agentId changes
+  useEffect(() => {
+    if (agentId) {
+      loadApprovalSettings();
+    }
+  }, [agentId]);
+
+  // Sync edited approval settings with loaded settings
+  useEffect(() => {
+    setEditedApprovalSettings(approvalSettings);
+  }, [approvalSettings]);
+
   // Update parent when permissions change - use setTimeout to avoid infinite loops
   useEffect(() => {
-    setTimeout(() => onChange(permissions), 0);
-  }, [permissions]);
+    setTimeout(() => onChange(permissions, editedApprovalSettings), 0);
+  }, [permissions, editedApprovalSettings]);
 
   const loadConnections = async () => {
     try {
@@ -85,6 +103,39 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadApprovalSettings = async () => {
+    if (!agentId) return;
+    
+    try {
+      const response = await fetch(`/api/agent/social-media-approval?agentId=${agentId}`);
+      const data = await response.json();
+      
+      if (data.settings) {
+        const approvalMap: Record<string, boolean> = {};
+        data.settings.forEach((setting: any) => {
+          approvalMap[setting.toolName] = setting.needsApproval;
+        });
+        setApprovalSettings(approvalMap);
+      }
+    } catch (error) {
+      console.error('Error loading social media approval settings:', error);
+    }
+  };
+
+  const updateApprovalSetting = (toolName: string, needsApproval: boolean) => {
+    setEditedApprovalSettings(prev => ({
+      ...prev,
+      [toolName]: needsApproval
+    }));
+  };
+
+  const getToolNameFromCapability = (capability: SocialMediaCapability, provider: SocialMediaProvider): string => {
+    // Generate consistent tool names for social media capabilities
+    // Format: {provider}_{capability_action}
+    const action = capability.toLowerCase().replace(/_/g, '_');
+    return `${provider}_${action}`;
   };
 
   const toggleConnection = (connectionId: string) => {
@@ -326,40 +377,60 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
                           const config = permissions.find(p => p.connectionId === connection.id);
                           const permission = config?.permissions[capability];
                           const isEnabled = permission?.enabled || false;
+                          const toolName = getToolNameFromCapability(capability, connection.provider);
+                          const needsApproval = editedApprovalSettings[toolName] || false;
                           
                           return (
-                            <div key={capability} className="flex items-center justify-between p-2 bg-gray-700 rounded">
-                              <div className="flex items-center space-x-3">
-                                <input
-                                  type="checkbox"
-                                  checked={isEnabled}
-                                  onChange={(e) => updatePermission(
-                                    connection.id, 
-                                    capability, 
-                                    e.target.checked,
-                                    AccessLevel.READ
-                                  )}
-                                  className="rounded border-gray-500 text-blue-600 focus:ring-blue-500"
-                                />
-                                <label className="text-sm text-gray-300">
-                                  {getCapabilityDisplayName(capability)}
-                                </label>
+                            <div key={capability} className="p-2 bg-gray-700 rounded">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center space-x-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isEnabled}
+                                    onChange={(e) => updatePermission(
+                                      connection.id, 
+                                      capability, 
+                                      e.target.checked,
+                                      AccessLevel.READ
+                                    )}
+                                    className="rounded border-gray-500 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <label className="text-sm text-gray-300">
+                                    {getCapabilityDisplayName(capability)}
+                                  </label>
+                                </div>
+                                
+                                {isEnabled && (
+                                  <select
+                                    value={permission?.accessLevel || AccessLevel.READ}
+                                    onChange={(e) => updateAccessLevel(
+                                      connection.id, 
+                                      capability, 
+                                      e.target.value as AccessLevel
+                                    )}
+                                    className="text-xs bg-gray-600 border border-gray-500 rounded px-2 py-1 text-gray-300"
+                                  >
+                                    <option value={AccessLevel.READ}>Read</option>
+                                    <option value={AccessLevel.LIMITED}>Limited</option>
+                                    <option value={AccessLevel.FULL}>Full</option>
+                                  </select>
+                                )}
                               </div>
                               
-                              {isEnabled && (
-                                <select
-                                  value={permission?.accessLevel || AccessLevel.READ}
-                                  onChange={(e) => updateAccessLevel(
-                                    connection.id, 
-                                    capability, 
-                                    e.target.value as AccessLevel
-                                  )}
-                                  className="text-xs bg-gray-600 border border-gray-500 rounded px-2 py-1 text-gray-300"
-                                >
-                                  <option value={AccessLevel.READ}>Read</option>
-                                  <option value={AccessLevel.LIMITED}>Limited</option>
-                                  <option value={AccessLevel.FULL}>Full</option>
-                                </select>
+                              {/* Approval Setting - only show if permission is enabled and agentId exists */}
+                              {isEnabled && agentId && (
+                                <div className="flex items-center space-x-2 text-xs">
+                                  <Shield className="h-3 w-3 text-yellow-400" />
+                                  <label className="flex items-center space-x-2 text-gray-400">
+                                    <input
+                                      type="checkbox"
+                                      checked={needsApproval}
+                                      onChange={(e) => updateApprovalSetting(toolName, e.target.checked)}
+                                      className="rounded border-gray-500 text-yellow-600 focus:ring-yellow-500 scale-75"
+                                    />
+                                    <span>Requires approval</span>
+                                  </label>
+                                </div>
                               )}
                             </div>
                           );
