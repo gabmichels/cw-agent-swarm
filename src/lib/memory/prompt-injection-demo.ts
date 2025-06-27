@@ -8,12 +8,12 @@
  * 4. Injecting memory summaries into the system prompt
  */
 
-import { getMemoryServices } from '../../server/memory/services';
-import { MemoryType } from '../../server/memory/config';
-import { ImportanceLevel } from '../../constants/memory';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ChatOpenAI } from '@langchain/openai';
-import { SystemMessage, HumanMessage } from '@langchain/core/messages';
+import { ImportanceLevel } from '../../constants/memory';
 import { SYSTEM_PROMPTS } from '../../lib/shared/constants';
+import { MemoryType } from '../../server/memory/config';
+import { getMemoryServices } from '../../server/memory/services';
 
 // Sample knowledge to store in memory
 const sampleKnowledge = [
@@ -54,27 +54,27 @@ async function getMemoriesForPromptInjection(
   const limit = options.limit || 3;
   const minConfidence = options.minConfidence || 0.75;
   const trackUsage = options.trackUsage !== false;
-  
+
   // Get memory services
   const { searchService, memoryService } = await getMemoryServices();
-  
+
   // Search for relevant memories
   const searchResults = await searchService.search(query, {
     limit: limit * 2, // Get more results to filter by confidence
     types: [MemoryType.DOCUMENT]
   });
-  
+
   // Filter and format results
   const relevantMemories = searchResults
-    .filter(result => result.score >= minConfidence)
+    .filter((result: any) => result.score >= minConfidence)
     .slice(0, limit)
-    .map(result => ({
+    .map((result: any) => ({
       id: result.point.id,
       text: result.point.payload?.text || '',
       score: result.score,
       tags: result.point.payload?.metadata?.tags || []
     }));
-  
+
   // Track memory usage if enabled
   if (trackUsage && relevantMemories.length > 0) {
     for (const memory of relevantMemories) {
@@ -92,7 +92,7 @@ async function getMemoriesForPromptInjection(
       }
     }
   }
-  
+
   return relevantMemories;
 }
 
@@ -105,19 +105,19 @@ async function injectMemoriesIntoPrompt(
 ): Promise<string> {
   // Get relevant memories
   const memories = await getMemoriesForPromptInjection(userQuery);
-  
+
   if (memories.length === 0) {
     return basePrompt;
   }
-  
+
   // Format memories for injection
   const memoryText = memories
-    .map((mem, i) => {
+    .map((mem: any, i: number) => {
       const tags = mem.tags.length > 0 ? `[${mem.tags.join(', ')}]` : '';
-      return `${i+1}. ${mem.text} ${tags}`;
+      return `${i + 1}. ${mem.text} ${tags}`;
     })
     .join('\n');
-  
+
   // Inject memories into prompt
   const memoryInjection = `
 RELEVANT INFORMATION FROM YOUR MEMORY:
@@ -134,7 +134,7 @@ Please use the above information where relevant to answer the user's question.
  */
 async function markMemoryAsCritical(memoryId: string, isCritical: boolean = true) {
   const { memoryService } = await getMemoryServices();
-  
+
   await memoryService.updateMemory({
     id: memoryId,
     type: MemoryType.DOCUMENT,
@@ -155,31 +155,31 @@ async function generateMemoryAugmentedResponse(
 ): Promise<string> {
   try {
     console.log(`Generating ${memoryEnabled ? 'memory-augmented' : 'standard'} response...`);
-    
+
     // Get base system prompt
     let systemPrompt = SYSTEM_PROMPTS.CHLOE;
-    
+
     // If memory is enabled, enhance the system prompt
     if (memoryEnabled) {
       console.log("Retrieving relevant memories for: " + userMessage);
       systemPrompt = await injectMemoriesIntoPrompt(systemPrompt, userMessage);
     }
-    
+
     // Initialize the LLM
     const model = new ChatOpenAI({
       modelName: process.env.OPENAI_MODEL_NAME,
       temperature: 0.7
     });
-    
+
     // Generate response (proper message format with string[] workaround for type compatibility)
     const messages = [
       new SystemMessage(systemPrompt),
       new HumanMessage(userMessage)
     ];
-    
+
     // @ts-ignore - Using invoke directly with message format
     const response = await model.invoke(messages);
-    
+
     return response.content || "No response content was generated.";
   } catch (error) {
     console.error("Error generating response:", error);
@@ -192,17 +192,17 @@ async function generateMemoryAugmentedResponse(
  */
 async function main() {
   console.log("=== MEMORY PROMPT INJECTION DEMO ===");
-  
+
   // Initialize memory services
   console.log("\nInitializing memory system...");
   const { client, memoryService } = await getMemoryServices();
-  
+
   // Ensure memory system is initialized
   const status = await client.getStatus();
   if (!status.initialized) {
     await client.initialize();
   }
-  
+
   // Store sample knowledge
   console.log("\nStoring sample knowledge in memory...");
   for (const item of sampleKnowledge) {
@@ -216,31 +216,31 @@ async function main() {
         confidence: 0.9
       }
     });
-    
+
     // After storing, mark the memory as critical to protect from decay
     if (result.success && result.id) {
       await markMemoryAsCritical(result.id);
       console.log(`Stored and marked as critical: ${item.content.substring(0, 40)}...`);
     }
   }
-  
+
   // Wait for indexing
   console.log("\nWaiting for documents to be indexed...");
   await new Promise(resolve => setTimeout(resolve, 1000));
-  
+
   // Test queries to demonstrate memory-augmented responses
   const testQueries = [
     "What colors should I use in our marketing materials?",
     "Who is our target audience?",
     "What was our performance like last quarter?"
   ];
-  
+
   // Process each query
   for (const query of testQueries) {
     console.log("\n========================================");
     console.log(`USER QUERY: "${query}"`);
     console.log("========================================");
-    
+
     // First, show which memories would be injected
     console.log("\nRELEVANT MEMORIES:");
     const relevantMemories = await getMemoriesForPromptInjection(query, {
@@ -248,28 +248,28 @@ async function main() {
       minConfidence: 0.75,
       trackUsage: false // Don't track usage yet, just for display
     });
-    
+
     if (relevantMemories.length > 0) {
-      relevantMemories.forEach((mem, i) => {
-        console.log(`${i+1}. [Score: ${mem.score.toFixed(2)}] ${mem.text}`);
+      relevantMemories.forEach((mem: any, i: number) => {
+        console.log(`${i + 1}. [Score: ${mem.score.toFixed(2)}] ${mem.text}`);
       });
     } else {
       console.log("No memories met the confidence threshold.");
     }
-    
+
     // Generate response without memory
     console.log("\nSTANDARD RESPONSE (WITHOUT MEMORY):");
     const standardResponse = await generateMemoryAugmentedResponse(query, false);
     console.log(standardResponse);
-    
+
     // Generate response with memory
     console.log("\nMEMORY-AUGMENTED RESPONSE:");
     const augmentedResponse = await generateMemoryAugmentedResponse(query, true);
     console.log(augmentedResponse);
-    
+
     console.log("\n----------------------------------------");
   }
-  
+
   console.log("\n=== DEMO COMPLETE ===");
 }
 
@@ -281,4 +281,5 @@ if (require.main === module) {
 }
 
 // Export for testing
-export { generateMemoryAugmentedResponse }; 
+export { generateMemoryAugmentedResponse };
+

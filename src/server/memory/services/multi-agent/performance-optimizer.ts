@@ -9,13 +9,13 @@
  */
 
 import { ulid } from 'ulid';
-import { QueryCache, QueryCacheConfig } from '../query/query-cache';
-import { QueryPerformanceMonitor, QueryPerformanceConfig, QueryMetrics, QueryAnalysis } from '../query/query-performance';
-import { QueryOptimizationStrategy } from '../query/types';
-import { CacheManager } from '../cache/types';
 import { BaseMemorySchema } from '../../models/base-schema';
+import { CacheManager } from '../cache/types';
 import { SearchMemoryParams } from '../memory/types';
-import { AgentMemorySearchParams, EnhancedMemoryPoint } from './enhanced-memory-service';
+import { QueryCache, QueryCacheConfig } from '../query/query-cache';
+import { QueryAnalysis, QueryMetrics, QueryPerformanceConfig, QueryPerformanceMonitor } from '../query/query-performance';
+import { QueryOptimizationStrategy } from '../query/types';
+import { EnhancedMemoryPoint } from './enhanced-memory-service';
 
 /**
  * Vector search optimization parameters
@@ -91,7 +91,7 @@ const DEFAULT_CONFIG: PerformanceOptimizerConfig = {
 interface QueryContext {
   readonly queryId: string;
   readonly startTime: number;
-  readonly params: SearchMemoryParams | AgentMemorySearchParams;
+  readonly params: SearchMemoryParams;
   readonly cacheKey: string;
   readonly optimization: VectorSearchOptimization;
 }
@@ -104,7 +104,7 @@ export class PerformanceOptimizer {
   private performanceMonitor: QueryPerformanceMonitor;
   private config: PerformanceOptimizerConfig;
   private activeQueries: Map<string, QueryContext> = new Map();
-  
+
   constructor(
     private readonly cacheManager: CacheManager,
     config?: Partial<PerformanceOptimizerConfig>
@@ -113,17 +113,17 @@ export class PerformanceOptimizer {
     this.queryCache = new QueryCache(cacheManager, this.config.cache);
     this.performanceMonitor = new QueryPerformanceMonitor(this.config.performance);
   }
-  
+
   /**
    * Execute a search query with performance optimization
    */
   async executeOptimizedSearch<T extends BaseMemorySchema>(
-    params: SearchMemoryParams | AgentMemorySearchParams,
-    executor: (optimizedParams: SearchMemoryParams | AgentMemorySearchParams, optimization: VectorSearchOptimization) => Promise<EnhancedMemoryPoint<T>[]>
+    params: SearchMemoryParams,
+    executor: (optimizedParams: SearchMemoryParams, optimization: VectorSearchOptimization) => Promise<EnhancedMemoryPoint<T>[]>
   ): Promise<EnhancedMemoryPoint<T>[]> {
     const context = this.createQueryContext(params);
     this.activeQueries.set(context.queryId, context);
-    
+
     try {
       // Check cache first
       const cachedResults = await this.checkCache<T>(context);
@@ -131,29 +131,29 @@ export class PerformanceOptimizer {
         this.recordCacheHit(context);
         return cachedResults;
       }
-      
+
       // Execute query with optimization
       const results = await this.executeWithOptimization(context, executor);
-      
+
       // Cache results
       await this.cacheResults(context, results);
-      
+
       // Record performance metrics
       this.recordPerformanceMetrics(context, results);
-      
+
       return results;
     } finally {
       this.activeQueries.delete(context.queryId);
     }
   }
-  
+
   /**
    * Optimize vector search parameters based on query characteristics
    */
-  optimizeVectorSearchParameters(params: SearchMemoryParams | AgentMemorySearchParams): VectorSearchOptimization {
+  optimizeVectorSearchParameters(params: SearchMemoryParams): VectorSearchOptimization {
     const analysis = this.analyzeQuery(params);
     const strategy = this.determineOptimizationStrategy(analysis);
-    
+
     return {
       scoreThreshold: this.calculateOptimalScoreThreshold(params, analysis),
       limit: this.calculateOptimalLimit(params, analysis),
@@ -162,7 +162,7 @@ export class PerformanceOptimizer {
       batchSize: this.calculateOptimalBatchSize(params, analysis)
     };
   }
-  
+
   /**
    * Get performance statistics
    */
@@ -206,7 +206,7 @@ export class PerformanceOptimizer {
       }
     };
   }
-  
+
   /**
    * Clear cache for specific collections or patterns
    */
@@ -221,27 +221,27 @@ export class PerformanceOptimizer {
       await this.queryCache.clearCache();
     }
   }
-  
+
   /**
    * Get optimization recommendations for a query
    */
-  getOptimizationRecommendations(params: SearchMemoryParams | AgentMemorySearchParams): string[] {
+  getOptimizationRecommendations(params: SearchMemoryParams): string[] {
     const analysis = this.performanceMonitor.analyzeQuery({
       query: params.query || '',
       collection: 'memories', // Default collection
       filters: params.filter || {}
     });
-    
+
     return analysis.suggestions;
   }
-  
+
   // Private methods
-  
-  private createQueryContext(params: SearchMemoryParams | AgentMemorySearchParams): QueryContext {
+
+  private createQueryContext(params: SearchMemoryParams): QueryContext {
     const queryId = ulid();
     const cacheKey = this.generateCacheKey(params);
     const optimization = this.optimizeVectorSearchParameters(params);
-    
+
     return {
       queryId,
       startTime: Date.now(),
@@ -250,7 +250,7 @@ export class PerformanceOptimizer {
       optimization
     };
   }
-  
+
   private async checkCache<T extends BaseMemorySchema>(context: QueryContext): Promise<EnhancedMemoryPoint<T>[] | null> {
     const cached = await this.queryCache.get<T>(context.cacheKey);
     if (cached && cached.results && Array.isArray(cached.results)) {
@@ -258,27 +258,27 @@ export class PerformanceOptimizer {
     }
     return null;
   }
-  
+
   private async executeWithOptimization<T extends BaseMemorySchema>(
     context: QueryContext,
-    executor: (optimizedParams: SearchMemoryParams | AgentMemorySearchParams, optimization: VectorSearchOptimization) => Promise<EnhancedMemoryPoint<T>[]>
+    executor: (optimizedParams: SearchMemoryParams, optimization: VectorSearchOptimization) => Promise<EnhancedMemoryPoint<T>[]>
   ): Promise<EnhancedMemoryPoint<T>[]> {
     // Apply optimization parameters to query
     const optimizedParams = this.applyOptimizationToParams(context.params, context.optimization);
-    
+
     // Execute with timeout protection
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
         reject(new Error(`Query timeout after ${this.config.queryPlan.maxExecutionTimeMs}ms`));
       }, this.config.queryPlan.maxExecutionTimeMs);
     });
-    
+
     return Promise.race([
       executor(optimizedParams, context.optimization),
       timeoutPromise
     ]);
   }
-  
+
   private async cacheResults<T extends BaseMemorySchema>(
     context: QueryContext,
     results: EnhancedMemoryPoint<T>[]
@@ -300,7 +300,7 @@ export class PerformanceOptimizer {
       ttl
     );
   }
-  
+
   private recordCacheHit(context: QueryContext): void {
     const metrics: Omit<QueryMetrics, 'complexityScore' | 'filterComplexityScore'> = {
       executionTimeMs: Date.now() - context.startTime,
@@ -309,7 +309,7 @@ export class PerformanceOptimizer {
       strategy: context.optimization.strategy,
       memoryUsageBytes: 0
     };
-    
+
     this.performanceMonitor.recordMetrics(
       {
         query: context.params.query || '',
@@ -325,14 +325,14 @@ export class PerformanceOptimizer {
       metrics
     );
   }
-  
+
   private recordPerformanceMetrics<T extends BaseMemorySchema>(
     context: QueryContext,
     results: EnhancedMemoryPoint<T>[]
   ): void {
     const executionTime = Date.now() - context.startTime;
     const memoryUsage = this.estimateMemoryUsage(results);
-    
+
     const metrics: Omit<QueryMetrics, 'complexityScore' | 'filterComplexityScore'> = {
       executionTimeMs: executionTime,
       cacheStatus: 'miss',
@@ -340,7 +340,7 @@ export class PerformanceOptimizer {
       strategy: context.optimization.strategy,
       memoryUsageBytes: memoryUsage
     };
-    
+
     this.performanceMonitor.recordMetrics(
       {
         query: context.params.query || '',
@@ -356,8 +356,8 @@ export class PerformanceOptimizer {
       metrics
     );
   }
-  
-  private generateCacheKey(params: SearchMemoryParams | AgentMemorySearchParams): string {
+
+  private generateCacheKey(params: SearchMemoryParams): string {
     const key = {
       query: params.query,
       filter: params.filter,
@@ -365,127 +365,124 @@ export class PerformanceOptimizer {
       offset: params.offset,
       type: params.type
     };
-    
-    // Add agent-specific parameters if present
-    if ('requestingAgentId' in params) {
-      (key as any).requestingAgentId = params.requestingAgentId;
-      (key as any).senderAgentId = params.senderAgentId;
-      (key as any).receiverAgentId = params.receiverAgentId;
-    }
-    
+
     return `query:${Buffer.from(JSON.stringify(key)).toString('base64')}`;
   }
-  
-  private analyzeQuery(params: SearchMemoryParams | AgentMemorySearchParams): QueryAnalysis {
+
+  private analyzeQuery(params: SearchMemoryParams): QueryAnalysis {
     return this.performanceMonitor.analyzeQuery({
       query: params.query || '',
       collection: 'memories',
       filters: params.filter || {}
     });
   }
-  
+
   private determineOptimizationStrategy(analysis: QueryAnalysis): QueryOptimizationStrategy {
     return analysis.recommendedStrategy;
   }
-  
+
   private calculateOptimalScoreThreshold(
-    params: SearchMemoryParams | AgentMemorySearchParams,
+    params: SearchMemoryParams,
     analysis: QueryAnalysis
   ): number {
     const baseThreshold = this.config.vectorSearch.minScoreThreshold;
-    
+
     // Adjust based on query complexity
     if (analysis.pattern === 'complex') {
       return Math.min(baseThreshold + 0.1, this.config.vectorSearch.maxScoreThreshold);
     }
-    
+
     // Adjust based on filter complexity
     if (analysis.pattern === 'filter-heavy') {
       return Math.min(baseThreshold + 0.05, this.config.vectorSearch.maxScoreThreshold);
     }
-    
+
     return baseThreshold;
   }
-  
+
   private calculateOptimalLimit(
-    params: SearchMemoryParams | AgentMemorySearchParams,
+    params: SearchMemoryParams,
     analysis: QueryAnalysis
   ): number {
     const requestedLimit = params.limit || this.config.vectorSearch.defaultLimit;
     const maxLimit = this.config.vectorSearch.maxLimit;
-    
+
     // Adjust based on query pattern
     if (analysis.pattern === 'result-heavy') {
       return Math.min(requestedLimit * 1.5, maxLimit);
     }
-    
+
     return Math.min(requestedLimit, maxLimit);
   }
-  
+
   private shouldUseApproximateSearch(
-    params: SearchMemoryParams | AgentMemorySearchParams,
+    params: SearchMemoryParams,
     analysis: QueryAnalysis
   ): boolean {
     if (!this.config.vectorSearch.enableApproximateSearch) {
       return false;
     }
-    
-    // Use approximate search for simple queries or when speed is prioritized
-    return analysis.pattern === 'simple' || analysis.recommendedStrategy === QueryOptimizationStrategy.HIGH_SPEED;
+
+    // Use approximate search for large result sets
+    if ((params.limit || this.config.vectorSearch.defaultLimit) > 50) {
+      return true;
+    }
+
+    return false;
   }
-  
+
   private calculateOptimalBatchSize(
-    params: SearchMemoryParams | AgentMemorySearchParams,
+    params: SearchMemoryParams,
     analysis: QueryAnalysis
   ): number | undefined {
     const limit = params.limit || this.config.vectorSearch.defaultLimit;
-    
-    // Use batching for large result sets
-    if (limit > 50) {
-      return Math.min(25, Math.ceil(limit / 4));
+
+    // Use batching for large queries
+    if (limit > 100) {
+      return Math.min(50, Math.ceil(limit / 4));
     }
-    
+
     return undefined;
   }
-  
+
   private applyOptimizationToParams(
-    params: SearchMemoryParams | AgentMemorySearchParams,
+    params: SearchMemoryParams,
     optimization: VectorSearchOptimization
-  ): SearchMemoryParams | AgentMemorySearchParams {
+  ): SearchMemoryParams {
     return {
       ...params,
       limit: optimization.limit,
       minScore: optimization.scoreThreshold
     };
   }
-  
+
   private calculateCacheTtl(
-    params: SearchMemoryParams | AgentMemorySearchParams,
+    params: SearchMemoryParams,
     results: EnhancedMemoryPoint<any>[]
   ): number {
     let baseTtl = this.config.cache.defaultTtl || 300000; // Ensure baseTtl has a default value
-    
+
     // Longer TTL for stable results
     if (results.length > 0 && results.length < 5) {
       baseTtl *= 2;
     }
-    
+
     // Shorter TTL for large result sets (more likely to change)
     if (results.length > 20) {
       baseTtl *= 0.5;
     }
-    
+
     return Math.floor(baseTtl / 1000); // Convert to seconds
   }
-  
+
   private estimateMemoryUsage<T extends BaseMemorySchema>(results: EnhancedMemoryPoint<T>[]): number {
     // Rough estimation: 1KB per result on average
     return results.length * 1024;
   }
-  
+
   private mergeConfig(config?: Partial<PerformanceOptimizerConfig>): PerformanceOptimizerConfig {
     if (!config) return DEFAULT_CONFIG;
-    
+
     return {
       cache: { ...DEFAULT_CONFIG.cache, ...config.cache },
       performance: { ...DEFAULT_CONFIG.performance, ...config.performance },

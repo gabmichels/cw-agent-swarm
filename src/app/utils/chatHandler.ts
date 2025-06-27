@@ -2,8 +2,8 @@
  * Utility functions for handling chat operations
  */
 
-import { getMemoryServices } from '../../server/memory/services';
 import { MemoryType } from '../../server/memory/config';
+import { getMemoryServices } from '../../server/memory/services';
 import { MessageMetadata } from '../../types/metadata';
 
 /**
@@ -21,7 +21,7 @@ export async function generateResponse(
     // 2. Add system instructions to avoid the flagged content
     // 3. Call the LLM to generate a new response
     // 4. Return the generated response
-    
+
     // This is just a placeholder
     return "I've generated a new response that avoids the previously flagged content.";
   } catch (error) {
@@ -39,21 +39,21 @@ export async function getConversationHistory(
   try {
     // Get memory services
     const { searchService } = await getMemoryServices();
-    
+
     // Get recent messages from memory using the search service
     const searchResults = await searchService.search("", {
       types: [MemoryType.MESSAGE],
       limit
     });
-    
+
     // Sort by timestamp if available (most recent first)
-    const sorted = searchResults.sort((a, b) => {
+    const sorted = searchResults.sort((a: any, b: any) => {
       const metadataA = a.point.payload?.metadata as MessageMetadata | undefined;
       const metadataB = b.point.payload?.metadata as MessageMetadata | undefined;
-      
+
       const timeA = metadataA?.timestamp || '';
       const timeB = metadataB?.timestamp || '';
-      
+
       // If both are strings or both are numbers, use direct comparison
       if (typeof timeA === 'string' && typeof timeB === 'string') {
         return timeB.localeCompare(timeA); // Descending order
@@ -66,9 +66,9 @@ export async function getConversationHistory(
         return dateB - dateA; // Descending order
       }
     });
-    
+
     // Format messages as strings
-    return sorted.map(result => {
+    return sorted.map((result: any) => {
       const msg = result.point;
       const metadata = msg.payload?.metadata as MessageMetadata | undefined;
       const role = metadata?.role || 'unknown';

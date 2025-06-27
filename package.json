@@ -20,7 +20,6 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit --jsx react-jsx --esModuleInterop",
     "typecheck:tests": "node scripts/check-test-types.js",
-    "typecheck:tests": "node scripts/check-test-types.js",
     "minio:start": "node scripts/start-minio.js",
     "workflow:server": "cd data/n8n-workflows-repo && py run.py --port 8080",
     "workflow:server:dev": "cd data/n8n-workflows-repo && py run.py --port 8080 --dev",
@@ -69,7 +68,6 @@
     "storage:stop": "docker-compose down",
     "protect:files": "powershell -File scripts/protect-critical-files.ps1",
     "unprotect:files": "powershell -File scripts/unprotect-critical-files.ps1",
-
     "validate:error-management": "tsx src/scripts/validate-error-management-system.ts",
     "test:error-management": "npm test src/scripts/test-error-management-integration.ts"
   },
@@ -89,6 +87,8 @@
     "@prisma/client": "^6.10.1",
     "@qdrant/js-client-rest": "^1.14.0",
     "@radix-ui/react-dialog": "^1.1.13",
+    "@radix-ui/react-scroll-area": "^1.2.9",
+    "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.2",
     "@types/dagre": "^0.7.52",
     "@types/lru-cache": "^7.10.9",

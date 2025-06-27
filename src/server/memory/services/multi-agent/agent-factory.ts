@@ -5,20 +5,18 @@
  * and enhanced memory communication capabilities.
  */
 
-import { AgentCapability, AgentMemoryEntity, AgentParameters, AgentStatus, agentSchema } from "../../schema/agent";
+import { AppError, Result, failureResult } from "../../../../lib/errors/base";
 import { IdGenerator } from "../../../../utils/ulid";
+import { MemoryType } from '../../config';
+import { BaseMemorySchema } from '../../models';
+import { AgentCapability, AgentMemoryEntity, AgentParameters, AgentStatus } from "../../schema/agent";
 import { AgentMemoryService } from "../agent-memory-service";
 import { IMemoryRepository } from "../base/types";
-import { Result, failureResult } from "../../../../lib/errors/base";
-import { AppError } from "../../../../lib/errors/base";
-import { 
-  EnhancedMemoryService, 
-  AgentCommunicationType, 
+import {
+  AgentCommunicationType,
   AgentMemoryAccessLevel,
-  AgentCommunicationParams 
+  EnhancedMemoryService
 } from './enhanced-memory-service';
-import { BaseMemorySchema } from '../../models';
-import { MemoryType } from '../../config';
 
 /**
  * Agent template interface for creating new agents
@@ -42,7 +40,7 @@ export interface AgentTemplate {
  */
 export class AgentFactory {
   private agentService: AgentMemoryService;
-  
+
   /**
    * Create a new agent factory with optional Enhanced Memory Service
    * Following IMPLEMENTATION_GUIDELINES.md: Dependency Injection pattern
@@ -55,7 +53,7 @@ export class AgentFactory {
   ) {
     this.agentService = new AgentMemoryService(agentRepository);
   }
-  
+
   /**
    * Create a new agent from a template
    * @param template The agent template
@@ -68,7 +66,7 @@ export class AgentFactory {
   ): Promise<Result<AgentMemoryEntity>> {
     // Generate unique agent ID
     const agentId = IdGenerator.generate("agent");
-    
+
     // Merge provided parameters with defaults
     const parameters: AgentParameters = {
       model: template.parameters.model || "default",
@@ -78,7 +76,7 @@ export class AgentFactory {
       systemPrompt: template.parameters.systemPrompt || "",
       autonomous: template.parameters.autonomous || false
     };
-    
+
     // Prepare agent data with required fields
     const agentData: Omit<AgentMemoryEntity, "id" | "createdAt" | "updatedAt" | "schemaVersion"> = {
       name: template.name,
@@ -105,11 +103,11 @@ export class AgentFactory {
         isPublic: template.metadata?.isPublic || false
       }
     };
-    
+
     // Create the agent using the service
     return await this.agentService.create(agentData);
   }
-  
+
   /**
    * Create a specialized agent based on a predefined template
    * @param type The type of specialized agent to create
@@ -251,21 +249,21 @@ export class AgentFactory {
         }
       }
     };
-    
+
     // Create agent using the selected template
     const template = templates[type];
     if (!template) {
       throw new Error(`Unknown agent type: ${type}`);
     }
-    
+
     // Customize the name if provided
     if (name) {
       template.name = name;
     }
-    
+
     return await this.createAgent(template, createdBy);
   }
-  
+
   /**
    * Clone an existing agent with optional modifications
    * @param agentId The ID of the agent to clone
@@ -280,20 +278,20 @@ export class AgentFactory {
   ): Promise<Result<AgentMemoryEntity>> {
     // Get the original agent
     const agentResult = await this.agentService.getById(agentId);
-    
+
     if (agentResult.error || !agentResult.data) {
       // Return appropriate error if agent not found
-      return agentResult.error ? 
-        agentResult as Result<AgentMemoryEntity> : 
+      return agentResult.error ?
+        agentResult as Result<AgentMemoryEntity> :
         failureResult(new AppError(
           `Agent with ID ${agentId} not found`,
           "AGENT_NOT_FOUND",
           { agentId }
         ));
     }
-    
+
     const sourceAgent = agentResult.data;
-    
+
     // Create a template based on the original agent
     const template: AgentTemplate = {
       name: modifications.name || `Clone of ${sourceAgent.name}`,
@@ -310,7 +308,7 @@ export class AgentFactory {
         isPublic: modifications.metadata?.isPublic ?? sourceAgent.metadata.isPublic
       }
     };
-    
+
     // Create the cloned agent
     return await this.createAgent(template, createdBy);
   }
@@ -346,15 +344,15 @@ export class AgentFactory {
       }
 
       // Store agent communication settings in memory
-      const result = await this.enhancedMemoryService.sendAgentMessage<BaseMemorySchema>({
+      const result = await this.enhancedMemoryService.addMemory<BaseMemorySchema>({
         type: MemoryType.AGENT,
         content: `Agent communication enabled for ${agentId}`,
-        senderAgentId: 'system',
-        receiverAgentId: agentId,
-        communicationType: AgentCommunicationType.STATUS_UPDATE,
-        accessLevel: communicationSettings.accessLevel,
         metadata: {
           agentId,
+          senderAgentId: 'system',
+          receiverAgentId: agentId,
+          communicationType: AgentCommunicationType.STATUS_UPDATE,
+          accessLevel: communicationSettings.accessLevel,
           communicationSettings: {
             accessLevel: communicationSettings.accessLevel,
             allowedCommunicationTypes: communicationSettings.allowedCommunicationTypes,
@@ -428,31 +426,26 @@ export class AgentFactory {
         ));
       }
 
-      // Send the message using Enhanced Memory Service
-      const result = await this.enhancedMemoryService.sendAgentMessage<BaseMemorySchema>({
+      // Send the message using Enhanced Memory Service addMemory method
+      const result = await this.enhancedMemoryService.addMemory<BaseMemorySchema>({
         type: MemoryType.MESSAGE,
         content,
-        senderAgentId,
-        receiverAgentId,
-        communicationType: options.communicationType || AgentCommunicationType.DIRECT_MESSAGE,
-        priority: options.priority || 'medium',
-        accessLevel: options.accessLevel || AgentMemoryAccessLevel.PRIVATE,
         metadata: {
-          ...options.metadata,
+          senderAgentId,
+          receiverAgentId,
+          communicationType: options.communicationType || AgentCommunicationType.DIRECT_MESSAGE,
+          priority: options.priority || 'medium',
+          accessLevel: options.accessLevel || AgentMemoryAccessLevel.PRIVATE,
           senderName: senderResult.data.name,
           receiverName: receiverResult.data.name,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          ...options.metadata
         }
       });
 
       return {
         success: result.success,
-        data: result.id || 'unknown',
-        error: result.error ? new AppError(
-          result.error.message,
-          result.error.code as string,
-          { senderAgentId, receiverAgentId }
-        ) : undefined
+        data: result.id || 'unknown'
       };
     } catch (error) {
       return failureResult(new AppError(
@@ -498,30 +491,33 @@ export class AgentFactory {
         ));
       }
 
-      // Send broadcast message using Enhanced Memory Service
-      const results = await this.enhancedMemoryService.broadcastAgentMessage<BaseMemorySchema>({
+      // Send broadcast message using Enhanced Memory Service addMemory method
+      const result = await this.enhancedMemoryService.addMemory<BaseMemorySchema>({
         type: MemoryType.MESSAGE,
         content,
-        senderAgentId,
-        communicationType: options.communicationType || AgentCommunicationType.BROADCAST,
-        priority: options.priority || 'medium',
-        accessLevel: options.accessLevel,
-        receiverAgentIds: options.receiverAgentIds,
-        teamId: options.teamId,
         metadata: {
-          ...options.metadata,
+          senderAgentId,
+          communicationType: options.communicationType || AgentCommunicationType.BROADCAST,
+          priority: options.priority || 'medium',
+          accessLevel: options.accessLevel,
+          receiverAgentIds: options.receiverAgentIds,
+          teamId: options.teamId,
           senderName: senderResult.data.name,
           timestamp: Date.now(),
-          broadcastType: options.receiverAgentIds ? 'targeted' : 'team'
+          broadcastType: options.receiverAgentIds ? 'targeted' : 'team',
+          ...options.metadata
         }
       });
 
+      // Convert single result to array format expected by caller
+      const results = [result];
+
       // Extract message IDs from results
       const messageIds = results
-        .filter(r => r.success)
-        .map(r => r.id || 'unknown');
+        .filter((r: any) => r.success)
+        .map((r: any) => r.id || 'unknown');
 
-      const failures = results.filter(r => !r.success);
+      const failures = results.filter((r: any) => !r.success);
       if (failures.length > 0) {
         console.warn(`Broadcast partially failed: ${failures.length} messages failed to send`);
       }
@@ -577,17 +573,36 @@ export class AgentFactory {
         ));
       }
 
-      // Get conversation history using Enhanced Memory Service
-      const history = await this.enhancedMemoryService.getAgentConversationHistory<BaseMemorySchema>(
-        agentId,
-        otherAgentId,
-        {
-          limit: options.limit || 50,
-          offset: options.offset || 0,
-          since: options.since,
-          communicationType: options.communicationType
+      // Get conversation history using Enhanced Memory Service search
+      const searchResults = await this.enhancedMemoryService.searchMemories<BaseMemorySchema>({
+        query: '',
+        type: MemoryType.MESSAGE,
+        limit: options.limit || 50,
+        offset: options.offset || 0,
+        filter: {
+          ...(otherAgentId && {
+            $or: [
+              { 'metadata.senderAgentId': agentId, 'metadata.receiverAgentId': otherAgentId },
+              { 'metadata.senderAgentId': otherAgentId, 'metadata.receiverAgentId': agentId }
+            ]
+          }),
+          ...(!otherAgentId && {
+            $or: [
+              { 'metadata.senderAgentId': agentId },
+              { 'metadata.receiverAgentId': agentId }
+            ]
+          }),
+          ...(options.communicationType && { 'metadata.communicationType': options.communicationType }),
+          ...(options.since && { 'metadata.timestamp': { $gte: options.since.getTime() } })
         }
-      );
+      });
+
+      const history = searchResults.map(point => ({
+        id: point.id,
+        content: point.payload.text,
+        metadata: point.payload.metadata,
+        timestamp: point.payload.timestamp
+      }));
 
       return {
         success: true,

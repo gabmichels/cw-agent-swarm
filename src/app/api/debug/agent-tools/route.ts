@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 import { logger } from '../../../../lib/logging';
 import { getAllAgents } from '../../../../server/agent/agent-service';
-import { ManagerType } from '../../../../agents/shared/base/managers/ManagerType';
 
 export async function GET(request: NextRequest) {
   try {
@@ -68,7 +68,16 @@ export async function GET(request: NextRequest) {
         // Get tool manager
         const toolManager = agent.getManager(ManagerType.TOOL);
 
-        let toolsData = {
+        let toolsData: {
+          agentId: string;
+          agentName: string;
+          agentType: string;
+          hasToolManager: boolean;
+          tools: any[];
+          toolCategories: Record<string, any[]>;
+          toolCount: number;
+          error: string | null;
+        } = {
           agentId,
           agentName,
           agentType: agent.constructor.name,
@@ -116,7 +125,7 @@ export async function GET(request: NextRequest) {
               });
 
               // Group by category
-              const categorizedTools = {};
+              const categorizedTools: Record<string, any[]> = {};
               processedTools.forEach(tool => {
                 const category = tool.category || 'Native Tools';
                 if (!categorizedTools[category]) {

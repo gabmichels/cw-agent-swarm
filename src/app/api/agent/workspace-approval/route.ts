@@ -1,9 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { DatabaseService } from '@/services/database/DatabaseService';
 import { WorkspaceToolApprovalService } from '@/services/approval/WorkspaceToolApprovalService';
+import { NextRequest, NextResponse } from 'next/server';
 
-const databaseService = new DatabaseService();
-const approvalService = new WorkspaceToolApprovalService(databaseService);
+const approvalService = new WorkspaceToolApprovalService();
 
 export async function GET(request: NextRequest) {
   try {

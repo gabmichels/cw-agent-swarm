@@ -8,6 +8,7 @@
  */
 
 import { ILogger } from '../../lib/core/logger';
+import { ErrorSeverity } from '../../lib/errors/types/BaseError';
 import {
   IErrorDatabaseProvider
 } from './interfaces/IErrorManagementService';
@@ -164,14 +165,14 @@ export class DefaultErrorMonitoringService {
       const timeWindow = new Date(now.getTime() - 60 * 60 * 1000); // Last hour
 
       const statistics = await this.databaseProvider.getErrorStatistics({
-        from: timeWindow,
-        to: now
+        fromDate: timeWindow,
+        toDate: now
       });
 
       const metrics: MonitoringMetrics = {
         timestamp: now,
         errorRate: statistics.totalErrors / 1, // errors per hour
-        criticalErrorsCount: statistics.errorsBySeverity.get('CRITICAL') || 0,
+        criticalErrorsCount: statistics.errorsBySeverity.get(ErrorSeverity.CRITICAL) || 0,
         resolutionRate: statistics.resolutionRate * 100,
         averageResolutionTime: statistics.averageResolutionTime,
         systemAvailability: this.calculateSystemAvailability(statistics),

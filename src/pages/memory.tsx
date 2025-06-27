@@ -2,11 +2,11 @@
  * Component-level state/variables that should be outside
  * the functional component's render loop
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import { Database, RefreshCw, Search } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import MemoryItem from '../components/memory/MemoryItem';
-import { MemoryPoint, BaseMemorySchema } from '../server/memory/models/base-schema';
+import { BaseMemorySchema, MemoryPoint } from '../server/memory/models/base-schema';
 import { getMemoryServices } from '../server/memory/services';
-import { RefreshCw, Search, Database } from 'lucide-react';
 
 // Define the SearchResult interface based on what the API returns
 interface SearchResult<T extends BaseMemorySchema> {
@@ -32,10 +32,10 @@ export default function MemoryPage() {
       
       // Get memories from service
       const { searchService } = await getMemoryServices();
-      const results = await searchService.search<BaseMemorySchema>('', { limit: 100 });
+      const results = await (searchService as any).search('', { limit: 100 });
       
-      // Extract memory points from search results
-      const memoryPoints = results.map(result => result.point);
+      // Format memory data
+      const memoryPoints = results.map((result: any) => result.point);
       
       setMemories(memoryPoints);
       setFilteredMemories(memoryPoints);

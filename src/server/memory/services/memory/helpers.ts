@@ -6,9 +6,9 @@
 
 import { MemoryType } from '@/server/memory/config/types';
 import { getMemoryServices } from "..";
-import { BaseMetadata, MessageMetadata, MessageRole, ThreadInfo } from "../../../../types/metadata";
-import { generateSystemUserId, generateSystemAgentId, generateSystemChatId } from "../../../../lib/core/id-generation";
-import { createUserId, createAgentId, createChatId } from "../../../../types/entity-identifier";
+import { generateSystemAgentId, generateSystemChatId, generateSystemUserId } from "../../../../lib/core/id-generation";
+import { createAgentId, createChatId, createUserId } from "../../../../types/entity-identifier";
+import { MessageMetadata, MessageRole, ThreadInfo } from "../../../../types/metadata";
 
 /**
  * Extended metadata schema for message memories that includes additional properties
@@ -39,39 +39,37 @@ export async function flagAsUnreliable(
   try {
     // Get memory services
     const { memoryService, searchService } = await getMemoryServices();
-    
+
     // Search for the message to check if it exists
     const searchResults = await searchService.search(
-      content.substring(0, 100), 
-      { 
+      content.substring(0, 100),
+      {
         types: [MemoryType.MESSAGE],
-        limit: 5 
+        limit: 5
       }
     );
 
     let targetMessage = null;
-    
+
     // Try to find the message that matches our criteria
     if (searchResults && searchResults.length > 0) {
       // If messageId was provided, try to match by ID first
       if (messageId) {
-        targetMessage = searchResults.find(result => {
-          // Cast to our extended metadata schema
-          const metadata = result.point.payload.metadata as MessageMetadataSchema;
-          return result.point.id === messageId || 
-            (metadata && metadata.messageId === messageId);
-        }) || null;
+        targetMessage = searchResults.find((result: any) => {
+          const messageObj = result.point;
+          return messageObj?.payload?.messageId === messageId;
+        });
       }
-      
+
       // If no match by ID or ID wasn't provided, try to match by timestamp
       if (!targetMessage && timestamp) {
-        targetMessage = searchResults.find(result => {
+        targetMessage = searchResults.find((result: any) => {
           const resultTimestamp = result.point.payload.timestamp;
-          return resultTimestamp === timestamp || 
+          return resultTimestamp === timestamp ||
             (Math.abs(new Date(resultTimestamp).getTime() - new Date(timestamp).getTime()) < 1000);
-        }) || null;
+        });
       }
-      
+
       // If still no match, use content similarity as fallback
       if (!targetMessage) {
         // Get the first result as it should be the most similar
@@ -82,11 +80,11 @@ export async function flagAsUnreliable(
     // If we found the message, update its metadata to mark it as unreliable
     if (targetMessage) {
       console.log(`Found existing message to flag as unreliable: ${targetMessage.point.id}`);
-      
+
       // Get existing metadata and cast to our schema
       const existingMetadata = targetMessage.point.payload.metadata || {};
       const typedMetadata = existingMetadata as MessageMetadataSchema;
-      
+
       // Update the message metadata to mark it as unreliable
       const updatedMetadata: MessageMetadataSchema = {
         ...typedMetadata,
@@ -97,30 +95,30 @@ export async function flagAsUnreliable(
         excludeFromRetrieval: true, // This is the key flag to exclude from future retrievals
         confidence: 0 // Set confidence to 0 to ensure it's not reranked highly
       };
-      
+
       // Update the memory with the new metadata
       await memoryService.updateMemory({
         id: targetMessage.point.id,
         type: MemoryType.MESSAGE,
         metadata: updatedMetadata
       });
-      
+
       return true;
     } else {
       // If message doesn't exist in memory yet, create a new entry with unreliable flag
       console.log('Creating new memory entry with unreliable flag');
-      
+
       // Create default thread info
       const threadInfo: ThreadInfo = {
         id: 'system-flagged',
         position: 0
       };
-      
+
       // Create ULID strings
       const systemUserId = generateSystemUserId('system');
       const systemAgentId = generateSystemAgentId('system');
       const systemChatId = generateSystemChatId('flagged-content');
-      
+
       // Add as a new memory with unreliable flag
       const result = await memoryService.addMemory({
         type: MemoryType.MESSAGE,
@@ -144,7 +142,7 @@ export async function flagAsUnreliable(
           source: 'user_flagged'
         } as MessageMetadataSchema
       });
-      
+
       return result.success;
     }
   } catch (error) {

@@ -1,15 +1,15 @@
-import { CapabilityFactory } from '../capabilities/CapabilityFactory';
-import { IEmailCapabilities } from '../capabilities/interfaces/IEmailCapabilities';
-import { ICalendarCapabilities } from '../capabilities/interfaces/ICalendarCapabilities';
-import { ISheetsCapabilities } from '../capabilities/interfaces/ISheetsCapabilities';
-import { IDriveCapabilities } from '../capabilities/interfaces/IDriveCapabilities';
-import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
 import { DatabaseService } from '../../database/DatabaseService';
 import { IDatabaseProvider } from '../../database/IDatabaseProvider';
-import { WorkspaceProvider, WorkspaceCapabilityType } from '../../database/types';
-import { WorkspaceConnectionsInfoTool } from './WorkspaceConnectionsInfoTool';
-import { WorkspaceConnectionSelector, SenderPreference } from '../providers/WorkspaceConnectionSelector';
+import { WorkspaceCapabilityType, WorkspaceProvider } from '../../database/types';
+import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
+import { CapabilityFactory } from '../capabilities/CapabilityFactory';
+import { ICalendarCapabilities } from '../capabilities/interfaces/ICalendarCapabilities';
+import { IDriveCapabilities } from '../capabilities/interfaces/IDriveCapabilities';
+import { IEmailCapabilities } from '../capabilities/interfaces/IEmailCapabilities';
+import { ISheetsCapabilities } from '../capabilities/interfaces/ISheetsCapabilities';
 import { WorkspaceNLPProcessor } from '../integration/WorkspaceNLPProcessor';
+import { SenderPreference, WorkspaceConnectionSelector } from '../providers/WorkspaceConnectionSelector';
+import { WorkspaceConnectionsInfoTool } from './WorkspaceConnectionsInfoTool';
 
 // Agent tool interface for LLM function calling
 export interface AgentTool<TParams = any, TResult = any> {
@@ -285,7 +285,7 @@ export class WorkspaceAgentTools {
 
     // Import approval service
     const { WorkspaceToolApprovalService } = await import('../../approval/WorkspaceToolApprovalService');
-    const approvalService = new WorkspaceToolApprovalService(this.db);
+    const approvalService = new WorkspaceToolApprovalService();
 
     // Add email tools based on permissions
     const emailCapabilities = capabilities.filter(c => c.capability.includes('EMAIL'));

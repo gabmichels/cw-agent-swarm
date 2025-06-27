@@ -7,20 +7,18 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { StructuredId } from '../../../../../utils/ulid';
-import { AnyMemoryService } from '../../memory/memory-service-wrappers';
 import { MemoryType } from '../../../config';
-import { MessageRouter, RoutingStrategy, MessagePriority, RoutingParams, DeliveryStatus } from './message-router';
-import { MessageTransformer, MessageFormat, EnrichmentType, TransformableMessage } from './message-transformer';
-import { getConversationAnalyticsService } from './index';
-import { MessageAnalyticsUpdate } from './conversation-analytics';
-import { 
-  EnhancedMemoryService, 
-  AgentCommunicationType, 
+import { AnyMemoryService } from '../../memory/memory-service-wrappers';
+import {
+  // AgentCommunicationParams, // This interface doesn't exist, using inline type
+  AgentCommunicationType,
   AgentMemoryAccessLevel,
-  AgentCommunicationParams 
+  EnhancedMemoryService
 } from '../enhanced-memory-service';
-import { BaseMemorySchema } from '../../../models';
+import { MessageAnalyticsUpdate } from './conversation-analytics';
+import { getConversationAnalyticsService } from './index';
+import { DeliveryStatus, MessagePriority, MessageRouter, RoutingParams, RoutingStrategy } from './message-router';
+import { EnrichmentType, MessageFormat, MessageTransformer, TransformableMessage } from './message-transformer';
 
 // Ensure type compatibility with MemoryType enum
 const MEMORY_TYPE = {
@@ -150,12 +148,12 @@ export interface IConversationManager {
    * Create a new conversation
    */
   createConversation(config: ConversationConfig): Promise<Conversation>;
-  
+
   /**
    * Get a conversation by ID
    */
   getConversation(conversationId: string): Promise<Conversation>;
-  
+
   /**
    * Add a participant to a conversation
    */
@@ -163,12 +161,12 @@ export interface IConversationManager {
     conversationId: string,
     participant: Omit<Participant, 'joinedAt' | 'lastActiveAt'>
   ): Promise<Conversation>;
-  
+
   /**
    * Remove a participant from a conversation
    */
   removeParticipant(conversationId: string, participantId: string): Promise<Conversation>;
-  
+
   /**
    * Submit a message to the conversation
    */
@@ -176,7 +174,7 @@ export interface IConversationManager {
     conversationId: string,
     params: SubmitMessageParams
   ): Promise<ConversationMessage>;
-  
+
   /**
    * Get messages for a participant
    */
@@ -189,7 +187,7 @@ export interface IConversationManager {
       afterTimestamp?: number;
     }
   ): Promise<ConversationMessage[]>;
-  
+
   /**
    * Update conversation state
    */
@@ -212,25 +210,25 @@ export class ConversationManager implements IConversationManager {
     private readonly messageRouter: MessageRouter,
     private readonly messageTransformer: MessageTransformer,
     private readonly enhancedMemoryService?: EnhancedMemoryService
-  ) {}
-  
+  ) { }
+
   /**
    * Create a new conversation
    */
   async createConversation(config: ConversationConfig): Promise<Conversation> {
     try {
       const timestamp = Date.now();
-      
+
       // Generate conversation ID if not provided
       const conversationId = config.id || uuidv4();
-      
+
       // Set join timestamp for all participants
       const participants = config.initialParticipants.map(participant => ({
         ...participant,
         joinedAt: timestamp,
         lastActiveAt: timestamp
       }));
-      
+
       // Create the conversation object
       const conversation: Conversation = {
         id: conversationId,
@@ -249,7 +247,7 @@ export class ConversationManager implements IConversationManager {
           timeoutMs: config.timeoutMs
         }
       };
-      
+
       // Store in memory service
       await this.memoryService.addMemory({
         type: MEMORY_TYPE.CONVERSATION,
@@ -259,10 +257,10 @@ export class ConversationManager implements IConversationManager {
           messageCount: 0
         }
       });
-      
+
       // Notify participants about the new conversation
       await this.notifyParticipantsOfConversationCreation(conversation);
-      
+
       // Update state to active
       return this.updateConversationState(conversationId, ConversationState.ACTIVE);
     } catch (error) {
@@ -270,7 +268,7 @@ export class ConversationManager implements IConversationManager {
       throw error;
     }
   }
-  
+
   /**
    * Get a conversation by ID
    */
@@ -281,19 +279,19 @@ export class ConversationManager implements IConversationManager {
         type: MEMORY_TYPE.CONVERSATION,
         filter: { id: conversationId }
       });
-      
+
       if (conversations.length === 0) {
         throw new Error(`Conversation not found: ${conversationId}`);
       }
-      
+
       // Get the conversation data
       const conversation = conversations[0];
       const metadata = conversation.payload.metadata || {};
       const metadataObj = metadata as unknown as Record<string, unknown>;
-      
+
       // Get messages for this conversation
       const messages = await this.getConversationMessages(conversationId);
-      
+
       // Reconstruct the conversation object
       return {
         id: conversationId,
@@ -312,7 +310,7 @@ export class ConversationManager implements IConversationManager {
       throw error;
     }
   }
-  
+
   /**
    * Add a participant to a conversation
    */
@@ -323,20 +321,20 @@ export class ConversationManager implements IConversationManager {
     try {
       // Get the conversation
       const conversation = await this.getConversation(conversationId);
-      
+
       // Check if participant already exists
       if (conversation.participants.some(p => p.id === participant.id)) {
         throw new Error(`Participant ${participant.id} already exists in conversation ${conversationId}`);
       }
-      
+
       // Check max participants limit
       const maxParticipants = conversation.metadata?.maxParticipants as number;
       if (maxParticipants && conversation.participants.length >= maxParticipants) {
         throw new Error(`Maximum number of participants (${maxParticipants}) reached for conversation ${conversationId}`);
       }
-      
+
       const timestamp = Date.now();
-      
+
       // Add the new participant
       const updatedParticipants = [
         ...conversation.participants,
@@ -346,7 +344,7 @@ export class ConversationManager implements IConversationManager {
           lastActiveAt: timestamp
         }
       ];
-      
+
       // Update conversation in memory
       await this.memoryService.updateMemory({
         type: MEMORY_TYPE.CONVERSATION,
@@ -356,10 +354,10 @@ export class ConversationManager implements IConversationManager {
           updatedAt: timestamp
         }
       });
-      
+
       // Notify other participants about the new member
       await this.notifyParticipantJoined(conversation, participant.id);
-      
+
       // Return updated conversation
       return this.getConversation(conversationId);
     } catch (error) {
@@ -367,7 +365,7 @@ export class ConversationManager implements IConversationManager {
       throw error;
     }
   }
-  
+
   /**
    * Remove a participant from a conversation
    */
@@ -375,19 +373,19 @@ export class ConversationManager implements IConversationManager {
     try {
       // Get the conversation
       const conversation = await this.getConversation(conversationId);
-      
+
       // Check if participant exists
       const participantIndex = conversation.participants.findIndex(p => p.id === participantId);
       if (participantIndex === -1) {
         throw new Error(`Participant ${participantId} not found in conversation ${conversationId}`);
       }
-      
+
       // Remove the participant
       const updatedParticipants = [...conversation.participants];
       updatedParticipants.splice(participantIndex, 1);
-      
+
       const timestamp = Date.now();
-      
+
       // Update conversation in memory
       await this.memoryService.updateMemory({
         type: MEMORY_TYPE.CONVERSATION,
@@ -397,10 +395,10 @@ export class ConversationManager implements IConversationManager {
           updatedAt: timestamp
         }
       });
-      
+
       // Notify remaining participants
       await this.notifyParticipantLeft(conversation, participantId);
-      
+
       // Return updated conversation
       return this.getConversation(conversationId);
     } catch (error) {
@@ -408,7 +406,7 @@ export class ConversationManager implements IConversationManager {
       throw error;
     }
   }
-  
+
   /**
    * Submit a message to the conversation
    * Enhanced with agent-to-agent communication support
@@ -420,21 +418,21 @@ export class ConversationManager implements IConversationManager {
     try {
       // Get the conversation
       const conversation = await this.getConversation(conversationId);
-      
+
       // Check if conversation is active
       if (conversation.state !== ConversationState.ACTIVE) {
         throw new Error(`Cannot submit message to conversation in ${conversation.state} state`);
       }
-      
+
       // Check if sender is a participant
       const sender = conversation.participants.find(p => p.id === params.senderId);
       if (!sender) {
         throw new Error(`Sender ${params.senderId} is not a participant in conversation ${conversationId}`);
       }
-      
+
       const timestamp = Date.now();
       const messageId = uuidv4();
-      
+
       // Create the message
       const message: ConversationMessage = {
         id: messageId,
@@ -448,7 +446,7 @@ export class ConversationManager implements IConversationManager {
         isVisibleToAll: params.isVisibleToAll !== false, // default to true
         visibleToParticipantIds: !params.isVisibleToAll ? params.visibleToParticipantIds : undefined
       };
-      
+
       // Use Enhanced Memory Service for agent-to-agent communication if available
       if (this.enhancedMemoryService && sender.type === ParticipantType.AGENT) {
         await this.storeMessageWithAgentCommunication(conversation, message, sender);
@@ -464,7 +462,7 @@ export class ConversationManager implements IConversationManager {
           }
         });
       }
-      
+
       // Update conversation metadata
       await this.memoryService.updateMemory({
         type: MEMORY_TYPE.CONVERSATION,
@@ -474,23 +472,23 @@ export class ConversationManager implements IConversationManager {
           messageCount: (conversation.messages.length + 1)
         }
       });
-      
+
       // Update sender's last active timestamp
       await this.updateParticipantActivity(conversationId, params.senderId);
-      
+
       // Determine recipients and route the message
       await this.routeMessageToRecipients(conversation, message);
-      
+
       // Track the message in conversation analytics
       await this.trackMessageAnalytics(conversation, message);
-      
+
       return message;
     } catch (error) {
       console.error(`Error submitting message to conversation ${conversationId}:`, error);
       throw error;
     }
   }
-  
+
   /**
    * Store message using Enhanced Memory Service with agent communication features
    * Following IMPLEMENTATION_GUIDELINES.md: Pure function with immutable parameters
@@ -506,10 +504,10 @@ export class ConversationManager implements IConversationManager {
 
     // Determine communication type based on conversation context
     const communicationType = this.determineCommunicationType(conversation, message);
-    
+
     // Determine access level based on message visibility
-    const accessLevel = message.isVisibleToAll 
-      ? AgentMemoryAccessLevel.PUBLIC 
+    const accessLevel = message.isVisibleToAll
+      ? AgentMemoryAccessLevel.PUBLIC
       : AgentMemoryAccessLevel.RESTRICTED;
 
     // Get receiver agent IDs (only agents, not users)
@@ -518,7 +516,7 @@ export class ConversationManager implements IConversationManager {
       .map(p => p.id);
 
     // Prepare agent communication parameters
-    const agentCommParams: AgentCommunicationParams<BaseMemorySchema> = {
+    const agentCommParams = {
       type: MEMORY_TYPE.MESSAGE,
       content: message.content,
       senderAgentId: sender.id,
@@ -542,20 +540,23 @@ export class ConversationManager implements IConversationManager {
 
     // Send to each receiver agent individually for proper access control
     if (receiverAgentIds.length > 0) {
-      const results = await this.enhancedMemoryService.broadcastAgentMessage({
+      const result = await this.enhancedMemoryService.addMemory({
         ...agentCommParams,
-        receiverAgentIds,
-        accessLevel
+        metadata: {
+          ...agentCommParams.metadata,
+          receiverAgentIds,
+          accessLevel
+        }
       });
 
       // Check for any failures
-      const failures = results.filter(r => !r.success);
+      const failures = result.success ? [] : [result];
       if (failures.length > 0) {
         console.warn(`Failed to send message to ${failures.length} agents:`, failures);
       }
     } else {
       // No agent receivers, store as regular message
-      await this.enhancedMemoryService.sendAgentMessage(agentCommParams);
+      await this.enhancedMemoryService.addMemory(agentCommParams);
     }
   }
 
@@ -583,8 +584,8 @@ export class ConversationManager implements IConversationManager {
       case FlowControlType.FREE_FORM:
       default:
         // Check if it's a broadcast or direct message
-        return message.isVisibleToAll 
-          ? AgentCommunicationType.BROADCAST 
+        return message.isVisibleToAll
+          ? AgentCommunicationType.BROADCAST
           : AgentCommunicationType.DIRECT_MESSAGE;
     }
   }
@@ -612,7 +613,7 @@ export class ConversationManager implements IConversationManager {
 
     return 'medium'; // Default priority
   }
-  
+
   /**
    * Get messages for a participant
    */
@@ -628,13 +629,13 @@ export class ConversationManager implements IConversationManager {
     try {
       // Get the conversation to verify participant
       const conversation = await this.getConversation(conversationId);
-      
+
       // Check if participant exists
       const participant = conversation.participants.find(p => p.id === participantId);
       if (!participant) {
         throw new Error(`Participant ${participantId} not found in conversation ${conversationId}`);
       }
-      
+
       // Build filter for the query
       const filter: Record<string, unknown> = {
         conversationId,
@@ -644,16 +645,16 @@ export class ConversationManager implements IConversationManager {
           { senderId: participantId }
         ]
       };
-      
+
       // Add timestamp filters if provided
       if (options.beforeTimestamp) {
         filter.timestamp = { $lt: options.beforeTimestamp };
       }
-      
+
       if (options.afterTimestamp) {
         filter.timestamp = { ...filter.timestamp as Record<string, unknown>, $gt: options.afterTimestamp };
       }
-      
+
       // Get messages
       const messages = await this.memoryService.searchMemories({
         type: MEMORY_TYPE.MESSAGE,
@@ -663,21 +664,21 @@ export class ConversationManager implements IConversationManager {
         },
         limit: options.limit || 100
       });
-      
+
       // Transform to conversation messages
       const result = messages
         .map(message => {
           if (!message.payload.metadata) {
             return null;
           }
-          
+
           const metadata = message.payload.metadata as unknown as Record<string, unknown>;
-          
+
           // Only include messages visible to this participant
           if (!this.isMessageVisibleToParticipant(metadata, participantId)) {
             return null;
           }
-          
+
           const convoMessage: ConversationMessage = {
             id: message.id,
             conversationId: metadata.conversationId as string || '',
@@ -690,11 +691,11 @@ export class ConversationManager implements IConversationManager {
             isVisibleToAll: metadata.isVisibleToAll as boolean || true,
             visibleToParticipantIds: metadata.visibleToParticipantIds as string[] || []
           };
-          
+
           return convoMessage;
         })
         .filter((message): message is ConversationMessage => message !== null);
-        
+
       // Sort by timestamp
       return result.sort((a, b) => a.timestamp - b.timestamp);
     } catch (error) {
@@ -702,7 +703,7 @@ export class ConversationManager implements IConversationManager {
       return [];
     }
   }
-  
+
   /**
    * Update conversation state
    */
@@ -712,7 +713,7 @@ export class ConversationManager implements IConversationManager {
   ): Promise<Conversation> {
     try {
       const timestamp = Date.now();
-      
+
       // Update conversation state in memory
       await this.memoryService.updateMemory({
         type: MEMORY_TYPE.CONVERSATION,
@@ -722,12 +723,12 @@ export class ConversationManager implements IConversationManager {
           updatedAt: timestamp
         }
       });
-      
+
       // If conversation is completed or failed, perform cleanup
       if (state === ConversationState.COMPLETED || state === ConversationState.FAILED) {
         await this.handleConversationEnded(conversationId, state);
       }
-      
+
       // Return updated conversation
       return this.getConversation(conversationId);
     } catch (error) {
@@ -735,7 +736,7 @@ export class ConversationManager implements IConversationManager {
       throw error;
     }
   }
-  
+
   /**
    * Private: Get all messages for a conversation
    */
@@ -749,13 +750,13 @@ export class ConversationManager implements IConversationManager {
         },
         limit: 1000 // Use pagination in a real implementation
       });
-      
+
       // Transform to conversation messages
       return messages
         .filter(message => message.payload.metadata)
         .map(message => {
           const metadata = message.payload.metadata as unknown as Record<string, unknown>;
-          
+
           return {
             id: message.id,
             conversationId: metadata.conversationId as string || '',
@@ -774,7 +775,7 @@ export class ConversationManager implements IConversationManager {
       return [];
     }
   }
-  
+
   /**
    * Private: Notify participants of conversation creation
    */
@@ -784,11 +785,11 @@ export class ConversationManager implements IConversationManager {
       const agentParticipants = conversation.participants.filter(
         p => p.type === ParticipantType.AGENT
       );
-      
+
       for (const participant of agentParticipants) {
         // Create a notification message
         const content = `You have been added to conversation "${conversation.name}"`;
-        
+
         // Create a system message
         await this.memoryService.addMemory({
           type: MEMORY_TYPE.MESSAGE,
@@ -810,7 +811,7 @@ export class ConversationManager implements IConversationManager {
       // Don't throw, just log the error
     }
   }
-  
+
   /**
    * Private: Notify participants of new member
    */
@@ -821,10 +822,10 @@ export class ConversationManager implements IConversationManager {
       if (!participant) {
         return;
       }
-      
+
       // Create a notification message
       const content = `${participant.name} (${participant.type}) has joined the conversation`;
-      
+
       // Create a system message visible to all
       await this.memoryService.addMemory({
         type: MEMORY_TYPE.MESSAGE,
@@ -843,7 +844,7 @@ export class ConversationManager implements IConversationManager {
       // Don't throw, just log the error
     }
   }
-  
+
   /**
    * Private: Notify participants when a member leaves
    */
@@ -854,10 +855,10 @@ export class ConversationManager implements IConversationManager {
       if (!participant) {
         return;
       }
-      
+
       // Create a notification message
       const content = `${participant.name} (${participant.type}) has left the conversation`;
-      
+
       // Create a system message visible to all
       await this.memoryService.addMemory({
         type: MEMORY_TYPE.MESSAGE,
@@ -876,7 +877,7 @@ export class ConversationManager implements IConversationManager {
       // Don't throw, just log the error
     }
   }
-  
+
   /**
    * Private: Update participant's last active timestamp
    */
@@ -884,20 +885,20 @@ export class ConversationManager implements IConversationManager {
     try {
       // Get the conversation
       const conversation = await this.getConversation(conversationId);
-      
+
       // Find the participant
       const participantIndex = conversation.participants.findIndex(p => p.id === participantId);
       if (participantIndex === -1) {
         return;
       }
-      
+
       // Update the participant's last active timestamp
       const updatedParticipants = [...conversation.participants];
       updatedParticipants[participantIndex] = {
         ...updatedParticipants[participantIndex],
         lastActiveAt: Date.now()
       };
-      
+
       // Update conversation in memory
       await this.memoryService.updateMemory({
         type: MEMORY_TYPE.CONVERSATION,
@@ -911,7 +912,7 @@ export class ConversationManager implements IConversationManager {
       // Don't throw, just log the error
     }
   }
-  
+
   /**
    * Private: Route a message to appropriate recipients
    */
@@ -922,7 +923,7 @@ export class ConversationManager implements IConversationManager {
     try {
       // Determine recipients based on visibility settings
       let recipientIds: string[] = [];
-      
+
       if (message.isVisibleToAll) {
         // Message is visible to all participants except the sender
         recipientIds = conversation.participants
@@ -931,15 +932,15 @@ export class ConversationManager implements IConversationManager {
       } else if (message.visibleToParticipantIds && message.visibleToParticipantIds.length > 0) {
         // Message is only visible to specific participants
         recipientIds = message.visibleToParticipantIds.filter(
-          id => id !== message.senderId && 
-          conversation.participants.some(p => p.id === id && p.type === ParticipantType.AGENT)
+          id => id !== message.senderId &&
+            conversation.participants.some(p => p.id === id && p.type === ParticipantType.AGENT)
         );
       }
-      
+
       if (recipientIds.length === 0) {
         return; // No recipients to route to
       }
-      
+
       // Transform message for agent consumption
       const transformableMessage: TransformableMessage = {
         id: message.id,
@@ -952,25 +953,25 @@ export class ConversationManager implements IConversationManager {
           conversationId: message.conversationId
         }
       };
-      
+
       // Route to each recipient
       for (const recipientId of recipientIds) {
         try {
           // Set recipient ID for this specific routing
           transformableMessage.recipientId = recipientId;
-          
+
           // Get recipient's preferred format
           const recipient = conversation.participants.find(p => p.id === recipientId);
           let preferredFormat = MessageFormat.TEXT;
-          
+
           if (recipient?.metadata) {
             const metadataObj = recipient.metadata as Record<string, unknown>;
             preferredFormat = metadataObj.preferredFormat as MessageFormat || MessageFormat.TEXT;
           }
-          
+
           // Transform message if needed
           let messageToRoute = transformableMessage;
-          
+
           if (message.format !== preferredFormat) {
             // Transform the message to the recipient's preferred format
             const transformResult = await this.messageTransformer.transformMessage(
@@ -982,12 +983,12 @@ export class ConversationManager implements IConversationManager {
                 enrichments: [EnrichmentType.CONTEXT, EnrichmentType.HISTORY]
               }
             );
-            
-            if (transformResult.success) { 
+
+            if (transformResult.success) {
               messageToRoute = transformResult.transformedMessage;
             }
           }
-          
+
           // Route the message
           const routingParams: RoutingParams = {
             message: {
@@ -1003,7 +1004,7 @@ export class ConversationManager implements IConversationManager {
             },
             strategy: RoutingStrategy.DIRECT
           };
-          
+
           await this.messageRouter.routeMessage(routingParams);
         } catch (error) {
           console.error(`Error routing message to recipient ${recipientId}:`, error);
@@ -1015,7 +1016,7 @@ export class ConversationManager implements IConversationManager {
       // Don't throw, just log the error
     }
   }
-  
+
   /**
    * Private: Check if a message is visible to a participant
    */
@@ -1027,22 +1028,22 @@ export class ConversationManager implements IConversationManager {
     // 1. It's visible to all, or
     // 2. The participant is the sender, or
     // 3. The participant is in the visibleToParticipantIds list
-    
+
     // Sender can always see their own messages
     if (messageMetadata.senderId === participantId) {
       return true;
     }
-    
+
     // Check if visible to all
     if (messageMetadata.isVisibleToAll === true) {
       return true;
     }
-    
+
     // Check if in visible to list
     const visibleTo = messageMetadata.visibleToParticipantIds as string[] || [];
     return visibleTo.includes(participantId);
   }
-  
+
   /**
    * Private: Handle conversation end (completed or failed)
    */
@@ -1053,10 +1054,10 @@ export class ConversationManager implements IConversationManager {
     try {
       // Get the conversation
       const conversation = await this.getConversation(conversationId);
-      
+
       // Create a notification message
       const content = `Conversation "${conversation.name}" has ${state === ConversationState.COMPLETED ? 'completed' : 'failed'}`;
-      
+
       // Send notification to all participants
       await this.memoryService.addMemory({
         type: MEMORY_TYPE.MESSAGE,
@@ -1070,7 +1071,7 @@ export class ConversationManager implements IConversationManager {
           isVisibleToAll: true
         }
       });
-      
+
       // Perform any necessary cleanup here
       // In a real implementation, this might include releasing resources,
       // updating participant statistics, storing conversation summaries, etc.
@@ -1079,7 +1080,7 @@ export class ConversationManager implements IConversationManager {
       // Don't throw, just log the error
     }
   }
-  
+
   /**
    * Track message analytics
    */
@@ -1090,25 +1091,25 @@ export class ConversationManager implements IConversationManager {
     try {
       // Get the analytics service
       const analyticsService = await getConversationAnalyticsService();
-      
+
       // Determine sender type
       const sender = conversation.participants.find(p => p.id === message.senderId);
       const senderType = sender?.type === ParticipantType.USER ? 'human' : 'agent';
-      
+
       // Determine recipient type if any
       let recipientType: 'human' | 'agent' | undefined;
       let recipientId: string | undefined;
-      
+
       // Check for recipient in metadata if exists
       const referencedMessageId = message.referencedMessageIds?.[0];
       const messageMetadata = message.metadata || {};
       recipientId = messageMetadata.recipientId as string;
-      
+
       if (recipientId) {
         const recipient = conversation.participants.find(p => p.id === recipientId);
         recipientType = recipient?.type === ParticipantType.USER ? 'human' : 'agent';
       }
-      
+
       // Calculate response time if this is a reference to another message
       let responseTimeMs: number | undefined;
       if (referencedMessageId) {
@@ -1121,7 +1122,7 @@ export class ConversationManager implements IConversationManager {
           },
           limit: 1
         });
-        
+
         if (originalMessages.length > 0) {
           const originalTimestamp = originalMessages[0].payload.metadata?.timestamp as number;
           if (originalTimestamp) {
@@ -1129,13 +1130,13 @@ export class ConversationManager implements IConversationManager {
           }
         }
       }
-      
+
       // Get message type from metadata or default to 'text'
       const messageType = messageMetadata.messageType as string || 'text';
-      
+
       // Get capabilities from metadata if any
       const capabilities = messageMetadata.capabilities as string[] || [];
-      
+
       // Create analytics update
       const update: MessageAnalyticsUpdate = {
         conversationId: conversation.id,
@@ -1151,7 +1152,7 @@ export class ConversationManager implements IConversationManager {
         messageLength: message.content.length,
         capabilities
       };
-      
+
       // Track the message
       await analyticsService.trackMessage(update);
     } catch (error) {

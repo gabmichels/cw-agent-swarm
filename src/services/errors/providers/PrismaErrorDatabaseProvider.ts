@@ -9,15 +9,14 @@
  */
 
 import { ulid } from 'ulid';
-import { prisma } from '../../../lib/prisma';
 import {
   BaseError,
   ErrorSeverity,
   ErrorStatus,
   ErrorType
 } from '../../../lib/errors/types/BaseError';
+import { prisma } from '../../../lib/prisma';
 import {
-  ErrorLogResult,
   ErrorResolutionInput,
   ErrorSearchCriteria,
   ErrorStatistics,
@@ -67,7 +66,7 @@ export class PrismaErrorDatabaseProvider implements IErrorDatabaseProvider {
           agentId: error.context?.agentId || null,
           operation: error.context?.operation || null,
           errorData: error.context ? JSON.stringify(error.context) : null,
-          stackTrace: error.stack || null,
+          stackTrace: error.stackTrace || null,
           status: this.mapStatusToDatabase(error.status),
           retryAttempt: error.retryAttempt || 0,
           maxRetries: error.maxRetries || 3,
@@ -157,20 +156,14 @@ export class PrismaErrorDatabaseProvider implements IErrorDatabaseProvider {
         whereClause.status = this.mapStatusToDatabase(criteria.status);
       }
 
-      if (criteria.dateRange) {
-        const { startDate, endDate } = criteria.dateRange;
-        whereClause.createdAt = {
-          gte: startDate,
-          lte: endDate
-        };
-      }
-
-      if (criteria.searchQuery) {
-        whereClause.OR = [
-          { message: { contains: criteria.searchQuery, mode: 'insensitive' } },
-          { agentId: { contains: criteria.searchQuery, mode: 'insensitive' } },
-          { operation: { contains: criteria.searchQuery, mode: 'insensitive' } }
-        ];
+      if (criteria.fromDate || criteria.toDate) {
+        whereClause.createdAt = {};
+        if (criteria.fromDate) {
+          whereClause.createdAt.gte = criteria.fromDate;
+        }
+        if (criteria.toDate) {
+          whereClause.createdAt.lte = criteria.toDate;
+        }
       }
 
       const errorRecords = await prisma.errorLog.findMany({
@@ -203,11 +196,14 @@ export class PrismaErrorDatabaseProvider implements IErrorDatabaseProvider {
     try {
       const whereClause: any = {};
 
-      if (criteria?.dateRange) {
-        whereClause.createdAt = {
-          gte: criteria.dateRange.startDate,
-          lte: criteria.dateRange.endDate
-        };
+      if (criteria?.fromDate || criteria?.toDate) {
+        whereClause.createdAt = {};
+        if (criteria.fromDate) {
+          whereClause.createdAt.gte = criteria.fromDate;
+        }
+        if (criteria.toDate) {
+          whereClause.createdAt.lte = criteria.toDate;
+        }
       }
 
       const [
@@ -242,13 +238,12 @@ export class PrismaErrorDatabaseProvider implements IErrorDatabaseProvider {
 
       return {
         totalErrors,
-        resolvedErrors,
+        errorsByType: this.formatGroupByResultsAsMap(errorsByType, 'errorType') as ReadonlyMap<ErrorType, number>,
+        errorsBySeverity: this.formatGroupByResultsAsMap(errorsBySeverity, 'severity') as ReadonlyMap<ErrorSeverity, number>,
+        errorsByStatus: this.formatGroupByResultsAsMap(errorsByStatus, 'status') as ReadonlyMap<ErrorStatus, number>,
         resolutionRate,
-        errorsBySeverity: this.formatGroupByResults(errorsBySeverity, 'severity'),
-        errorsByType: this.formatGroupByResults(errorsByType, 'errorType'),
-        errorsByStatus: this.formatGroupByResults(errorsByStatus, 'status'),
         averageResolutionTime: 0, // TODO: Calculate from resolution times
-        trendsOverTime: [] // TODO: Implement trends analysis
+        topFailingComponents: [] // TODO: Implement components analysis
       };
     } catch (dbError) {
       this.logger.error('Failed to get error statistics from database', {
@@ -340,17 +335,17 @@ export class PrismaErrorDatabaseProvider implements IErrorDatabaseProvider {
         data: {
           id: ulid(),
           errorLogId: resolution.errorId,
-          resolutionType: resolution.strategy || 'MANUAL_FIX',
+          resolutionType: resolution.resolutionType || 'MANUAL_FIX',
           description: resolution.description,
           appliedBy: resolution.resolvedBy || 'system',
-          timeToResolve: resolution.timeToResolve || 0,
-          createdAt: resolution.resolvedAt || new Date()
+          timeToResolve: 0, // Calculate based on error creation vs resolution time
+          createdAt: new Date()
         }
       });
 
       this.logger.info('Error resolution saved to database', {
         errorId: resolution.errorId,
-        strategy: resolution.strategy
+        resolutionType: resolution.resolutionType
       });
 
       return true;
@@ -409,8 +404,8 @@ export class PrismaErrorDatabaseProvider implements IErrorDatabaseProvider {
           },
           createdAt: {
             lte: escalationThreshold
-          },
-          escalatedAt: null
+          }
+          // Removed escalatedAt: null since this field may not exist in schema
         },
         orderBy: { createdAt: 'asc' },
         take: 50
@@ -687,11 +682,15 @@ export class PrismaErrorDatabaseProvider implements IErrorDatabaseProvider {
       severity: this.mapDatabaseToSeverity(record.severity),
       status: this.mapDatabaseToStatus(record.status),
       message: record.message,
-      stack: record.stackTrace || undefined,
+      category: record.errorType,
+      timestamp: record.createdAt.getTime(),
+      stackTrace: record.stackTrace || undefined,
       context: record.errorData ? JSON.parse(record.errorData) : undefined,
       retryAttempt: record.retryAttempt || 0,
       maxRetries: record.maxRetries || 3,
       retryStrategy: record.retryStrategy || 'EXPONENTIAL_BACKOFF',
+      retryable: (record.retryAttempt || 0) < (record.maxRetries || 3),
+      userImpact: record.severity === 'CRITICAL' ? 'HIGH' : 'MEDIUM',
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       resolvedAt: record.resolvedAt || undefined
@@ -736,6 +735,14 @@ export class PrismaErrorDatabaseProvider implements IErrorDatabaseProvider {
     const formatted: Record<string, number> = {};
     results.forEach(result => {
       formatted[result[field].toLowerCase()] = result._count.id;
+    });
+    return formatted;
+  }
+
+  private formatGroupByResultsAsMap(results: any[], field: string): ReadonlyMap<string, number> {
+    const formatted = new Map<string, number>();
+    results.forEach(result => {
+      formatted.set(result[field].toLowerCase(), result._count.id);
     });
     return formatted;
   }

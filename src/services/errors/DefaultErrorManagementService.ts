@@ -8,7 +8,7 @@
  * - Comprehensive error handling with structured logging
  */
 
-import { ulid } from 'ulid';
+import { ILogger } from '../../lib/core/logger';
 import {
   BaseError,
   ErrorCategory,
@@ -23,6 +23,7 @@ import {
   RetryStrategy,
   UserImpactLevel
 } from '../../lib/errors/types/BaseError';
+import { IErrorEventListener } from './interfaces/IErrorEventListener';
 import {
   ErrorLogResult,
   ErrorNotificationRouting,
@@ -33,22 +34,8 @@ import {
   IErrorDatabaseProvider,
   IErrorManagementService,
   IErrorNotificationService,
-  IErrorEventListener,
   RetryPolicyConfig
 } from './interfaces/IErrorManagementService';
-import { IErrorEventListener } from './interfaces/IErrorEventListener';
-
-/**
- * Logger interface for structured logging
- */
-interface ILogger {
-  info(message: string, metadata?: Record<string, unknown>): void;
-  warn(message: string, metadata?: Record<string, unknown>): void;
-  error(message: string, metadata?: Record<string, unknown>): void;
-  debug(message: string, metadata?: Record<string, unknown>): void;
-  fatal(message: string, metadata?: Record<string, unknown>): void;
-  system(message: string, metadata?: Record<string, unknown>): void;
-}
 
 /**
  * Default error management service implementation
@@ -66,20 +53,12 @@ export class DefaultErrorManagementService implements IErrorManagementService {
   private readonly classificationRules: ReadonlyMap<ErrorType, ErrorClassification>;
 
   constructor(
+    logger: ILogger,
     databaseProvider: IErrorDatabaseProvider,
     notificationService: IErrorNotificationService,
     eventListeners: readonly IErrorEventListener[] = []
   ) {
-    // Create a mock logger for testing
-    this.logger = {
-      info: (message: string, metadata?: Record<string, unknown>) => console.log(`INFO: ${message}`, metadata),
-      warn: (message: string, metadata?: Record<string, unknown>) => console.warn(`WARN: ${message}`, metadata),
-      error: (message: string, metadata?: Record<string, unknown>) => console.error(`ERROR: ${message}`, metadata),
-      debug: (message: string, metadata?: Record<string, unknown>) => console.debug(`DEBUG: ${message}`, metadata),
-      fatal: (message: string, metadata?: Record<string, unknown>) => console.error(`FATAL: ${message}`, metadata),
-      system: (message: string, metadata?: Record<string, unknown>) => console.log(`SYSTEM: ${message}`, metadata)
-    };
-
+    this.logger = logger;
     this.databaseProvider = databaseProvider;
     this.notificationService = notificationService;
     this.eventListeners = eventListeners;
@@ -91,19 +70,14 @@ export class DefaultErrorManagementService implements IErrorManagementService {
   /**
    * Log a new error to the system
    */
-  async logError(error: BaseError): Promise<BaseError> {
+  async logError(input: ErrorInput): Promise<ErrorLogResult> {
+    const error = ErrorFactory.createError(input);
+
     try {
-      this.logger.info('Logging new error', {
-        errorId: error.id,
-        type: error.type,
-        severity: error.severity,
-        agentId: error.context.agentId,
-        userId: error.context.userId,
-        operation: 'unknown'
-      });
+      this.logger.info(`Logging new error ${error.id} - ${error.type} - ${error.severity}`);
 
       // Save to database
-      const savedError = await this.databaseProvider.saveError(error);
+      const errorId = await this.databaseProvider.saveError(error);
 
       // Classify error and determine handling
       const classification = await this.classifyError(error);
@@ -115,13 +89,11 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       let notificationScheduled = false;
       if (shouldNotify) {
         try {
-          await this.notificationService.sendErrorNotification(error);
+          const routing = await this.getNotificationRouting(error);
+          await this.notificationService.sendUserNotification(error, routing);
           notificationScheduled = true;
         } catch (notificationError) {
-          this.logger.warn('Failed to send error notification', {
-            errorId: error.id,
-            notificationError: (notificationError as Error).message
-          });
+          this.logger.warn(`Failed to send error notification for ${errorId}: ${(notificationError as Error).message}`);
         }
       }
 
@@ -132,10 +104,7 @@ export class DefaultErrorManagementService implements IErrorManagementService {
           await this.scheduleRetry(error);
           retryScheduled = true;
         } catch (retryError) {
-          this.logger.warn('Failed to schedule retry', {
-            errorId: error.id,
-            retryError: (retryError as Error).message
-          });
+          this.logger.warn(`Failed to schedule retry for ${errorId}: ${(retryError as Error).message}`);
         }
       }
 
@@ -148,30 +117,24 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       // Notify event listeners
       for (const listener of this.eventListeners) {
         try {
-          listener.onErrorLogged(error);
+          await listener.onErrorLogged(error);
         } catch (listenerError) {
-          this.logger.error('Event listener error', {
-            errorId: error.id,
-            listenerError: (listenerError as Error).message
-          });
+          this.logger.error(`Event listener error for ${errorId}: ${(listenerError as Error).message}`);
         }
       }
 
-      this.logger.info('Error logged successfully', {
-        errorId: error.id,
+      this.logger.info(`Error logged successfully ${errorId} - notifications: ${notificationScheduled}, retry: ${retryScheduled}, escalation: ${escalationScheduled}`);
+
+      return {
+        errorId,
+        logged: true,
         notificationScheduled,
         retryScheduled,
         escalationScheduled
-      });
-
-      return error;
+      };
 
     } catch (error) {
-      this.logger.error('Failed to log error', {
-        error: (error as Error).message,
-        stack: (error as Error).stack
-      });
-
+      this.logger.error(`Failed to log error: ${(error as Error).message}`, (error as Error).stack);
       throw new Error(`Failed to log error: ${(error as Error).message}`);
     }
   }
@@ -181,12 +144,9 @@ export class DefaultErrorManagementService implements IErrorManagementService {
    */
   async getError(errorId: string): Promise<BaseError | null> {
     try {
-      return await this.databaseProvider.getError(errorId);
+      return await this.databaseProvider.getErrorById(errorId);
     } catch (error) {
-      this.logger.error('Failed to get error by ID', {
-        errorId,
-        error: (error as Error).message
-      });
+      this.logger.error(`Failed to get error by ID ${errorId}: ${(error as Error).message}`);
       return null;
     }
   }
@@ -319,7 +279,7 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       };
     }
 
-    if (error.retryStrategy === RetryStrategy.LINEAR_BACKOFF) {
+    if (error.retryStrategy === RetryStrategy.LINEAR) {
       return {
         ...basePolicy,
         initialDelayMs: 2500, // 2.5 seconds base so attempt 2 = 5 seconds
@@ -334,7 +294,7 @@ export class DefaultErrorManagementService implements IErrorManagementService {
   /**
    * Attempt to retry a failed operation
    */
-  async retryError(errorId: string): Promise<boolean> {
+  async retryError(errorId: string): Promise<ErrorRetryResult> {
     try {
       const error = await this.getError(errorId);
       if (!error) {
@@ -342,11 +302,21 @@ export class DefaultErrorManagementService implements IErrorManagementService {
           errorId,
           error: `Error ${errorId} not found`
         });
-        return false;
+        return {
+          success: false,
+          retriesRemaining: 0,
+          escalated: false,
+          finalAttempt: true
+        };
       }
 
       if (!error.retryable) {
-        return false;
+        return {
+          success: false,
+          retriesRemaining: 0,
+          escalated: false,
+          finalAttempt: true
+        };
       }
 
       // Check if retries are exhausted
@@ -357,7 +327,12 @@ export class DefaultErrorManagementService implements IErrorManagementService {
           status: ErrorStatus.FAILED_PERMANENTLY
         };
         await this.databaseProvider.updateError(errorId, failedError);
-        return false;
+        return {
+          success: false,
+          retriesRemaining: 0,
+          escalated: false,
+          finalAttempt: true
+        };
       }
 
       // Update retry attempt
@@ -381,7 +356,7 @@ export class DefaultErrorManagementService implements IErrorManagementService {
 
       // Send retry notification
       try {
-        await this.notificationService.sendRetryNotification(updatedError);
+        await this.notificationService.sendRetryNotification(updatedError, newAttempt, error.maxRetries);
       } catch (notificationError) {
         this.logger.warn('Failed to send retry notification', {
           errorId,
@@ -392,7 +367,7 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       // Notify event listeners
       for (const listener of this.eventListeners) {
         try {
-          listener.onErrorRetry(updatedError);
+          await listener.onRetryAttempted(errorId, newAttempt, true);
         } catch (listenerError) {
           this.logger.error('Event listener error during retry', {
             errorId,
@@ -408,24 +383,35 @@ export class DefaultErrorManagementService implements IErrorManagementService {
         finalAttempt
       });
 
-      return true;
+      return {
+        success: true,
+        retriesRemaining,
+        nextRetryAt,
+        escalated: false,
+        finalAttempt
+      };
 
     } catch (error) {
       this.logger.error('Failed to retry error', {
         errorId,
         error: (error as Error).message
       });
-      return false;
+      return {
+        success: false,
+        retriesRemaining: 0,
+        escalated: false,
+        finalAttempt: true
+      };
     }
   }
 
   /**
    * Mark an error as resolved
    */
-  async resolveError(errorId: string, resolution: string): Promise<boolean> {
+  async resolveError(input: ErrorResolutionInput): Promise<boolean> {
     try {
       // Get the error first
-      const error = await this.getError(errorId);
+      const error = await this.getError(input.errorId);
       if (!error) {
         return false;
       }
@@ -439,29 +425,21 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       const updatedError = {
         ...error,
         status: ErrorStatus.RESOLVED,
-        resolution: resolution,
+        resolution: input.description,
         resolvedAt: new Date()
       };
 
-      await this.databaseProvider.updateError(errorId, updatedError);
+      await this.databaseProvider.updateError(input.errorId, updatedError);
 
       // Save resolution details
-      const resolutionInput = {
-        errorId,
-        resolution,
-        resolutionType: 'MANUAL',
-        success: true,
-        resolvedAt: new Date()
-      };
-
-      await this.databaseProvider.saveErrorResolution(resolutionInput);
+      await this.databaseProvider.saveErrorResolution(input);
 
       // Send resolution notification
       try {
-        await this.notificationService.sendResolutionNotification(errorId, resolutionInput);
+        await this.notificationService.sendResolutionNotification(input.errorId, input);
       } catch (notificationError) {
         this.logger.warn('Failed to send resolution notification', {
-          errorId,
+          errorId: input.errorId,
           notificationError: (notificationError as Error).message
         });
       }
@@ -469,24 +447,24 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       // Notify event listeners
       for (const listener of this.eventListeners) {
         try {
-          listener.onErrorResolved(updatedError);
+          await listener.onErrorResolved(input.errorId, input);
         } catch (listenerError) {
           this.logger.error('Event listener error during resolution', {
-            errorId,
+            errorId: input.errorId,
             listenerError: (listenerError as Error).message
           });
         }
       }
 
       this.logger.info('Error resolved', {
-        errorId,
-        resolution
+        errorId: input.errorId,
+        resolution: input.description
       });
 
       return true;
     } catch (error) {
       this.logger.error('Failed to resolve error', {
-        input: errorId,
+        input: input.errorId,
         error: (error as Error).message
       });
       return false;
@@ -529,19 +507,19 @@ export class DefaultErrorManagementService implements IErrorManagementService {
         return false;
       }
 
-      // Update status to escalated
+      // Update error status
       const updatedError = {
         ...error,
         status: ErrorStatus.ESCALATED,
-        escalationReason: reason,
-        escalatedAt: new Date()
+        escalatedAt: new Date(),
+        escalationReason: reason
       };
 
-      await this.databaseProvider.updateError(errorId, updatedError);
+      await this.databaseProvider.updateErrorStatus(errorId, ErrorStatus.ESCALATED);
 
       // Send escalation notification
       try {
-        await this.notificationService.sendEscalationNotification(updatedError, reason);
+        await this.notificationService.sendEscalationNotification(error, reason);
       } catch (notificationError) {
         this.logger.warn('Failed to send escalation notification', {
           errorId,
@@ -552,7 +530,7 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       // Notify event listeners
       for (const listener of this.eventListeners) {
         try {
-          listener.onErrorEscalated(updatedError);
+          await listener.onErrorEscalated(errorId, reason);
         } catch (listenerError) {
           this.logger.error('Event listener error during escalation', {
             errorId,
@@ -570,7 +548,6 @@ export class DefaultErrorManagementService implements IErrorManagementService {
     } catch (error) {
       this.logger.error('Failed to escalate error', {
         errorId,
-        reason,
         error: (error as Error).message
       });
       return false;
@@ -796,7 +773,7 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       } as any
     };
 
-    return this.logError(ErrorFactory.createError(errorInput));
+    return this.logError(errorInput);
   }
 
   /**
@@ -962,11 +939,11 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       case ErrorSeverity.EMERGENCY:
       case ErrorSeverity.CRITICAL:
         return ['WEBSOCKET', 'EMAIL', 'SMS'];
-      case ErrorType.WORKSPACE_CONNECTION:
+      case ErrorSeverity.HIGH:
         return ['WEBSOCKET', 'EMAIL'];
-      case ErrorType.API_FAILURE:
+      case ErrorSeverity.MEDIUM:
         return ['WEBSOCKET', 'EMAIL'];
-      case ErrorType.PERMISSION_DENIED:
+      case ErrorSeverity.LOW:
         return ['WEBSOCKET'];
       default:
         return ['WEBSOCKET'];
@@ -978,11 +955,11 @@ export class DefaultErrorManagementService implements IErrorManagementService {
       case ErrorSeverity.EMERGENCY:
       case ErrorSeverity.CRITICAL:
         return 'URGENT';
-      case ErrorType.WORKSPACE_CONNECTION:
+      case ErrorSeverity.HIGH:
         return 'HIGH';
-      case ErrorType.API_FAILURE:
-        return 'HIGH';
-      case ErrorType.PERMISSION_DENIED:
+      case ErrorSeverity.MEDIUM:
+        return 'NORMAL';
+      case ErrorSeverity.LOW:
         return 'LOW';
       default:
         return 'NORMAL';

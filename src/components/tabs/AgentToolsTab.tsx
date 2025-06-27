@@ -1,8 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { Badge } from '../ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
-import { ChevronDown, ChevronRight, Tool, AlertCircle, CheckCircle, Clock, Settings } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 
 interface Tool {
   id: string;

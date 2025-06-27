@@ -105,6 +105,7 @@ export interface BaseErrorContext {
   readonly environment?: string;
   readonly serverInstance?: string;
   readonly version?: string;
+  readonly operation?: string;
 }
 
 /**

@@ -1,13 +1,11 @@
-import { getMemoryServices } from '../../../server/memory/services';
+import { ImportanceLevel } from '@/server/memory/config/types';
 import { DateTime } from 'luxon';
-import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
-import { ImportanceLevel, MemorySource } from '@/server/memory/config/types';
 import { MemoryType as StandardMemoryType } from '../../../server/memory/config/types';
-import { SearchResult } from '../../../server/memory/services/search/types';
-import { BaseMetadata, CognitiveMemoryMetadata, MemoryEmotion } from '../../../types/metadata';
+import { getMemoryServices } from '../../../server/memory/services';
 import { createCognitiveMemoryMetadata, updateWithDecayInfo } from '../../../server/memory/services/helpers/metadata-helpers';
-import { ImportanceCalculatorService } from '../../../services/importance/ImportanceCalculatorService';
-import { ImportanceCalculationMode } from '../../../services/importance/ImportanceCalculatorService';
+import { ImportanceCalculationMode, ImportanceCalculatorService } from '../../../services/importance/ImportanceCalculatorService';
+import { CognitiveMemoryMetadata, MemoryEmotion } from '../../../types/metadata';
+import { EnhancedMemory, MemoryEntry } from './enhanced-memory';
 
 /**
  * CognitiveMemory System
@@ -63,25 +61,25 @@ export class CognitiveMemory extends EnhancedMemory {
   private emotionDetectionEnabled: boolean = true;
   private consolidationInterval: number = 3600000; // 1 hour
   private decayRate: number = 0.05; // 5% per day for unused memories
-  
+
   constructor(
     private readonly importanceCalculator: ImportanceCalculatorService,
     options: CognitiveMemoryOptions = {}
   ) {
     super(options);
-    
+
     if (options.workingMemoryCapacity) {
       this.workingMemoryCapacity = options.workingMemoryCapacity;
     }
-    
+
     if (options.consolidationInterval) {
       this.consolidationInterval = options.consolidationInterval;
     }
-    
+
     if (options.decayRate) {
       this.decayRate = options.decayRate;
     }
-    
+
     // Schedule memory consolidation
     if (typeof window === 'undefined') {
       // Server-side only
@@ -101,15 +99,15 @@ export class CognitiveMemory extends EnhancedMemory {
       // Generate episode ID if not part of existing episode
       const episodeId = metadata.episodeId || `episode_${Date.now()}`;
       const sequence = metadata.sequence || 0;
-      
+
       // Detect emotions if not provided
       if (emotions.length === 1 && emotions[0] === 'neutral' && this.emotionDetectionEnabled) {
         emotions = await this.detectEmotions(content);
       }
-      
+
       // Calculate importance
       const importance = await this.calculateImportance(content, emotions);
-      
+
       // Create extended metadata using the helper function
       const episodicMetadata = createCognitiveMemoryMetadata({
         episodeId,
@@ -121,10 +119,10 @@ export class CognitiveMemory extends EnhancedMemory {
         timestamp: new Date().toISOString(),
         ...metadata
       });
-      
+
       // Add to memory
       const memoryId = await super.addMemory(content, episodicMetadata, StandardMemoryType.DOCUMENT);
-      
+
       // Add to working memory if important enough
       if (importance === ImportanceLevel.HIGH || importance === ImportanceLevel.CRITICAL) {
         this.addToWorkingMemory({
@@ -136,7 +134,7 @@ export class CognitiveMemory extends EnhancedMemory {
           relatedIds: []
         });
       }
-      
+
       return memoryId;
     } catch (error) {
       console.error('Error adding episodic memory:', error);
@@ -159,7 +157,7 @@ export class CognitiveMemory extends EnhancedMemory {
       };
       return;
     }
-    
+
     // Add new item, potentially removing least important if at capacity
     if (this.workingMemory.length >= this.workingMemoryCapacity) {
       // Sort by priority (ascending)
@@ -167,7 +165,7 @@ export class CognitiveMemory extends EnhancedMemory {
       // Remove least important item
       this.workingMemory.shift();
     }
-    
+
     // Add new item
     this.workingMemory.push(item);
   }
@@ -194,13 +192,13 @@ export class CognitiveMemory extends EnhancedMemory {
     try {
       console.log('Running memory consolidation process...');
       this.lastConsolidation = new Date();
-      
+
       // Get all memories from the past consolidation interval
       const cutoffDate = DateTime.now().minus({ hours: this.consolidationInterval }).toJSDate();
-      
+
       // Search for memories to consolidate using the new memory services API
       const { searchService, memoryService } = await getMemoryServices();
-      
+
       // Use the filter to find memories created after cutoff date
       const recentMemoriesResults = await searchService.search('', {
         types: [StandardMemoryType.DOCUMENT],
@@ -216,31 +214,31 @@ export class CognitiveMemory extends EnhancedMemory {
         },
         limit: 100
       });
-      
+
       if (!recentMemoriesResults || recentMemoriesResults.length === 0) {
         console.log('No memories found for consolidation');
         return 0;
       }
-      
+
       let consolidatedCount = 0;
-      
+
       // Process each memory
       for (const result of recentMemoriesResults) {
         const memory = result.point;
         const memoryId = memory.id;
-        
+
         // Get current decay factor with proper typing
         const metadata = memory.payload.metadata as CognitiveMemoryMetadata;
         const decayFactor = metadata.decayFactor ?? 1.0;
         const retrievalCount = metadata.retrievalCount ?? 0;
-        
+
         // Calculate new decay factor based on retrieval and time
         const adjustedDecayRate = this.decayRate * (retrievalCount === 0 ? 1.2 : 0.8);
         const currentDecayFactor = Math.max(0, decayFactor - adjustedDecayRate);
-        
+
         // Get importance level with proper typing
         const importanceValue = metadata.importance ?? ImportanceLevel.MEDIUM;
-        
+
         // Apply forgetting curve - delete low importance memories that have decayed significantly
         if (String(importanceValue) === ImportanceLevel.LOW && currentDecayFactor > 0.85) {
           // Delete the memory, using proper deletion approach with is_deleted flag
@@ -267,7 +265,7 @@ export class CognitiveMemory extends EnhancedMemory {
           consolidatedCount++;
         }
       }
-      
+
       console.log(`Consolidated ${consolidatedCount} memories`);
       return consolidatedCount;
     } catch (error) {
@@ -283,7 +281,7 @@ export class CognitiveMemory extends EnhancedMemory {
     // Simple rule-based emotion detection
     // In production, this would use a more sophisticated NLP model
     const emotions: MemoryEmotion[] = ['neutral'];
-    
+
     const emotionPatterns: Record<MemoryEmotion, RegExp[]> = {
       positive: [/great|excellent|amazing|wonderful|happy|delighted|pleased/i],
       negative: [/bad|terrible|awful|horrible|disappointed|upset/i],
@@ -294,10 +292,10 @@ export class CognitiveMemory extends EnhancedMemory {
       anger: [/angry|mad|furious|outraged|annoyed/i],
       neutral: []
     };
-    
+
     // Check for each emotion
     const detectedEmotions: MemoryEmotion[] = [];
-    
+
     for (const [emotion, patterns] of Object.entries(emotionPatterns)) {
       for (const pattern of patterns) {
         if (pattern.test(content)) {
@@ -306,7 +304,7 @@ export class CognitiveMemory extends EnhancedMemory {
         }
       }
     }
-    
+
     return detectedEmotions.length > 0 ? detectedEmotions : ['neutral'];
   }
 
@@ -331,7 +329,7 @@ export class CognitiveMemory extends EnhancedMemory {
   private scheduleMemoryConsolidation(): void {
     // Check if we're running server-side
     if (typeof window !== 'undefined') return;
-    
+
     // Schedule consolidation every 24 hours
     const ONE_DAY = 24 * 60 * 60 * 1000;
     setInterval(async () => {
@@ -368,8 +366,8 @@ export class CognitiveMemory extends EnhancedMemory {
         },
         limit
       });
-      
-      return emotionResults.map(result => result.point) || [];
+
+      return emotionResults.map((result: any) => result.point) || [];
     } catch (error) {
       console.error(`Error retrieving memories by emotion ${emotion}:`, error);
       return [];
@@ -383,7 +381,7 @@ export class CognitiveMemory extends EnhancedMemory {
     try {
       // Get memory services
       const { memoryService } = await getMemoryServices();
-      
+
       // Use proper memory service update functionality with helper function
       await memoryService.updateMemory({
         id: memoryId,
@@ -395,7 +393,7 @@ export class CognitiveMemory extends EnhancedMemory {
           1    // Increment retrieval count
         )
       });
-      
+
       return true;
     } catch (error) {
       console.error('Error reconsolidating memory:', error);

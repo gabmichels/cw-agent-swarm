@@ -162,7 +162,7 @@ export class WorkflowImportService {
       const rawWorkflows = await provider.getWorkflows(connectionId);
 
       // Transform to our standard format
-      const workflows: UserWorkflow[] = rawWorkflows.map(workflow => this.transformToUserWorkflow(workflow));
+      const workflows: UserWorkflow[] = rawWorkflows.map((workflow: any) => this.transformToUserWorkflow(workflow));
 
       logger.info('Workflow discovery completed', {
         connectionId,
@@ -236,7 +236,7 @@ export class WorkflowImportService {
       const existingWorkflows = await provider.getWorkflows(connectionId);
 
       // Check for naming conflicts
-      const nameConflict = existingWorkflows.find(w => w.name === libraryWorkflow.name);
+      const nameConflict = existingWorkflows.find((w: any) => w.name === libraryWorkflow.name);
       if (nameConflict) {
         issues.push(`Workflow name "${libraryWorkflow.name}" already exists`);
         suggestions.push('Consider using a custom name during import');

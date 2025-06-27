@@ -8,6 +8,7 @@
  */
 
 import { ILogger } from '../../lib/core/logger';
+import { ErrorSeverity, ErrorStatus, ErrorType } from '../../lib/errors/types/BaseError';
 import {
   ErrorSearchCriteria,
   ErrorStatistics,
@@ -123,10 +124,10 @@ export class DefaultErrorReportingService {
 
       // Build search criteria
       const criteria: ErrorSearchCriteria = {
-        from,
-        to,
+        fromDate: from,
+        toDate: to,
         ...(options.agentFilter && { agentId: options.agentFilter[0] }),
-        ...(options.severityFilter && { severity: options.severityFilter[0] })
+        ...(options.severityFilter && { severity: options.severityFilter[0] as ErrorSeverity })
       };
 
       // Fetch error statistics and data
@@ -137,9 +138,9 @@ export class DefaultErrorReportingService {
 
       // Generate report sections
       const summary = this.generateReportSummary(statistics, from, to);
-      const details = await this.generateReportDetails(statistics, errors, options);
+      const details = await this.generateReportDetails(statistics, Array.from(errors), options);
       const recommendations = options.includeRecommendations ?
-        await this.generateRecommendations(statistics, errors) : [];
+        await this.generateRecommendations(statistics, Array.from(errors)) : [];
 
       const report: ErrorReport = {
         id: `report-${Date.now()}`,
@@ -184,15 +185,15 @@ export class DefaultErrorReportingService {
 
       // Fetch statistics for different time periods
       const [stats24h, stats7d, stats30d] = await Promise.all([
-        this.databaseProvider.getErrorStatistics({ from: last24h, to: now }),
-        this.databaseProvider.getErrorStatistics({ from: last7d, to: now }),
-        this.databaseProvider.getErrorStatistics({ from: last30d, to: now })
+        this.databaseProvider.getErrorStatistics({ fromDate: last24h, toDate: now }),
+        this.databaseProvider.getErrorStatistics({ fromDate: last7d, toDate: now }),
+        this.databaseProvider.getErrorStatistics({ fromDate: last30d, toDate: now })
       ]);
 
       // Calculate health metrics
       const errorRate = stats24h.totalErrors / 24; // errors per hour
       const resolutionEfficiency = stats24h.resolutionRate * 100;
-      const criticalIssuesCount = stats24h.errorsBySeverity.get('CRITICAL') || 0;
+      const criticalIssuesCount = stats24h.errorsBySeverity.get(ErrorSeverity.CRITICAL) || 0;
 
       // Determine overall health
       const overallHealth = this.calculateOverallHealth(
@@ -305,9 +306,9 @@ export class DefaultErrorReportingService {
     from: Date,
     to: Date
   ): ErrorReportSummary {
-    const newErrors = statistics.errorsByStatus.get('NEW') || 0;
-    const resolvedErrors = statistics.errorsByStatus.get('RESOLVED') || 0;
-    const criticalErrors = statistics.errorsBySeverity.get('CRITICAL') || 0;
+    const newErrors = statistics.errorsByStatus.get(ErrorStatus.NEW) || 0;
+    const resolvedErrors = statistics.errorsByStatus.get(ErrorStatus.RESOLVED) || 0;
+    const criticalErrors = statistics.errorsBySeverity.get(ErrorSeverity.CRITICAL) || 0;
 
     // Calculate system health based on error rates and severity
     let systemHealth: ErrorReportSummary['systemHealth'];
@@ -436,7 +437,7 @@ export class DefaultErrorReportingService {
     const recommendations: ErrorRecommendation[] = [];
 
     // High critical error count
-    const criticalErrors = statistics.errorsBySeverity.get('CRITICAL') || 0;
+    const criticalErrors = statistics.errorsBySeverity.get(ErrorSeverity.CRITICAL) || 0;
     if (criticalErrors > 5) {
       recommendations.push({
         id: 'reduce-critical-errors',
@@ -475,7 +476,7 @@ export class DefaultErrorReportingService {
     }
 
     // High tool execution errors
-    const toolErrors = statistics.errorsByType.get('TOOL_EXECUTION') || 0;
+    const toolErrors = statistics.errorsByType.get(ErrorType.TOOL_EXECUTION) || 0;
     if (toolErrors > statistics.totalErrors * 0.3) {
       recommendations.push({
         id: 'improve-tool-reliability',

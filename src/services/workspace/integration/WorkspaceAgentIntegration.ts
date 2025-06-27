@@ -6,13 +6,13 @@
  */
 
 import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
-import { ToolManager } from '../../../agents/shared/base/managers/ToolManager.interface';
 import { ManagerType } from '../../../agents/shared/base/managers/ManagerType';
-import { WorkspaceAgentTools } from '../tools/WorkspaceAgentTools';
+import { ToolManager } from '../../../agents/shared/base/managers/ToolManager.interface';
+import { logger } from '../../../lib/logging';
 import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
+import { WorkspaceAgentTools } from '../tools/WorkspaceAgentTools';
 import { parseWorkspaceCommand, WorkspaceCommand, WorkspaceCommandType } from './WorkspaceNLPProcessor';
 import { workspaceSchedulerIntegration } from './WorkspaceSchedulerIntegration';
-import { logger } from '../../../lib/logging';
 
 /**
  * Integration result for workspace commands
@@ -148,7 +148,7 @@ export class WorkspaceAgentIntegration {
         if (command.type === WorkspaceCommandType.SEND_EMAIL && command.entities.senderPreference) {
           // Use default connection for validation, but mark for smart selection during execution
           connectionId = defaultConnectionId;
-          command.useSmartSelection = true; // Flag for later use
+          (command as any).useSmartSelection = true; // Flag for later use
         } else {
           // For other commands, use the default connection
           connectionId = defaultConnectionId;

@@ -1,42 +1,37 @@
 import {
-  ISocialMediaProvider,
-  SocialMediaPost,
-  PostCreationParams,
-  PostScheduleParams,
-  ScheduledPost,
-  MediaFile,
-  PostMetrics,
-  ContentAnalysis,
-  OptimizedContent,
-  CommentResponse,
-  ResponseStrategy,
-  SocialMediaError,
-  SocialMediaConnectionParams,
-  Comment,
-  AccountAnalytics
-} from './base/ISocialMediaProvider';
-import {
-  SocialMediaProvider,
   SocialMediaCapability,
   SocialMediaConnection,
-  SocialMediaConnectionStatus
+  SocialMediaProvider
 } from '../database/ISocialMediaDatabase';
+import {
+  AccountAnalytics,
+  Comment,
+  CommentResponse,
+  ContentAnalysis,
+  ISocialMediaProvider,
+  OptimizedContent,
+  PostCreationParams,
+  PostMetrics,
+  PostScheduleParams,
+  ResponseStrategy,
+  ScheduledPost,
+  SocialMediaConnectionParams,
+  SocialMediaError,
+  SocialMediaPost
+} from './base/ISocialMediaProvider';
 
 // Unified systems imports
 import { getServiceConfig } from '../../../lib/core/unified-config';
 import {
-  handleAsync,
-  handleWithRetry,
   createErrorContext,
-  ErrorSeverity
+  ErrorSeverity,
+  handleAsync,
+  handleWithRetry
 } from '../../../lib/errors/standardized-handler';
-import {
-  unifiedTokenManager,
-  encryptTokens,
-  decryptTokens,
-  OAuthTokenData
-} from '../../../lib/security/unified-token-manager';
 import { logger } from '../../../lib/logging';
+import {
+  decryptTokens
+} from '../../../lib/security/unified-token-manager';
 
 export class TwitterProvider implements ISocialMediaProvider {
   private connections = new Map<string, SocialMediaConnection>();
@@ -52,8 +47,8 @@ export class TwitterProvider implements ISocialMediaProvider {
       throw new Error('Twitter configuration not found. Please set TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET environment variables.');
     }
 
-    this.clientId = twitterConfig.clientId;
-    this.clientSecret = twitterConfig.clientSecret;
+    this.clientId = twitterConfig.clientId || '';
+    this.clientSecret = twitterConfig.clientSecret || '';
 
     logger.info('Twitter Provider initialized with unified systems', {
       provider: 'twitter',

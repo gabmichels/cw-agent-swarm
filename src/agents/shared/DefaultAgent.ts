@@ -95,7 +95,6 @@ import { AgentErrorIntegration } from '../../services/errors/AgentErrorIntegrati
 import { DefaultErrorManagementService } from '../../services/errors/DefaultErrorManagementService';
 import { DefaultErrorClassificationEngine } from '../../services/errors/ErrorClassificationEngine';
 import { DefaultErrorNotificationService } from '../../services/errors/ErrorNotificationService';
-import { PrismaErrorDatabaseProvider } from '../../services/errors/providers/PrismaErrorDatabaseProvider';
 import { DefaultRecoveryStrategyManager } from '../../services/errors/RecoveryStrategyManager';
 
 // Agent status constants
@@ -3290,95 +3289,58 @@ Task scheduled successfully (ID: ${safeTaskId})`;
     try {
       // Create a mock database provider for now (in production, this would use Prisma)
       const mockDatabaseProvider = {
-        async saveError(error: any): Promise<string> {
-          // Mock implementation - in production this would save to database
-          this.logger.info('Error saved to database', { errorId: error.id });
-          return error.id;
-        },
-        async getErrorById(errorId: string) {
-          return null; // Mock implementation
-        },
-        async searchErrors(criteria: any) {
-          return []; // Mock implementation
-        },
-        async updateErrorStatus(errorId: string, status: any, metadata?: any): Promise<boolean> {
-          return true; // Mock implementation
-        },
-        async saveErrorResolution(resolution: any): Promise<boolean> {
-          return true; // Mock implementation
-        },
-        async getErrorStatistics(criteria?: any) {
-          return {
-            totalErrors: 0,
-            errorsByType: new Map(),
-            errorsBySeverity: new Map(),
-            errorsByStatus: new Map(),
-            resolutionRate: 0.95,
-            averageResolutionTime: 3.2,
-            topFailingComponents: []
-          };
-        },
-        async getErrorsForRetry() {
-          return []; // Mock implementation
-        },
-        async getErrorsForEscalation() {
-          return []; // Mock implementation
-        },
-        async updateRetryInfo(errorId: string, retryAttempt: number, nextRetryAt?: Date): Promise<boolean> {
-          return true; // Mock implementation
-        },
-        async getErrorPatterns(timeWindowHours: number) {
-          return []; // Mock implementation
-        }
-      } as IErrorDatabaseProvider;
+        saveError: async (error: any) => error.id,
+        getErrorById: async (id: string) => null,
+        searchErrors: async (criteria: any) => [],
+        updateErrorStatus: async (id: string, status: any) => true,
+        updateError: async (id: string, updates: any) => true,
+        saveErrorResolution: async (resolution: any) => true,
+        getErrorStatistics: async (criteria?: any) => ({
+          totalErrors: 0,
+          errorsByType: new Map(),
+          errorsBySeverity: new Map(),
+          errorsByStatus: new Map(),
+          resolutionRate: 0,
+          averageResolutionTime: 0,
+          topFailingComponents: []
+        }),
+        getErrorsForRetry: async () => [],
+        getErrorsForEscalation: async () => [],
+        updateRetryInfo: async (id: string, attempt: number, nextRetry?: Date) => true,
+        getErrorPatterns: async (timeWindow: number) => [],
+        getErrorsByStatus: async (status: any) => [],
+        getErrorsByAgent: async (agentId: string) => [],
+        getErrorsByType: async (errorType: any) => [],
+        saveErrorPattern: async (pattern: any) => true,
+        getErrorStats: async () => ({}),
+        cleanupOldErrors: async (daysOld: number) => 0
+      };
 
       // Create notification service adapter
       const notificationAdapter = {
-        async sendUserNotification(error: any, routing: any): Promise<boolean> {
-          try {
-            if (this.errorNotificationService) {
-              await this.errorNotificationService.sendErrorNotification(error);
-            }
-            return true;
-          } catch {
-            return false;
-          }
-        },
-        async sendRetryNotification(error: any, attempt: number, maxAttempts: number): Promise<boolean> {
-          try {
-            if (this.errorNotificationService) {
-              await this.errorNotificationService.sendRetryNotification(error, attempt, maxAttempts);
-            }
-            return true;
-          } catch {
-            return false;
-          }
-        },
-        async sendEscalationNotification(error: any, reason: string): Promise<boolean> {
-          try {
-            if (this.errorNotificationService) {
-              await this.errorNotificationService.sendEscalationNotification(error, reason);
-            }
-            return true;
-          } catch {
-            return false;
-          }
-        },
-        async sendResolutionNotification(errorId: string, resolution: any): Promise<boolean> {
-          return true; // Mock implementation
-        }
-      } as IErrorNotificationService;
+        sendUserNotification: async (error: any, routing: any) => true,
+        sendRetryNotification: async (error: any, attempt: number, maxAttempts: number) => true,
+        sendEscalationNotification: async (error: any, reason: string) => true,
+        sendResolutionNotification: async (errorId: string, resolution: any) => true
+      };
 
-      // Initialize error management services in correct dependency order
-      this.errorClassificationEngine = new DefaultErrorClassificationEngine(this.logger);
-      this.recoveryStrategyManager = new DefaultRecoveryStrategyManager(this.logger);
-      this.errorNotificationService = new DefaultErrorNotificationService(this.logger);
+      // Create compatible logger adapter
+      const loggerAdapter = {
+        debug: (message: string, ...args: any[]) => this.logger.debug(message, args.length > 0 ? args[0] : undefined),
+        info: (message: string, ...args: any[]) => this.logger.info(message, args.length > 0 ? args[0] : undefined),
+        warn: (message: string, ...args: any[]) => this.logger.warn(message, args.length > 0 ? args[0] : undefined),
+        error: (message: string, ...args: any[]) => this.logger.error(message, args.length > 0 ? args[0] : undefined)
+      };
 
-      // Create real database provider using Prisma
-      const databaseProvider = new PrismaErrorDatabaseProvider(this.logger);
+      // Initialize error management components
+      this.errorClassificationEngine = new DefaultErrorClassificationEngine(loggerAdapter);
+      this.recoveryStrategyManager = new DefaultRecoveryStrategyManager(loggerAdapter);
+      this.errorNotificationService = new DefaultErrorNotificationService(loggerAdapter);
 
+      // Initialize error management service
       this.errorManagementService = new DefaultErrorManagementService(
-        databaseProvider,
+        loggerAdapter,
+        mockDatabaseProvider,
         notificationAdapter
       );
 

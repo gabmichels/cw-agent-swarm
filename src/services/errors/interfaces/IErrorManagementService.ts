@@ -275,6 +275,11 @@ export interface IErrorDatabaseProvider {
   updateErrorStatus(errorId: string, status: ErrorStatus, metadata?: Record<string, unknown>): Promise<boolean>;
 
   /**
+   * Update error data
+   */
+  updateError(errorId: string, updates: Partial<BaseError>): Promise<boolean>;
+
+  /**
    * Save error resolution
    */
   saveErrorResolution(resolution: ErrorResolutionInput): Promise<boolean>;
@@ -303,6 +308,36 @@ export interface IErrorDatabaseProvider {
    * Get error patterns for analysis
    */
   getErrorPatterns(timeWindowHours: number): Promise<readonly { pattern: string; count: number }[]>;
+
+  /**
+   * Get errors by status
+   */
+  getErrorsByStatus(status: ErrorStatus): Promise<readonly BaseError[]>;
+
+  /**
+   * Get errors by agent
+   */
+  getErrorsByAgent(agentId: string): Promise<readonly BaseError[]>;
+
+  /**
+   * Get errors by type
+   */
+  getErrorsByType(errorType: ErrorType): Promise<readonly BaseError[]>;
+
+  /**
+   * Save error pattern for analysis
+   */
+  saveErrorPattern(pattern: any): Promise<boolean>;
+
+  /**
+   * Get error statistics summary
+   */
+  getErrorStats(): Promise<any>;
+
+  /**
+   * Clean up old errors
+   */
+  cleanupOldErrors(daysOld: number): Promise<number>;
 }
 
 /**

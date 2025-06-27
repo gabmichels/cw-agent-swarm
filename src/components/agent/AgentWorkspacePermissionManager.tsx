@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { WorkspaceConnection, WorkspaceCapabilityType } from '../../services/database/types';
-import { CheckCircle, AlertCircle, Settings, Mail, Calendar, FileText, BarChart3, Users, Clock, Shield } from 'lucide-react';
+import { AlertCircle, BarChart3, Calendar, CheckCircle, FileText, Mail, Settings, Shield, Users } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { WorkspaceCapabilityType, WorkspaceConnection } from '../../services/database/types';
 
 export interface AgentWorkspacePermissionConfig {
   connectionId: string;
@@ -251,7 +251,12 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
       [WorkspaceCapabilityType.SPREADSHEET_READ]: 'read_spreadsheet',
       [WorkspaceCapabilityType.SPREADSHEET_DELETE]: 'delete_spreadsheet',
       [WorkspaceCapabilityType.CONTACTS_READ]: 'read_contacts',
-      [WorkspaceCapabilityType.CONTACTS_MANAGE]: 'manage_contacts'
+      [WorkspaceCapabilityType.CONTACTS_MANAGE]: 'manage_contacts',
+      [WorkspaceCapabilityType.WORKFLOW_EXECUTE]: 'execute_workflow',
+      [WorkspaceCapabilityType.WORKFLOW_READ]: 'read_workflow',
+      [WorkspaceCapabilityType.WORKFLOW_CREATE]: 'create_workflow',
+      [WorkspaceCapabilityType.WORKFLOW_EDIT]: 'edit_workflow',
+      [WorkspaceCapabilityType.WORKFLOW_DELETE]: 'delete_workflow'
     };
     
     return capabilityToToolMap[capability] || capability.toLowerCase();

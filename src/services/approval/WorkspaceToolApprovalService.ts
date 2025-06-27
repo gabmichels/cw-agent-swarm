@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { IDatabaseProvider } from '../database/IDatabaseProvider';
+import { prisma } from '../../lib/prisma';
 
 export interface WorkspaceToolApprovalSetting {
   id: string;
@@ -44,23 +44,21 @@ export interface IWorkspaceToolApprovalService {
 }
 
 export class WorkspaceToolApprovalService implements IWorkspaceToolApprovalService {
-  constructor(private databaseProvider: IDatabaseProvider) { }
+  private readonly prismaClient: PrismaClient;
+
+  constructor(prismaClient?: PrismaClient) {
+    this.prismaClient = prismaClient || prisma;
+  }
 
   async requiresApproval(agentId: string, toolName: string): Promise<boolean> {
     try {
-      // Check if database provider is available
-      if (!this.databaseProvider || !this.databaseProvider.prisma) {
-        console.warn(`[WorkspaceToolApprovalService] Database provider not available for agent ${agentId} tool ${toolName}. Defaulting to no approval required.`);
-        return false;
-      }
-
       // Check if AgentWorkspaceToolApproval table exists
-      if (!this.databaseProvider.prisma.agentWorkspaceToolApproval) {
+      if (!this.prismaClient.agentWorkspaceToolApproval) {
         console.warn(`[WorkspaceToolApprovalService] AgentWorkspaceToolApproval table not available for agent ${agentId} tool ${toolName}. Defaulting to no approval required.`);
         return false;
       }
 
-      const setting = await this.databaseProvider.prisma.agentWorkspaceToolApproval.findUnique({
+      const setting = await this.prismaClient.agentWorkspaceToolApproval.findUnique({
         where: {
           unique_agent_tool_approval: {
             agentId,
@@ -92,7 +90,7 @@ export class WorkspaceToolApprovalService implements IWorkspaceToolApprovalServi
       updatedAt: new Date()
     };
 
-    const setting = await this.databaseProvider.prisma.agentWorkspaceToolApproval.upsert({
+    const setting = await this.prismaClient.agentWorkspaceToolApproval.upsert({
       where: {
         unique_agent_tool_approval: {
           agentId,
@@ -118,12 +116,12 @@ export class WorkspaceToolApprovalService implements IWorkspaceToolApprovalServi
   }
 
   async getAgentApprovalSettings(agentId: string): Promise<WorkspaceToolApprovalSetting[]> {
-    const settings = await this.databaseProvider.prisma.agentWorkspaceToolApproval.findMany({
+    const settings = await this.prismaClient.agentWorkspaceToolApproval.findMany({
       where: { agentId },
       orderBy: { toolName: 'asc' }
     });
 
-    return settings.map(setting => ({
+    return settings.map((setting: any) => ({
       id: setting.id,
       agentId: setting.agentId,
       toolName: setting.toolName,
@@ -135,12 +133,12 @@ export class WorkspaceToolApprovalService implements IWorkspaceToolApprovalServi
   }
 
   async getToolApprovalSettings(toolName: string): Promise<WorkspaceToolApprovalSetting[]> {
-    const settings = await this.databaseProvider.prisma.agentWorkspaceToolApproval.findMany({
+    const settings = await this.prismaClient.agentWorkspaceToolApproval.findMany({
       where: { toolName },
       orderBy: { agentId: 'asc' }
     });
 
-    return settings.map(setting => ({
+    return settings.map((setting: any) => ({
       id: setting.id,
       agentId: setting.agentId,
       toolName: setting.toolName,
@@ -152,7 +150,7 @@ export class WorkspaceToolApprovalService implements IWorkspaceToolApprovalServi
   }
 
   async removeApprovalSetting(agentId: string, toolName: string): Promise<void> {
-    await this.databaseProvider.prisma.agentWorkspaceToolApproval.delete({
+    await this.prismaClient.agentWorkspaceToolApproval.delete({
       where: {
         unique_agent_tool_approval: {
           agentId,
