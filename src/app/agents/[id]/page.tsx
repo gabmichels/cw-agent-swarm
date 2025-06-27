@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
-import CreateChatButton from '@/components/chat/CreateChatButton';
+import SmartChatButton from '@/components/chat/SmartChatButton';
 import MemoryUploader from '@/components/agent/MemoryUploader';
 import AgentCapabilityEditor from '@/components/agent/AgentCapabilityEditor';
 import { AgentWorkspacePermissionEditor } from '@/components/agent/AgentWorkspacePermissionEditor';
@@ -302,7 +302,7 @@ export default function AgentPage({ params }: { params: { id?: string } }) {
             <Trash2 className="h-4 w-4 mr-2" />
             Delete Agent
           </button>
-          <CreateChatButton agent={agent} userId={userId} />
+          <SmartChatButton agent={agent} userId={userId} />
         </div>
       </div>
       

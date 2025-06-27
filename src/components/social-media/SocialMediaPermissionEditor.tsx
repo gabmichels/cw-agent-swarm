@@ -141,6 +141,7 @@ export const SocialMediaPermissionEditor: React.FC<SocialMediaPermissionEditorPr
         )}
 
         <AgentSocialMediaPermissionManager
+          agentId={agentId}
           initialPermissions={permissions}
           onChange={handlePermissionsChange}
           className="mb-4"

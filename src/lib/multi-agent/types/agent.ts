@@ -45,6 +45,7 @@ export interface AgentMetadata {
   version: string;
   isPublic: boolean;
   knowledgePaths?: string[];
+  chatId?: string; // Optional chat ID stored in metadata
   persona?: {
     background: string;
     personality: string;
@@ -66,6 +67,7 @@ export interface AgentProfile {
   metadata: AgentMetadata;
   createdAt: Date;
   updatedAt: Date;
+  chatId?: string; // Optional chat ID for direct navigation
 }
 
 /**

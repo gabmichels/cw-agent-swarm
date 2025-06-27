@@ -32,7 +32,48 @@ This document provides detailed guidelines for implementing the architecture ref
 - **PURE FUNCTIONS**: Create pure functions without side effects
 - **ERROR HANDLING**: Use proper error handling with custom error types
 
-### 4. Performance Consciousness
+### 4. ID Generation Strategy (UUID vs ULID)
+
+**Database Layer (Prisma Schema)**: Always use `@default(uuid())` for primary keys
+- Prisma generates standard UUIDs for database storage
+- Ensures compatibility with all database engines (PostgreSQL, SQLite, etc.)
+- Provides foreign key consistency and relational integrity
+
+**Application Layer (Services)**: Use ULID for business logic and tracking
+- Generate ULIDs in services using `ulid()` function for sortable, time-ordered IDs
+- Use ULID for request tracking, error logging, and business entities
+- Provides chronological ordering and better debugging experience
+
+**Conversion Layer**: Use utilities for cross-system compatibility
+- `convertToQdrantId()` for Qdrant vector database (requires UUID format)
+- `generateULID()` for application-level tracking and business logic
+- Maintain both formats when needed for different system requirements
+
+**Example Implementation**:
+```typescript
+// Database model (Prisma schema)
+model ErrorLog {
+  id String @id @default(uuid()) // Database uses UUID
+  // other fields
+}
+
+// Service layer (Application code)
+class ErrorService {
+  async logError(error: BaseError): Promise<string> {
+    const trackingId = ulid(); // Business logic uses ULID
+    await this.db.errorLog.create({
+      data: {
+        // id auto-generated as UUID by Prisma
+        trackingId, // Store ULID for business tracking
+        // other fields
+      }
+    });
+    return trackingId; // Return ULID for application use
+  }
+}
+```
+
+### 5. Performance Consciousness
 
 - Optimize query patterns for Qdrant
 - Implement efficient data structures for high-volume operations
@@ -40,13 +81,51 @@ This document provides detailed guidelines for implementing the architecture ref
 - Minimize database round-trips
 - Consider memory usage and garbage collection
 
-### 5. Don't overengineer
+### 6. Don't overengineer
 
 - Keep it simple
 - Stick to the defined scope
 
-### 6. No placeholder implementation
+### 7. No placeholder implementation
 - Avoid placeholder implementations, aim for full implementations
+
+### 8. Error Handling Integration
+
+**Use Centralized Error Management**: All new implementations must integrate with the comprehensive error communication system documented in `@error-communication.md`
+
+- **Never use silent failures**: All errors must be logged and communicated to users
+- **Use structured error types**: Leverage the `BaseError` hierarchy and error classification system
+- **Integrate with notifications**: Use `IErrorManagementService` for user communication and retry strategies
+- **Follow error patterns**: Use established error types (`ToolExecutionError`, `WorkspacePermissionError`, etc.)
+- **Enable anti-hallucination**: Ensure agents never claim success when actual failures occur
+
+**Example Integration**:
+```typescript
+class YourService {
+  constructor(
+    private readonly errorManager: IErrorManagementService
+  ) {}
+
+  async yourMethod(): Promise<Result> {
+    try {
+      // Your business logic
+      return await this.performOperation();
+    } catch (error) {
+      // Create structured error
+      const structuredError = ErrorFactory.createToolExecutionError(
+        error.message,
+        { agentId: 'agent_123', operation: 'yourMethod' }
+      );
+      
+      // Log and handle error (includes user notification and retry logic)
+      await this.errorManager.logError(structuredError);
+      
+      // Re-throw or return appropriate result
+      throw structuredError;
+    }
+  }
+}
+```
 
 ## Component-Specific Guidelines
 

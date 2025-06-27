@@ -21,6 +21,10 @@ interface Agent {
     description: string;
   }>;
   createdAt: Date;
+  chatId?: string;
+  metadata?: {
+    chatId?: string;
+  };
 }
 
 interface AgentDraft {
@@ -41,6 +45,7 @@ export default function AgentsPage() {
   const [showRelationships, setShowRelationships] = useState<boolean>(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [draftData, setDraftData] = useState<AgentDraft | null>(null);
+
 
   // Check for draft data in localStorage
   const checkForDraft = () => {
@@ -104,6 +109,107 @@ export default function AgentsPage() {
     if (confirm('Are you sure you want to discard your draft? This action cannot be undone.')) {
       localStorage.removeItem(AGENT_DRAFT_STORAGE_KEY);
       setDraftData(null);
+    }
+  };
+
+  const handleGoToChat = async (agentId: string) => {
+    try {
+      const agent = agents.find(a => a.id === agentId);
+      if (!agent) return;
+
+      // Check if agent has an existing chatId in metadata
+      const existingChatId = agent.metadata?.chatId || agent.chatId;
+      
+      if (existingChatId) {
+        // Navigate directly to existing chat
+        router.push(`/chat/${existingChatId}`);
+        return;
+      }
+
+      // If no chatId, try to find existing chat first (fallback)
+      const chatsResponse = await fetch(`/api/multi-agent/chats?userId=user_gab`);
+      if (chatsResponse.ok) {
+        const chatsData = await chatsResponse.json();
+        const chats = chatsData.chats || [];
+        
+        const existingChat = chats.find((chat: any) => {
+          return chat.participants?.some((p: any) => 
+            p.participantId === agentId && p.participantType === 'agent'
+          );
+        });
+        
+        if (existingChat) {
+          router.push(`/chat/${existingChat.id}`);
+          return;
+        }
+      }
+
+      // If no existing chat found, create a new one
+      const chatData = {
+        name: `Chat with ${agent.name}`,
+        description: `Discussion with ${agent.name} - ${agent.description.substring(0, 100)}${agent.description.length > 100 ? '...' : ''}`,
+        settings: {
+          visibility: 'private',
+          allowAnonymousMessages: false,
+          enableBranching: false,
+          recordTranscript: true
+        },
+        metadata: {
+          tags: [],
+          category: ['one-on-one'],
+          priority: 'medium',
+          sensitivity: 'internal',
+          language: ['en'],
+          version: '1.0'
+        }
+      };
+
+      const chatResponse = await fetch('/api/multi-agent/chats', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(chatData),
+      });
+
+      if (!chatResponse.ok) {
+        throw new Error('Failed to create chat');
+      }
+
+      const chatResult = await chatResponse.json();
+      const chatId = chatResult.chat.id;
+
+      // Add participants to the chat
+      const participantsResponse = await fetch(`/api/multi-agent/chats/${chatId}/participants`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          participants: [
+            {
+              participantId: 'user_gab', // TODO: Get from auth context
+              participantType: 'user',
+              role: 'member'
+            },
+            {
+              participantId: agentId,
+              participantType: 'agent',
+              role: 'member'
+            }
+          ]
+        }),
+      });
+
+      if (!participantsResponse.ok) {
+        throw new Error('Failed to add participants to chat');
+      }
+
+      // Navigate to the new chat
+      router.push(`/chat/${chatId}`);
+    } catch (error) {
+      console.error('Error with chat:', error);
+      alert('Failed to access chat. Please try again.');
     }
   };
 
@@ -369,10 +475,10 @@ export default function AgentsPage() {
                   Created: {new Date(agent.createdAt).toLocaleDateString()}
                 </div>
                 <button
-                  onClick={() => router.push(`/chat?agent=${agent.id}`)}
+                  onClick={() => handleGoToChat(agent.id)}
                   className="px-3 py-1 bg-blue-600 text-sm rounded hover:bg-blue-700"
                 >
-                  Chat with Agent
+                  {(agent.metadata?.chatId || agent.chatId) ? 'Go to Chat' : 'Create Chat'}
                 </button>
               </div>
             </div>

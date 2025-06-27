@@ -10,6 +10,7 @@ import {
   AgentSocialMediaPermission,
   AccessLevel 
 } from '../../services/social-media/database/ISocialMediaDatabase';
+import { AgentSocialMediaPermissionManager, AgentSocialMediaPermissionConfig } from '../social-media/AgentSocialMediaPermissionManager';
 
 export interface AgentSocialMediaPermissionEditorProps {
   agent: AgentProfile;
@@ -17,38 +18,28 @@ export interface AgentSocialMediaPermissionEditorProps {
   onEditingChange: (editing: boolean) => void;
 }
 
-interface ConnectionPermissionState {
-  connectionId: string;
-  connection: SocialMediaConnection;
-  permission: AgentSocialMediaPermission | null;
-  capabilities: SocialMediaCapability[];
-  accessLevel: AccessLevel;
-  isActive: boolean;
-}
-
 export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissionEditorProps> = ({
   agent,
   isEditing,
   onEditingChange
 }) => {
-  const [connections, setConnections] = useState<SocialMediaConnection[]>([]);
-  const [permissions, setPermissions] = useState<ConnectionPermissionState[]>([]);
+  const [permissions, setPermissions] = useState<AgentSocialMediaPermissionConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [approvalSettings, setApprovalSettings] = useState<Record<string, boolean>>({});
 
-  // Load connections and permissions
+  // Load permissions on mount
   useEffect(() => {
-    loadConnectionsAndPermissions();
+    loadPermissions();
   }, [agent.id]);
 
-  const loadConnectionsAndPermissions = async () => {
+  const loadPermissions = async () => {
     setLoading(true);
     setError(null);
 
     try {
       // Load all social media connections
-      // API will return all connections if no userId is provided (useful for development)
       const connectionsResponse = await fetch('/api/social-media/connections');
       const connectionsData = await connectionsResponse.json();
 
@@ -64,28 +55,36 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
         throw new Error(permissionsData.error || 'Failed to load permissions');
       }
 
-      setConnections(connectionsData.connections);
+      // Load approval settings
+      const approvalResponse = await fetch(`/api/agent/social-media-approval?agentId=${agent.id}`);
+      const approvalData = await approvalResponse.json();
+      
+      if (approvalData.success) {
+        setApprovalSettings(approvalData.settings || {});
+      }
 
-      // Create permission state for each connection
-      const permissionStates: ConnectionPermissionState[] = connectionsData.connections.map((connection: SocialMediaConnection) => {
-        const existingPermission = permissionsData.permissions.find(
-          (p: AgentSocialMediaPermission) => p.connectionId === connection.id
+      // Convert to manager component format
+      const permissionConfigs: AgentSocialMediaPermissionConfig[] = connectionsData.connections.map((connection: SocialMediaConnection) => {
+        // Find existing permission configuration for this connection
+        const existingPermissionConfig = permissionsData.permissions.find(
+          (p: any) => p.connectionId === connection.id
         );
+
+        // The API now returns permissions in the UI format, so use them directly
+        const permissions = existingPermissionConfig?.permissions || {};
 
         return {
           connectionId: connection.id,
-          connection,
-          permission: existingPermission || null,
-          capabilities: existingPermission?.capabilities || [],
-          accessLevel: existingPermission?.accessLevel || AccessLevel.NONE,
-          isActive: existingPermission?.isActive || false
+          connectionName: connection.accountDisplayName || `${connection.provider} Account`,
+          provider: connection.provider,
+          permissions
         };
       });
 
-      setPermissions(permissionStates);
+      setPermissions(permissionConfigs);
     } catch (err) {
-      console.error('Error loading social media data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      console.error('Error loading social media permissions:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load permissions');
     } finally {
       setLoading(false);
     }
@@ -96,50 +95,24 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
     setError(null);
 
     try {
-      // Process revocations first (for inactive permissions)
-      for (const permissionState of permissions) {
-        if (permissionState.permission && !permissionState.isActive) {
-          const response = await fetch(`/api/social-media/permissions/${permissionState.permission.id}`, {
-            method: 'DELETE',
-          });
+      // Save permissions using the same API as the manager component
+      const response = await fetch(`/api/agents/${agent.id}/social-media-permissions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          permissions: permissions,
+          approvalSettings: approvalSettings,
+          grantedBy: 'user'
+        }),
+      });
 
-          const data = await response.json();
-          if (!data.success) {
-            throw new Error(data.error || 'Failed to revoke permission');
-          }
-        }
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to save permissions');
       }
 
-      // Prepare permissions data for batch save
-      const permissionsToSave = permissions
-        .filter(p => p.isActive && p.capabilities.length > 0)
-        .map(p => ({
-          connectionId: p.connectionId,
-          permissions: p.capabilities,
-          accessLevel: p.accessLevel,
-          restrictions: {}
-        }));
-
-      if (permissionsToSave.length > 0) {
-        const response = await fetch(`/api/agents/${agent.id}/social-media-permissions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            permissions: permissionsToSave,
-            grantedBy: 'user_gab' // TODO: Get from auth context
-          }),
-        });
-
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error(data.error || 'Failed to save permissions');
-        }
-      }
-
-      // Reload permissions to get updated state
-      await loadConnectionsAndPermissions();
       onEditingChange(false);
     } catch (err) {
       console.error('Error saving permissions:', err);
@@ -150,111 +123,17 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
   };
 
   const handleCancel = () => {
-    // Reload to reset any changes
-    loadConnectionsAndPermissions();
+    loadPermissions();
     onEditingChange(false);
     setError(null);
   };
 
-  const updatePermissionState = (connectionId: string, updates: Partial<ConnectionPermissionState>) => {
-    setPermissions(prev => prev.map(p => 
-      p.connectionId === connectionId ? { ...p, ...updates } : p
-    ));
-  };
-
-  const toggleCapability = (connectionId: string, capability: SocialMediaCapability) => {
-    const permissionState = permissions.find(p => p.connectionId === connectionId);
-    if (!permissionState) return;
-
-    const newCapabilities = permissionState.capabilities.includes(capability)
-      ? permissionState.capabilities.filter(c => c !== capability)
-      : [...permissionState.capabilities, capability];
-
-    updatePermissionState(connectionId, { 
-      capabilities: newCapabilities,
-      isActive: newCapabilities.length > 0
-    });
-  };
-
-  const toggleAllCapabilities = (connectionId: string, selectAll: boolean) => {
-    const allCapabilities = Object.values(SocialMediaCapability);
-    updatePermissionState(connectionId, {
-      capabilities: selectAll ? allCapabilities : [],
-      isActive: selectAll
-    });
-  };
-
-  const isAllCapabilitiesSelected = (connectionId: string): boolean => {
-    const permissionState = permissions.find(p => p.connectionId === connectionId);
-    if (!permissionState) return false;
-    
-    const allCapabilities = Object.values(SocialMediaCapability);
-    return allCapabilities.every(cap => permissionState.capabilities.includes(cap));
-  };
-
-  const isSomeCapabilitiesSelected = (connectionId: string): boolean => {
-    const permissionState = permissions.find(p => p.connectionId === connectionId);
-    if (!permissionState) return false;
-    
-    return permissionState.capabilities.length > 0 && !isAllCapabilitiesSelected(connectionId);
-  };
-
-  const getProviderIcon = (provider: SocialMediaProvider): string => {
-    switch (provider) {
-      case SocialMediaProvider.TWITTER: return '🐦';
-      case SocialMediaProvider.LINKEDIN: return '💼';
-      case SocialMediaProvider.FACEBOOK: return '📘';
-      case SocialMediaProvider.INSTAGRAM: return '📸';
-      case SocialMediaProvider.REDDIT: return '🤖';
-      case SocialMediaProvider.TIKTOK: return '🎵';
-      default: return '📱';
+  const handlePermissionsChange = (newPermissions: AgentSocialMediaPermissionConfig[], newApprovalSettings?: Record<string, boolean>) => {
+    setPermissions(newPermissions);
+    if (newApprovalSettings) {
+      setApprovalSettings(newApprovalSettings);
     }
   };
-
-  const getCapabilityDisplayName = (capability: SocialMediaCapability): string => {
-    return capability.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
-  };
-
-  const getCapabilityDescription = (capability: SocialMediaCapability): string => {
-    const descriptions: Partial<Record<SocialMediaCapability, string>> = {
-      [SocialMediaCapability.POST_CREATE]: 'Create and publish posts',
-      [SocialMediaCapability.POST_READ]: 'Read and view posts',
-      [SocialMediaCapability.POST_EDIT]: 'Edit existing posts',
-      [SocialMediaCapability.POST_DELETE]: 'Delete posts',
-      [SocialMediaCapability.POST_SCHEDULE]: 'Schedule posts for later',
-      [SocialMediaCapability.DRAFT_READ]: 'Read draft posts',
-      [SocialMediaCapability.DRAFT_PUBLISH]: 'Publish draft posts',
-      [SocialMediaCapability.DRAFT_SCHEDULE]: 'Schedule draft posts',
-      [SocialMediaCapability.STORY_CREATE]: 'Create stories',
-      [SocialMediaCapability.STORY_READ]: 'View stories',
-      [SocialMediaCapability.VIDEO_UPLOAD]: 'Upload videos',
-      [SocialMediaCapability.IMAGE_UPLOAD]: 'Upload images',
-      [SocialMediaCapability.COMMENT_READ]: 'Read comments',
-      [SocialMediaCapability.COMMENT_CREATE]: 'Reply to comments',
-      [SocialMediaCapability.COMMENT_MODERATE]: 'Moderate comments',
-      [SocialMediaCapability.LIKE_CREATE]: 'Like posts',
-      [SocialMediaCapability.SHARE_CREATE]: 'Share/repost content',
-      [SocialMediaCapability.ANALYTICS_READ]: 'View analytics',
-      [SocialMediaCapability.INSIGHTS_READ]: 'View insights',
-      [SocialMediaCapability.METRICS_READ]: 'View metrics',
-      [SocialMediaCapability.DM_READ]: 'Read direct messages',
-      [SocialMediaCapability.DM_SEND]: 'Send direct messages',
-      [SocialMediaCapability.TIKTOK_VIDEO_CREATE]: 'Create TikTok videos',
-      [SocialMediaCapability.TIKTOK_LIVE_CREATE]: 'Create TikTok live streams',
-      [SocialMediaCapability.TIKTOK_ANALYTICS_READ]: 'View TikTok analytics',
-      [SocialMediaCapability.ACCOUNT_READ]: 'Read account information',
-      [SocialMediaCapability.PROFILE_EDIT]: 'Edit profile information'
-    };
-    return descriptions[capability] || capability;
-  };
-
-  const commonCapabilities = [
-    SocialMediaCapability.POST_CREATE,
-    SocialMediaCapability.POST_READ,
-    SocialMediaCapability.ANALYTICS_READ,
-    SocialMediaCapability.COMMENT_READ,
-    SocialMediaCapability.COMMENT_CREATE
-  ];
 
   return (
     <div>
@@ -300,130 +179,46 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
         </div>
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-8">
-          <Clock className="h-6 w-6 text-blue-400 animate-spin mr-2" />
-          <span className="text-gray-400">Loading social media connections...</span>
-        </div>
-      ) : connections.length === 0 ? (
-        <div className="text-center py-8 text-gray-400">
-          <Share2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>No social media connections found.</p>
-          <p className="text-sm">Connect social media accounts in Settings to grant permissions.</p>
-        </div>
+      {isEditing ? (
+        <AgentSocialMediaPermissionManager
+          agentId={agent.id}
+          initialPermissions={permissions}
+          onChange={handlePermissionsChange}
+        />
       ) : (
-        <div className="space-y-4">
-          {permissions.map((permissionState) => (
-            <div key={permissionState.connectionId} className="border border-gray-700 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center">
-                  <span className="text-2xl mr-3">
-                    {getProviderIcon(permissionState.connection.provider)}
-                  </span>
-                  <div>
-                    <h3 className="text-white font-medium">
-                      {permissionState.connection.accountDisplayName}
-                    </h3>
-                    <p className="text-gray-400 text-sm">
-                      @{permissionState.connection.accountUsername} • {permissionState.connection.provider}
-                    </p>
-                  </div>
-                </div>
-                
-                {!isEditing && (
-                  <div className="flex items-center">
-                    {permissionState.isActive ? (
-                      <div className="flex items-center text-green-400">
-                        <CheckCircle className="h-4 w-4 mr-1" />
-                        <span className="text-sm">
-                          {permissionState.capabilities.length} permissions
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-gray-500 text-sm">No access</span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {isEditing && (
-                <div>
-                  <div className="mb-3">
-                    <label className="flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={permissionState.isActive}
-                        onChange={(e) => updatePermissionState(permissionState.connectionId, {
-                          isActive: e.target.checked,
-                          capabilities: e.target.checked ? commonCapabilities : []
-                        })}
-                        className="mr-2"
-                      />
-                      <span className="text-white">Enable access to this account</span>
-                    </label>
-                  </div>
-
-                  {permissionState.isActive && (
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-white font-medium">Capabilities</h4>
-                        <label className="flex items-center cursor-pointer text-sm text-gray-300 hover:text-white">
-                          <input
-                            type="checkbox"
-                            checked={isAllCapabilitiesSelected(permissionState.connectionId)}
-                            ref={(input) => {
-                              if (input) {
-                                input.indeterminate = isSomeCapabilitiesSelected(permissionState.connectionId);
-                              }
-                            }}
-                            onChange={(e) => toggleAllCapabilities(permissionState.connectionId, e.target.checked)}
-                            className="mr-2"
-                          />
-                          Select All
-                        </label>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {Object.values(SocialMediaCapability).map((capability) => (
-                          <label key={capability} className="flex items-start cursor-pointer p-2 rounded hover:bg-gray-700/50">
-                            <input
-                              type="checkbox"
-                              checked={permissionState.capabilities.includes(capability)}
-                              onChange={() => toggleCapability(permissionState.connectionId, capability)}
-                              className="mr-2 mt-1"
-                            />
-                            <div>
-                              <div className="text-white text-sm">
-                                {getCapabilityDisplayName(capability)}
-                              </div>
-                              <div className="text-gray-400 text-xs">
-                                {getCapabilityDescription(capability)}
-                              </div>
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!isEditing && permissionState.isActive && (
-                <div className="mt-3">
-                  <h4 className="text-white font-medium mb-2">Granted Capabilities</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {permissionState.capabilities.map((capability) => (
-                      <span
-                        key={capability}
-                        className="px-2 py-1 bg-blue-900/50 text-blue-300 text-xs rounded"
-                      >
-                        {getCapabilityDisplayName(capability)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+        <div className="bg-gray-800 rounded-lg p-4">
+          <p className="text-gray-400 text-sm mb-4">
+            Configure which social media accounts this agent can access and what actions require approval.
+          </p>
+          {permissions.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <Share2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No social media permissions configured.</p>
+              <p className="text-sm">Click Edit to configure permissions.</p>
             </div>
-          ))}
+          ) : (
+            <div className="space-y-3">
+              {permissions.map((config) => {
+                const enabledCount = Object.values(config.permissions).filter(p => p.enabled).length;
+                return (
+                  <div key={config.connectionId} className="bg-gray-700 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-medium text-white">{config.connectionName}</h3>
+                      <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded">
+                        {enabledCount} permission{enabledCount !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="text-sm text-gray-300">
+                      <strong>Provider:</strong> {config.provider.replace('_', ' ')}
+                    </div>
+                    <div className="text-sm text-gray-300 mt-1">
+                      <strong>Capabilities:</strong> {Object.keys(config.permissions).join(', ')}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
