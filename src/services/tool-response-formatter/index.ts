@@ -1,24 +1,30 @@
 /**
- * Tool Response Formatter Service - Main Exports
+ * Tool Response Formatter Service - Main Export
  * 
- * This module exports all components of the LLM-based tool response formatting system.
- * Provides persona-driven, conversational responses for tool executions.
+ * Unified export for all tool response formatting components and services.
+ * Provides LLM-powered, persona-aware response formatting for tool executions.
  */
 
-// Core interfaces and types
+// Core services
+export { LLMPersonaFormatter } from './LLMPersonaFormatter';
+export { LLMToolResponseFormatter } from './LLMToolResponseFormatter';
+export { PromptTemplateService } from './PromptTemplateService';
+export type { PromptGenerationMetrics, PromptTemplateResult } from './PromptTemplateService';
+
+// Response style and persona integration
+export { PersonaIntegration } from './PersonaIntegration';
+export type { PersonaIntegrationConfig } from './PersonaIntegration';
+export { ResponseStyleVariations } from './ResponseStyleVariations';
+export type { ResponsePattern, ResponseStyleConfig } from './ResponseStyleVariations';
+
+// Prompt templates
+export * from './prompt-templates';
+
+// Type definitions
 export * from './types';
 
-// Main service implementations
-export { LLMToolResponseFormatter } from './LLMToolResponseFormatter';
-export { LLMPersonaFormatter } from './LLMPersonaFormatter';
-
-// Re-export commonly used types for convenience
-export type {
-  IToolResponseFormatter,
-  ToolResponseContext,
-  FormattedToolResponse,
-  ToolResponseConfig,
-  IPromptTemplateService,
-  IResponseCache,
-  IToolResponseConfigService
-} from './types'; 
+/**
+ * Note: Service instances should be created via dependency injection
+ * in the main application. This module exports the classes and types
+ * needed for proper DI configuration.
+ */ 
