@@ -7,21 +7,20 @@
  */
 
 import { ulid } from 'ulid';
+import { PromptFormatter } from '../../agents/shared/messaging/PromptFormatter';
 import { createLogger } from '../../lib/logging/winston-logger';
 import { AgentLLMService } from '../messaging/message-generator';
-import { PromptFormatter } from '../../agents/shared/messaging/PromptFormatter';
 import {
-  IToolResponseFormatter,
-  ToolResponseContext,
   FormattedToolResponse,
-  ToolCategory,
-  ResponseStyle,
-  ResponseStyleType,
-  ToolResponseFormattingError,
-  LLMGenerationError,
   IPromptTemplateService,
   IResponseCache,
-  ResponseGenerationMetrics,
+  IToolResponseFormatter,
+  LLMGenerationError,
+  ResponseStyle,
+  ResponseStyleType,
+  ToolCategory,
+  ToolResponseContext,
+  ToolResponseFormattingError,
   ULID
 } from './types';
 
@@ -192,7 +191,7 @@ export class LLMToolResponseFormatter implements IToolResponseFormatter {
         context.responseConfig.responseStyle
       );
 
-      return await PromptFormatter.formatSystemPrompt({
+      const formattedPrompt = await PromptFormatter.formatSystemPrompt({
         basePrompt: template.systemPrompt,
         persona: context.agentPersona,
         includeCapabilities: true,
@@ -205,6 +204,17 @@ export class LLMToolResponseFormatter implements IToolResponseFormatter {
           `Include Next Steps: ${context.responseConfig.includeNextSteps}`
         ]
       });
+
+      // Ensure we always return a valid string
+      if (!formattedPrompt || typeof formattedPrompt !== 'string' || formattedPrompt.trim().length === 0) {
+        this.logger.warn('PromptFormatter returned invalid result, using fallback', {
+          contextId: context.id,
+          formattedPrompt: formattedPrompt
+        });
+        return this.buildFallbackSystemPrompt(context);
+      }
+
+      return formattedPrompt;
 
     } catch (error) {
       this.logger.warn('Failed to build system prompt, using fallback', {
@@ -436,7 +446,10 @@ Generate a conversational response that feels natural and helpful.`;
   /**
    * Estimate token count (rough approximation)
    */
-  private estimateTokens(text: string): number {
+  private estimateTokens(text: string | undefined | null): number {
+    if (!text || typeof text !== 'string') {
+      return 0;
+    }
     return Math.ceil(text.length / 4);
   }
 

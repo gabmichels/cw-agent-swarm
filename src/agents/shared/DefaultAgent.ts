@@ -97,6 +97,8 @@ import { DefaultErrorClassificationEngine } from '../../services/errors/ErrorCla
 import { DefaultErrorNotificationService } from '../../services/errors/ErrorNotificationService';
 import { DefaultRecoveryStrategyManager } from '../../services/errors/RecoveryStrategyManager';
 
+// Import tool response formatter
+
 // Agent status constants
 const AGENT_STATUS = {
   AVAILABLE: 'available',
@@ -157,6 +159,9 @@ interface DefaultAgentConfig {
 
   // Behavior configuration
   adaptiveBehavior?: boolean;
+
+  // Tool response formatting configuration
+  enableLLMFormatting?: boolean;
 
   // Persona and system prompt configuration
   systemPrompt?: string;
@@ -637,6 +642,21 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
     // Initialize processing coordinators
     this.inputProcessor = new InputProcessingCoordinator(this);
     this.outputProcessor = new OutputProcessingCoordinator(this);
+
+    // Register the LLM-based tool response formatter with highest priority
+    if (this.outputProcessor && this.agentConfig.enableLLMFormatting) {
+      // Initialize LLM formatter after other managers are ready
+      setTimeout(async () => {
+        try {
+          await this.initializeLLMPersonaFormatter();
+        } catch (error) {
+          this.logger.warn("Failed to initialize LLM Persona Formatter", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }, 100); // Small delay to ensure dependencies are ready
+    }
+
     this.thinkingProcessor = new ThinkingProcessor(this);
     this.logger.system("Processing coordinators initialized");
   }
@@ -1399,8 +1419,8 @@ Please provide a helpful, contextual response based on this analysis and memory 
               responseContent = `I've scheduled that task for you. Task ID: ${workspaceResult.taskId}`;
             }
 
-            // Return workspace response directly
-            return {
+            // Create workspace response for unified formatting
+            const workspaceResponse: AgentResponse = {
               content: responseContent,
               thoughts: [`Processed workspace command successfully`],
               metadata: {
@@ -1409,9 +1429,37 @@ Please provide a helpful, contextual response based on this analysis and memory 
                 taskId: workspaceResult.taskId,
                 workspaceData: workspaceResult.data,
                 intent: thinkingResult.intent,
-                entities: thinkingResult.entities
+                entities: thinkingResult.entities,
+                toolResult: {
+                  id: `workspace_${Date.now()}`,
+                  toolId: 'workspace_integration',
+                  success: workspaceResult.success,
+                  data: workspaceResult.data,
+                  metrics: {
+                    startTime: Date.now() - 1000,
+                    endTime: Date.now(),
+                    durationMs: 1000
+                  }
+                },
+                originalMessage: message,
+                agentId: this.agentId,
+                agentPersona: this.agentConfig.persona,
+                agentCapabilities: await this.getCapabilities(),
+                userId: options?.userId || 'anonymous',
+                userPreferences: options?.userPreferences || {},
+                conversationHistory: conversationHistory?.slice(-3)?.map(entry => ({
+                  id: entry.id,
+                  sender: 'user',
+                  content: entry.content,
+                  timestamp: entry.createdAt,
+                  metadata: entry.metadata || {}
+                })) || []
               }
             };
+
+            // Apply unified formatting via OutputProcessingCoordinator
+            const formattedResponse = await this.applyUnifiedFormatting(workspaceResponse);
+            return formattedResponse;
           }
         } catch (error) {
           this.logger.warn('Workspace processing failed, continuing with normal flow', {
@@ -3283,6 +3331,80 @@ Task scheduled successfully (ID: ${safeTaskId})`;
   }
 
   /**
+   * Apply unified formatting to agent responses using the tool response formatter
+   */
+  private async applyUnifiedFormatting(response: AgentResponse): Promise<AgentResponse> {
+    try {
+      // Check if LLM formatting is enabled in configuration
+      const enableLLMFormatting = this.agentConfig.enableLLMFormatting ?? false;
+
+      if (!enableLLMFormatting) {
+        this.logger.debug('LLM formatting disabled in agent configuration');
+        return response;
+      }
+
+      // Check if we have an OutputProcessingCoordinator
+      if (!this.outputProcessor) {
+        this.logger.warn('No output processor available for unified formatting');
+        return response;
+      }
+
+      // Get the configuration for LLM formatting
+      const config = {
+        enableLLMFormatting: true,
+        maxResponseLength: 500,
+        includeEmojis: true,
+        includeNextSteps: true,
+        includeMetrics: false,
+        responseStyle: 'conversational' as const,
+        enableCaching: true,
+        cacheTTLSeconds: 3600,
+        toolCategoryOverrides: {}
+      };
+
+      // Add formatter configuration to response metadata
+      response.metadata = {
+        ...response.metadata,
+        toolResponseConfig: config
+      };
+
+      // Process output through the coordinator (which will use our LLMPersonaFormatter if available)
+      const processingResult = await this.outputProcessor.processOutput(response);
+
+      if (processingResult.success) {
+        this.logger.info('Unified formatting applied successfully', {
+          formattersUsed: processingResult.formatters,
+          originalLength: response.content.length,
+          processedLength: processingResult.processedContent.length
+        });
+
+        return {
+          ...response,
+          content: processingResult.processedContent,
+          metadata: {
+            ...response.metadata,
+            formattingApplied: true,
+            formattersUsed: processingResult.formatters,
+            processingMetrics: processingResult.metadata
+          }
+        };
+      } else {
+        this.logger.warn('Output processing failed, using original response', {
+          errors: processingResult.errors,
+          warnings: processingResult.warnings
+        });
+        return response;
+      }
+
+    } catch (error) {
+      this.logger.error('Failed to apply unified formatting', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return response; // Return original response on error
+    }
+  }
+
+  /**
    * Initialize error management system for the agent
    */
   private async initializeErrorManagement(): Promise<void> {
@@ -3376,6 +3498,93 @@ Task scheduled successfully (ID: ${safeTaskId})`;
       this.logger.error("Failed to initialize error management system", {
         error: error instanceof Error ? error.message : String(error),
         agentId: this.agentId
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Initialize LLM Persona Formatter for enhanced tool response formatting
+   */
+  private async initializeLLMPersonaFormatter(): Promise<void> {
+    try {
+      if (!this.outputProcessor) {
+        this.logger.warn("No OutputProcessingCoordinator available for LLM formatter");
+        return;
+      }
+
+      this.logger.info("Initializing LLM Persona Formatter", { agentId: this.agentId });
+
+      // Import required services dynamically to avoid circular dependencies
+      const { LLMToolResponseFormatter } = await import('../../services/tool-response-formatter/LLMToolResponseFormatter');
+      const { PromptTemplateService } = await import('../../services/tool-response-formatter/PromptTemplateService');
+      const { createMessagingLLMService } = await import('../../services/messaging/llm-adapter');
+      const { LLMPersonaFormatter } = await import('../../services/tool-response-formatter/LLMPersonaFormatter');
+
+      // Create a configuration service
+      const configService = {
+        async getConfig(agentId: string) {
+          return {
+            enableLLMFormatting: true,
+            maxResponseLength: 500,
+            includeEmojis: true,
+            includeNextSteps: true,
+            includeMetrics: false,
+            responseStyle: 'conversational' as const,
+            enableCaching: true,
+            cacheTTLSeconds: 3600
+          };
+        }
+      };
+
+      // Create a simple in-memory response cache
+      const responseCache = {
+        cache: new Map<string, { value: any; expiry: number }>(),
+        async get(key: string) {
+          const entry = this.cache.get(key);
+          if (entry && entry.expiry > Date.now()) {
+            return entry.value;
+          }
+          return null;
+        },
+        async set(key: string, value: any, ttlSeconds: number) {
+          this.cache.set(key, {
+            value,
+            expiry: Date.now() + (ttlSeconds * 1000)
+          });
+        }
+      };
+
+      // Create LLM service
+      const llmService = createMessagingLLMService();
+
+      // Create dependencies
+      const promptTemplateService = new PromptTemplateService();
+      const toolResponseFormatter = new LLMToolResponseFormatter(
+        llmService,
+        promptTemplateService,
+        responseCache as any
+      );
+
+      // Create the LLM persona formatter
+      const llmPersonaFormatter = new LLMPersonaFormatter(
+        toolResponseFormatter,
+        configService as any
+      );
+
+      // Register with OutputProcessingCoordinator
+      this.outputProcessor.addFormatter(llmPersonaFormatter);
+
+      this.logger.system("LLM Persona Formatter successfully registered with OutputProcessingCoordinator", {
+        agentId: this.agentId,
+        formatterPriority: llmPersonaFormatter.priority
+      });
+
+    } catch (error) {
+      this.logger.error("Failed to initialize LLM Persona Formatter", {
+        agentId: this.agentId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
     }

@@ -17,6 +17,24 @@ export type { PersonaIntegrationConfig } from './PersonaIntegration';
 export { ResponseStyleVariations } from './ResponseStyleVariations';
 export type { ResponsePattern, ResponseStyleConfig } from './ResponseStyleVariations';
 
+// Phase 4-5: Advanced Features - Classes only
+export {
+  CategoryFormatterFactory, ExternalApiToolsFormatter, ResearchToolsFormatter, SocialMediaToolsFormatter, WorkflowToolsFormatter, WorkspaceToolsFormatter
+} from './ToolCategoryFormatters';
+
+// Phase 4-5: Advanced Features - Types only  
+export type {
+  BusinessImpactAnalysis, CategoryFormatter, CategoryOptimization
+} from './ToolCategoryFormatters';
+
+export { EnhancedQualityScorer } from './EnhancedQualityScorer';
+
+export { ABTestingFramework } from './ABTestingFramework';
+
+export { PerformanceMonitor } from './PerformanceMonitor';
+
+export { AdvancedConfigurationManager } from './AdvancedConfigurationManager';
+
 // Prompt templates
 export * from './prompt-templates';
 

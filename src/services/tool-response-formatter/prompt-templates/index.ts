@@ -125,7 +125,7 @@ export function getTemplatesByStyle(style: ResponseStyleType): ToolResponsePromp
  */
 export function getAvailableStyles(category: ToolCategory): ResponseStyleType[] {
   const templates = getTemplatesByCategory(category);
-  return [...new Set(templates.map(template => template.style))];
+  return Array.from(new Set(templates.map(template => template.style)));
 }
 
 /**
@@ -355,3 +355,4 @@ export function validateTemplateConfiguration(): {
 export {
   EXTERNAL_API_TOOL_TEMPLATES, RESEARCH_TOOL_TEMPLATES, SOCIAL_MEDIA_TOOL_TEMPLATES, WORKFLOW_TOOL_TEMPLATES, WORKSPACE_TOOL_TEMPLATES
 };
+

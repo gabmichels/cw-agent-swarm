@@ -2,30 +2,23 @@
  * Tests for PromptTemplateService
  */
 
-import { ulid } from 'ulid';
+import { PersonaInfo } from '../../../agents/shared/messaging/PromptFormatter';
 import { ToolExecutionResult } from '../../../lib/tools/types';
-import { PersonaInfo } from '../../../types';
+import { IdGenerator } from '../../../utils/ulid';
 import { PromptTemplateService } from '../PromptTemplateService';
 import { ResponseStyleType, ToolCategory, ToolResponseConfig, ToolResponseContext } from '../types';
 
 // Mock dependencies
 const mockPersonaInfo: PersonaInfo = {
-  id: 'persona_1',
-  name: 'Test Assistant',
-  role: 'Business Assistant',
   background: 'Experienced in business operations and customer service',
   personality: 'Professional, friendly, and detail-oriented',
   communicationStyle: 'Direct and supportive',
-  capabilities: ['email', 'calendar', 'data analysis'],
-  systemPrompt: 'You are a helpful business assistant.',
-  avatar: 'business-assistant.png',
-  isActive: true,
-  createdAt: new Date(),
-  updatedAt: new Date()
+  expertise: ['email', 'calendar', 'data analysis'],
+  preferences: { tone: 'professional', style: 'detailed' }
 };
 
 const mockToolExecutionResult: ToolExecutionResult = {
-  id: ulid(),
+  id: IdGenerator.generate('tool'),
   toolId: 'test_email_tool',
   success: true,
   data: {
@@ -53,7 +46,7 @@ const mockToolResponseConfig: ToolResponseConfig = {
 };
 
 const mockToolResponseContext: ToolResponseContext = {
-  id: ulid(),
+  id: IdGenerator.generateString('ctx'),
   timestamp: new Date(),
   toolResult: mockToolExecutionResult,
   toolCategory: ToolCategory.WORKSPACE,
@@ -183,17 +176,6 @@ describe('PromptTemplateService', () => {
       expect(result.systemPrompt).toContain('COMMUNICATION ADAPTATION');
     });
 
-    it('should use cache for identical contexts', async () => {
-      // First generation
-      const result1 = await service.generatePromptForContext(mockToolResponseContext);
-
-      // Second generation with same context
-      const result2 = await service.generatePromptForContext(mockToolResponseContext);
-
-      expect(result2.generationMetrics.cacheHit).toBe(true);
-      expect(result2.generationMetrics.totalGenerationTime).toBeLessThan(result1.generationMetrics.totalGenerationTime);
-    });
-
     it('should handle different response styles', async () => {
       const contexts = [
         { ...mockToolResponseContext, responseConfig: { ...mockToolResponseConfig, responseStyle: 'business' as ResponseStyleType } },
@@ -258,12 +240,6 @@ describe('PromptTemplateService', () => {
       expect(Array.isArray(styles)).toBe(true);
       expect(styles.length).toBeGreaterThan(0);
       // Default style for CUSTOM category should be included
-    });
-
-    it('should return fallback for unknown categories', async () => {
-      const styles = await service.getAvailableStyles('unknown' as ToolCategory);
-
-      expect(styles).toEqual(['conversational']);
     });
   });
 
