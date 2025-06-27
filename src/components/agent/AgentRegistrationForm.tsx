@@ -31,6 +31,7 @@ interface ExtendedAgentMetadata extends AgentMetadata {
   };
   workspacePermissions?: AgentWorkspacePermissionConfig[];
   socialMediaPermissions?: AgentSocialMediaPermissionConfig[];
+  socialMediaApprovalSettings?: Record<string, boolean>;
   // Organizational fields - department as object with relational data
   department?: {
     id: string;
@@ -612,13 +613,14 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
     }));
   }, []); // Empty dependency array since this function doesn't depend on external state
 
-  const handleSocialMediaPermissionsChange = useCallback((permissions: AgentSocialMediaPermissionConfig[]) => {
+  const handleSocialMediaPermissionsChange = useCallback((permissions: AgentSocialMediaPermissionConfig[], approvalSettings?: Record<string, boolean>) => {
     setSocialMediaPermissions(permissions);
     setFormData(prevFormData => ({
       ...prevFormData,
       metadata: {
         ...prevFormData.metadata,
-        socialMediaPermissions: permissions
+        socialMediaPermissions: permissions,
+        socialMediaApprovalSettings: approvalSettings
       }
     }));
   }, []); // Empty dependency array since this function doesn't depend on external state
@@ -1145,6 +1147,7 @@ const AgentRegistrationForm: React.FC<AgentRegistrationFormProps> = ({
             </p>
             
             <AgentSocialMediaPermissionManager
+              agentId={undefined} // No agentId for new agents during registration
               initialPermissions={socialMediaPermissions}
               onChange={handleSocialMediaPermissionsChange}
               className="mt-4"

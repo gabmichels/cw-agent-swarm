@@ -6,7 +6,10 @@ import { IDriveCapabilities } from '../capabilities/interfaces/IDriveCapabilitie
 import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
 import { DatabaseService } from '../../database/DatabaseService';
 import { IDatabaseProvider } from '../../database/IDatabaseProvider';
+import { WorkspaceProvider, WorkspaceCapabilityType } from '../../database/types';
 import { WorkspaceConnectionsInfoTool } from './WorkspaceConnectionsInfoTool';
+import { WorkspaceConnectionSelector, SenderPreference } from '../providers/WorkspaceConnectionSelector';
+import { WorkspaceNLPProcessor } from '../integration/WorkspaceNLPProcessor';
 
 // Agent tool interface for LLM function calling
 export interface AgentTool<TParams = any, TResult = any> {
@@ -48,6 +51,16 @@ export interface SendEmailParams {
   subject: string;
   body: string;
   connectionId: string;
+}
+
+// Smart email sending interface that includes sender preferences
+export interface SmartSendEmailParams {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  body: string;
+  originalMessage?: string; // The original user message for NLP processing
+  senderPreference?: SenderPreference; // Explicit sender preference
 }
 
 export interface ReplyEmailParams {
@@ -168,11 +181,15 @@ export class WorkspaceAgentTools {
   private permissionService: AgentWorkspacePermissionService;
   private db: IDatabaseProvider;
   private connectionsInfoTool: WorkspaceConnectionsInfoTool;
+  private connectionSelector: WorkspaceConnectionSelector;
+  private nlpProcessor: WorkspaceNLPProcessor;
 
   constructor() {
     this.permissionService = new AgentWorkspacePermissionService();
     this.db = DatabaseService.getInstance();
     this.connectionsInfoTool = new WorkspaceConnectionsInfoTool();
+    this.connectionSelector = new WorkspaceConnectionSelector();
+    this.nlpProcessor = new WorkspaceNLPProcessor();
   }
 
   /**
@@ -183,6 +200,15 @@ export class WorkspaceAgentTools {
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
+
+    // For Zoho, we need to get the provider instance
+    if (connection.provider === WorkspaceProvider.ZOHO) {
+      const { WorkspaceService } = await import('../WorkspaceService');
+      const workspaceService = new WorkspaceService();
+      const providerInstance = workspaceService.getProviderInstance(connection.provider);
+      return CapabilityFactory.createEmailCapabilities(connection.provider, connection.id, providerInstance);
+    }
+
     return CapabilityFactory.createEmailCapabilities(connection.provider, connection.id);
   }
 
@@ -194,6 +220,15 @@ export class WorkspaceAgentTools {
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
+
+    // For Zoho, we need to get the provider instance
+    if (connection.provider === WorkspaceProvider.ZOHO) {
+      const { WorkspaceService } = await import('../WorkspaceService');
+      const workspaceService = new WorkspaceService();
+      const providerInstance = workspaceService.getProviderInstance(connection.provider);
+      return CapabilityFactory.createCalendarCapabilities(connection.provider, connection.id, providerInstance);
+    }
+
     return CapabilityFactory.createCalendarCapabilities(connection.provider, connection.id);
   }
 
@@ -205,6 +240,15 @@ export class WorkspaceAgentTools {
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
+
+    // For Zoho, we need to get the provider instance
+    if (connection.provider === WorkspaceProvider.ZOHO) {
+      const { WorkspaceService } = await import('../WorkspaceService');
+      const workspaceService = new WorkspaceService();
+      const providerInstance = workspaceService.getProviderInstance(connection.provider);
+      return CapabilityFactory.createSheetsCapabilities(connection.provider, connection.id, providerInstance);
+    }
+
     return CapabilityFactory.createSheetsCapabilities(connection.provider, connection.id);
   }
 
@@ -216,6 +260,15 @@ export class WorkspaceAgentTools {
     if (!connection) {
       throw new Error('Workspace connection not found');
     }
+
+    // For Zoho, we need to get the provider instance
+    if (connection.provider === WorkspaceProvider.ZOHO) {
+      const { WorkspaceService } = await import('../WorkspaceService');
+      const workspaceService = new WorkspaceService();
+      const providerInstance = workspaceService.getProviderInstance(connection.provider);
+      return CapabilityFactory.createDriveCapabilities(connection.provider, connection.id, providerInstance);
+    }
+
     return CapabilityFactory.createDriveCapabilities(connection.provider, connection.id);
   }
 
@@ -230,6 +283,10 @@ export class WorkspaceAgentTools {
     tools.push(this.connectionsInfoTool.getAvailableConnectionsTool);
     tools.push(this.connectionsInfoTool.getAllConnectionsTool);
 
+    // Import approval service
+    const { WorkspaceToolApprovalService } = await import('../../approval/WorkspaceToolApprovalService');
+    const approvalService = new WorkspaceToolApprovalService(this.db);
+
     // Add email tools based on permissions
     const emailCapabilities = capabilities.filter(c => c.capability.includes('EMAIL'));
     if (emailCapabilities.some(c => c.capability === 'EMAIL_READ')) {
@@ -242,9 +299,11 @@ export class WorkspaceAgentTools {
       tools.push(this.getEmailTrendsTool);
     }
     if (emailCapabilities.some(c => c.capability === 'EMAIL_SEND')) {
-      tools.push(this.sendEmailTool);
-      tools.push(this.replyToEmailTool);
-      tools.push(this.forwardEmailTool);
+      // Update tool descriptions with approval information
+      tools.push(await this.enhanceToolWithApprovalInfo(this.smartSendEmailTool, agentId, approvalService));
+      tools.push(await this.enhanceToolWithApprovalInfo(this.sendEmailTool, agentId, approvalService));
+      tools.push(await this.enhanceToolWithApprovalInfo(this.replyToEmailTool, agentId, approvalService));
+      tools.push(await this.enhanceToolWithApprovalInfo(this.forwardEmailTool, agentId, approvalService));
     }
 
     // Add calendar tools based on permissions
@@ -256,11 +315,11 @@ export class WorkspaceAgentTools {
       tools.push(this.findEventsTool);
     }
     if (calendarCapabilities.some(c => c.capability === 'CALENDAR_CREATE')) {
-      tools.push(this.scheduleEventTool);
+      tools.push(await this.enhanceToolWithApprovalInfo(this.scheduleEventTool, agentId, approvalService));
     }
     if (calendarCapabilities.some(c => c.capability === 'CALENDAR_EDIT')) {
-      tools.push(this.editEventTool);
-      tools.push(this.deleteEventTool);
+      tools.push(await this.enhanceToolWithApprovalInfo(this.editEventTool, agentId, approvalService));
+      tools.push(await this.enhanceToolWithApprovalInfo(this.deleteEventTool, agentId, approvalService));
     }
 
     // Add spreadsheet tools based on permissions
@@ -293,6 +352,32 @@ export class WorkspaceAgentTools {
     return tools;
   }
 
+  /**
+   * Enhance a tool with approval information for the LLM
+   */
+  private async enhanceToolWithApprovalInfo(
+    tool: AgentTool,
+    agentId: string,
+    approvalService: any
+  ): Promise<AgentTool> {
+    try {
+      const needsApproval = await approvalService.requiresApproval(agentId, tool.name);
+
+      if (needsApproval) {
+        return {
+          ...tool,
+          description: `${tool.description}\n\n⚠️ IMPORTANT: This action requires user approval. After executing this tool, you MUST wait for explicit user confirmation before proceeding. Inform the user that approval is required and wait for their response.`
+        };
+      }
+
+      return tool;
+    } catch (error) {
+      console.error(`Error checking approval for tool ${tool.name}:`, error);
+      // Return original tool if approval check fails
+      return tool;
+    }
+  }
+
   // Email Tools
   public readSpecificEmailTool: AgentTool<ReadEmailParams, any> = {
     name: "read_specific_email",
@@ -305,7 +390,7 @@ export class WorkspaceAgentTools {
           description: "Specific email ID to read"
         },
         searchQuery: {
-          type: "string", 
+          type: "string",
           description: "Search query to find emails if no emailId provided"
         },
         connectionId: {
@@ -322,7 +407,7 @@ export class WorkspaceAgentTools {
         'EMAIL_READ' as any,
         params.connectionId
       );
-      
+
       if (!validation.isValid) {
         const error = validation.workspaceError;
         if (error) {
@@ -333,7 +418,7 @@ export class WorkspaceAgentTools {
       }
 
       const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
-      
+
       if (params.emailId) {
         return await emailCapabilities.readSpecificEmail(params.emailId, params.connectionId, context.agentId);
       } else if (params.searchQuery) {
@@ -354,27 +439,27 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        unread: { 
-          type: "boolean", 
-          description: "Filter for unread emails only" 
+        unread: {
+          type: "boolean",
+          description: "Filter for unread emails only"
         },
-        hasAttachments: { 
-          type: "boolean", 
-          description: "Filter for emails with attachments" 
+        hasAttachments: {
+          type: "boolean",
+          description: "Filter for emails with attachments"
         },
-        keywords: { 
-          type: "array", 
+        keywords: {
+          type: "array",
           items: { type: "string" },
-          description: "Keywords to search for in important emails" 
+          description: "Keywords to search for in important emails"
         },
-        timeframe: { 
-          type: "string", 
+        timeframe: {
+          type: "string",
           enum: ["last_hour", "last_24_hours", "last_week", "last_month"],
-          description: "Time range to search within" 
+          description: "Time range to search within"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["connectionId"]
@@ -396,33 +481,33 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        query: { 
-          type: "string", 
-          description: "General search query" 
+        query: {
+          type: "string",
+          description: "General search query"
         },
-        from: { 
-          type: "string", 
-          description: "Filter by sender email address" 
+        from: {
+          type: "string",
+          description: "Filter by sender email address"
         },
-        subject: { 
-          type: "string", 
-          description: "Filter by subject line" 
+        subject: {
+          type: "string",
+          description: "Filter by subject line"
         },
-        hasAttachment: { 
-          type: "boolean", 
-          description: "Filter for emails with attachments" 
+        hasAttachment: {
+          type: "boolean",
+          description: "Filter for emails with attachments"
         },
-        isUnread: { 
-          type: "boolean", 
-          description: "Filter for unread emails" 
+        isUnread: {
+          type: "boolean",
+          description: "Filter for unread emails"
         },
-        maxResults: { 
-          type: "number", 
-          description: "Maximum number of results to return (default: 10)" 
+        maxResults: {
+          type: "number",
+          description: "Maximum number of results to return (default: 10)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["connectionId"]
@@ -446,27 +531,27 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        to: { 
-          type: "array", 
+        to: {
+          type: "array",
           items: { type: "string" },
-          description: "Email addresses of recipients" 
+          description: "Email addresses of recipients"
         },
-        cc: { 
-          type: "array", 
+        cc: {
+          type: "array",
           items: { type: "string" },
-          description: "Email addresses to CC (optional)" 
+          description: "Email addresses to CC (optional)"
         },
-        subject: { 
-          type: "string", 
-          description: "Email subject line" 
+        subject: {
+          type: "string",
+          description: "Email subject line"
         },
-        body: { 
-          type: "string", 
-          description: "Email body content" 
+        body: {
+          type: "string",
+          description: "Email body content"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use - get this from get_available_workspace_connections first" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use - get this from get_available_workspace_connections first"
         }
       },
       required: ["to", "subject", "body", "connectionId"]
@@ -482,23 +567,130 @@ export class WorkspaceAgentTools {
     }
   };
 
+  public smartSendEmailTool: AgentTool<SmartSendEmailParams, any> = {
+    name: "smart_send_email",
+    description: "Intelligently send an email with automatic sender account selection based on user preferences. This tool analyzes the user's message for sender preferences like 'from my Gmail', 'using work email', 'from personal account', etc. and automatically selects the appropriate email account. If no preference is detected or multiple accounts match, it will ask for clarification.",
+    parameters: {
+      type: "object",
+      properties: {
+        to: {
+          type: "array",
+          items: { type: "string" },
+          description: "Email addresses of recipients"
+        },
+        cc: {
+          type: "array",
+          items: { type: "string" },
+          description: "Email addresses to CC (optional)"
+        },
+        subject: {
+          type: "string",
+          description: "Email subject line"
+        },
+        body: {
+          type: "string",
+          description: "Email body content"
+        },
+        originalMessage: {
+          type: "string",
+          description: "The original user message to analyze for sender preferences (e.g., 'send this from my Gmail account')"
+        }
+      },
+      required: ["to", "subject", "body", "originalMessage"]
+    },
+    execute: async (params: SmartSendEmailParams, context: AgentContext) => {
+      try {
+        // Extract sender preference from the original message using NLP
+        let senderPreference: SenderPreference | undefined = params.senderPreference;
+
+        if (!senderPreference && params.originalMessage) {
+          // Parse the original message for workspace command including sender preference
+          const workspaceCommand = this.nlpProcessor.parseCommand(params.originalMessage);
+          if (workspaceCommand?.entities?.senderPreference) {
+            senderPreference = workspaceCommand.entities.senderPreference;
+          }
+        }
+
+        // Use connection selector to find the best account
+        const selectionResult = await this.connectionSelector.selectConnection({
+          agentId: context.agentId,
+          capability: WorkspaceCapabilityType.EMAIL_SEND,
+          recipientEmails: params.to,
+          senderPreference
+        });
+
+        // Handle different selection results
+        if (!selectionResult.success) {
+          if (selectionResult.requiresUserChoice && selectionResult.suggestedMessage) {
+            // Return the clarification message to the user
+            return {
+              success: false,
+              requiresUserChoice: true,
+              message: selectionResult.suggestedMessage,
+              availableConnections: selectionResult.availableConnections,
+              error: selectionResult.error
+            };
+          } else {
+            throw new Error(selectionResult.error || 'Failed to select email account');
+          }
+        }
+
+        if (selectionResult.requiresUserChoice && selectionResult.suggestedMessage) {
+          // Medium confidence - ask for confirmation
+          return {
+            success: false,
+            requiresUserChoice: true,
+            message: selectionResult.suggestedMessage,
+            suggestedConnection: selectionResult.connection,
+            availableConnections: selectionResult.availableConnections
+          };
+        }
+
+        // High confidence selection - proceed with sending
+        const emailCapabilities = await this.getEmailCapabilities(selectionResult.connectionId!);
+        const result = await emailCapabilities.sendEmail({
+          to: params.to,
+          cc: params.cc,
+          subject: params.subject,
+          body: params.body
+        }, selectionResult.connectionId!, context.agentId);
+
+        return {
+          success: true,
+          result,
+          selectedAccount: selectionResult.connection,
+          reason: selectionResult.reason,
+          message: `Email sent successfully from ${selectionResult.connection!.email}. ${selectionResult.reason}`
+        };
+
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error during smart email sending';
+        return {
+          success: false,
+          error: errorMessage,
+          message: `Failed to send email: ${errorMessage}`
+        };
+      }
+    }
+  };
+
   private replyToEmailTool: AgentTool<ReplyEmailParams, any> = {
     name: "reply_to_email",
     description: "Reply to an existing email",
     parameters: {
       type: "object",
       properties: {
-        emailId: { 
-          type: "string", 
-          description: "ID of the email to reply to" 
+        emailId: {
+          type: "string",
+          description: "ID of the email to reply to"
         },
-        body: { 
-          type: "string", 
-          description: "Reply message content" 
+        body: {
+          type: "string",
+          description: "Reply message content"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["emailId", "body", "connectionId"]
@@ -518,22 +710,22 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        emailId: { 
-          type: "string", 
-          description: "ID of the email to forward" 
+        emailId: {
+          type: "string",
+          description: "ID of the email to forward"
         },
-        to: { 
-          type: "array", 
+        to: {
+          type: "array",
           items: { type: "string" },
-          description: "Email addresses to forward to" 
+          description: "Email addresses to forward to"
         },
-        body: { 
-          type: "string", 
-          description: "Additional message to include with the forward (optional)" 
+        body: {
+          type: "string",
+          description: "Additional message to include with the forward (optional)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["emailId", "to", "connectionId"]
@@ -560,7 +752,7 @@ export class WorkspaceAgentTools {
           description: "Start date in YYYY-MM-DD format"
         },
         endDate: {
-          type: "string", 
+          type: "string",
           description: "End date in YYYY-MM-DD format"
         },
         connectionId: {
@@ -620,34 +812,34 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        title: { 
-          type: "string", 
-          description: "Event title/subject" 
+        title: {
+          type: "string",
+          description: "Event title/subject"
         },
-        startTime: { 
-          type: "string", 
-          description: "Event start time in ISO format" 
+        startTime: {
+          type: "string",
+          description: "Event start time in ISO format"
         },
-        endTime: { 
-          type: "string", 
-          description: "Event end time in ISO format" 
+        endTime: {
+          type: "string",
+          description: "Event end time in ISO format"
         },
-        attendees: { 
-          type: "array", 
+        attendees: {
+          type: "array",
           items: { type: "string" },
-          description: "Email addresses of attendees (optional)" 
+          description: "Email addresses of attendees (optional)"
         },
-        description: { 
-          type: "string", 
-          description: "Event description (optional)" 
+        description: {
+          type: "string",
+          description: "Event description (optional)"
         },
-        location: { 
-          type: "string", 
-          description: "Event location (optional)" 
+        location: {
+          type: "string",
+          description: "Event location (optional)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["title", "startTime", "endTime", "connectionId"]
@@ -671,13 +863,13 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        date: { 
-          type: "string", 
-          description: "Date to summarize (YYYY-MM-DD)" 
+        date: {
+          type: "string",
+          description: "Date to summarize (YYYY-MM-DD)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["date", "connectionId"]
@@ -694,33 +886,33 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        query: { 
-          type: "string", 
-          description: "Search query for event title or description" 
+        query: {
+          type: "string",
+          description: "Search query for event title or description"
         },
-        attendee: { 
-          type: "string", 
-          description: "Filter by attendee email address" 
+        attendee: {
+          type: "string",
+          description: "Filter by attendee email address"
         },
-        location: { 
-          type: "string", 
-          description: "Filter by event location" 
+        location: {
+          type: "string",
+          description: "Filter by event location"
         },
-        timeMin: { 
-          type: "string", 
-          description: "Start of time range (ISO format)" 
+        timeMin: {
+          type: "string",
+          description: "Start of time range (ISO format)"
         },
-        timeMax: { 
-          type: "string", 
-          description: "End of time range (ISO format)" 
+        timeMax: {
+          type: "string",
+          description: "End of time range (ISO format)"
         },
-        maxResults: { 
-          type: "number", 
-          description: "Maximum number of results (default: 10)" 
+        maxResults: {
+          type: "number",
+          description: "Maximum number of results (default: 10)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["connectionId"]
@@ -744,38 +936,38 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        eventId: { 
-          type: "string", 
-          description: "ID of the event to edit" 
+        eventId: {
+          type: "string",
+          description: "ID of the event to edit"
         },
-        title: { 
-          type: "string", 
-          description: "New event title (optional)" 
+        title: {
+          type: "string",
+          description: "New event title (optional)"
         },
-        startTime: { 
-          type: "string", 
-          description: "New start time in ISO format (optional)" 
+        startTime: {
+          type: "string",
+          description: "New start time in ISO format (optional)"
         },
-        endTime: { 
-          type: "string", 
-          description: "New end time in ISO format (optional)" 
+        endTime: {
+          type: "string",
+          description: "New end time in ISO format (optional)"
         },
-        description: { 
-          type: "string", 
-          description: "New event description (optional)" 
+        description: {
+          type: "string",
+          description: "New event description (optional)"
         },
-        location: { 
-          type: "string", 
-          description: "New event location (optional)" 
+        location: {
+          type: "string",
+          description: "New event location (optional)"
         },
-        attendees: { 
-          type: "array", 
+        attendees: {
+          type: "array",
           items: { type: "string" },
-          description: "New attendee list (optional)" 
+          description: "New attendee list (optional)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["eventId", "connectionId"]
@@ -800,13 +992,13 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        eventId: { 
-          type: "string", 
-          description: "ID of the event to delete" 
+        eventId: {
+          type: "string",
+          description: "ID of the event to delete"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["eventId", "connectionId"]
@@ -859,17 +1051,17 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        spreadsheetId: { 
-          type: "string", 
-          description: "Spreadsheet ID" 
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet ID"
         },
-        range: { 
-          type: "string", 
-          description: "Range to read (e.g., 'A1:C10' or 'Sheet1!A:Z')" 
+        range: {
+          type: "string",
+          description: "Range to read (e.g., 'A1:C10' or 'Sheet1!A:Z')"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["spreadsheetId", "connectionId"]
@@ -887,22 +1079,22 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        spreadsheetId: { 
-          type: "string", 
-          description: "Spreadsheet ID" 
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet ID"
         },
-        range: { 
-          type: "string", 
-          description: "Range to update (e.g., 'A1:C3')" 
+        range: {
+          type: "string",
+          description: "Range to update (e.g., 'A1:C3')"
         },
-        values: { 
-          type: "array", 
+        values: {
+          type: "array",
           items: { type: "array" },
-          description: "2D array of values to update" 
+          description: "2D array of values to update"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["spreadsheetId", "range", "values", "connectionId"]
@@ -923,22 +1115,22 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        spreadsheetId: { 
-          type: "string", 
-          description: "Spreadsheet ID" 
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet ID"
         },
-        sheetName: { 
-          type: "string", 
-          description: "Sheet name (optional)" 
+        sheetName: {
+          type: "string",
+          description: "Sheet name (optional)"
         },
-        analysisType: { 
-          type: "string", 
+        analysisType: {
+          type: "string",
           enum: ["summary", "trends", "correlations", "pivot"],
-          description: "Type of analysis to perform" 
+          description: "Type of analysis to perform"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["spreadsheetId", "analysisType", "connectionId"]
@@ -959,18 +1151,18 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        title: { 
-          type: "string", 
-          description: "Expense tracker title" 
+        title: {
+          type: "string",
+          description: "Expense tracker title"
         },
-        categories: { 
-          type: "array", 
+        categories: {
+          type: "array",
           items: { type: "string" },
-          description: "Expense categories (e.g., Food, Transport, Entertainment)" 
+          description: "Expense categories (e.g., Food, Transport, Entertainment)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["title", "categories", "connectionId"]
@@ -978,9 +1170,9 @@ export class WorkspaceAgentTools {
     execute: async (params: any, context: AgentContext) => {
       const sheetsCapabilities = await this.getSheetsCapabilities(params.connectionId);
       return await sheetsCapabilities.createExpenseTracker(
-        params.title, 
-        params.categories, 
-        params.connectionId, 
+        params.title,
+        params.categories,
+        params.connectionId,
         context.agentId
       );
     }
@@ -1025,13 +1217,13 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        fileId: { 
-          type: "string", 
-          description: "Google Drive file ID" 
+        fileId: {
+          type: "string",
+          description: "Google Drive file ID"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["fileId", "connectionId"]
@@ -1048,21 +1240,21 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        name: { 
-          type: "string", 
-          description: "File name" 
+        name: {
+          type: "string",
+          description: "File name"
         },
-        content: { 
-          type: "string", 
-          description: "File content (optional)" 
+        content: {
+          type: "string",
+          description: "File content (optional)"
         },
-        parentFolder: { 
-          type: "string", 
-          description: "Parent folder ID (optional)" 
+        parentFolder: {
+          type: "string",
+          description: "Parent folder ID (optional)"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["name", "connectionId"]
@@ -1083,23 +1275,23 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        fileId: { 
-          type: "string", 
-          description: "File ID to share" 
+        fileId: {
+          type: "string",
+          description: "File ID to share"
         },
-        emails: { 
-          type: "array", 
+        emails: {
+          type: "array",
           items: { type: "string" },
-          description: "Email addresses to share with" 
+          description: "Email addresses to share with"
         },
-        role: { 
-          type: "string", 
+        role: {
+          type: "string",
           enum: ["reader", "writer", "commenter"],
-          description: "Permission level" 
+          description: "Permission level"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["fileId", "emails", "role", "connectionId"]
@@ -1136,7 +1328,7 @@ export class WorkspaceAgentTools {
         'DRIVE_UPLOAD' as any,
         params.connectionId
       );
-      
+
       if (!validation.isValid) {
         throw new Error(validation.error || 'Permission denied for file upload');
       }
@@ -1157,27 +1349,27 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        timeframe: { 
-          type: "string", 
+        timeframe: {
+          type: "string",
           enum: ["today", "yesterday", "this_week", "last_week", "this_month"],
-          description: "Time period to analyze" 
+          description: "Time period to analyze"
         },
-        analysisType: { 
-          type: "string", 
+        analysisType: {
+          type: "string",
           enum: ["attention", "sentiment", "activity", "action_items", "trends"],
-          description: "Type of analysis to perform" 
+          description: "Type of analysis to perform"
         },
-        includeRead: { 
-          type: "boolean", 
-          description: "Whether to include read emails in analysis" 
+        includeRead: {
+          type: "boolean",
+          description: "Whether to include read emails in analysis"
         },
-        maxEmails: { 
-          type: "number", 
-          description: "Maximum number of emails to analyze" 
+        maxEmails: {
+          type: "number",
+          description: "Maximum number of emails to analyze"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["analysisType", "connectionId"]
@@ -1199,9 +1391,9 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["connectionId"]
@@ -1218,14 +1410,14 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        timeframe: { 
-          type: "string", 
+        timeframe: {
+          type: "string",
           enum: ["today", "this_week"],
-          description: "Time period to extract action items from" 
+          description: "Time period to extract action items from"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["connectionId"]
@@ -1242,14 +1434,14 @@ export class WorkspaceAgentTools {
     parameters: {
       type: "object",
       properties: {
-        timeframe: { 
-          type: "string", 
+        timeframe: {
+          type: "string",
           enum: ["this_week", "this_month"],
-          description: "Time period to analyze trends for" 
+          description: "Time period to analyze trends for"
         },
-        connectionId: { 
-          type: "string", 
-          description: "Workspace connection ID to use" 
+        connectionId: {
+          type: "string",
+          description: "Workspace connection ID to use"
         }
       },
       required: ["connectionId"]

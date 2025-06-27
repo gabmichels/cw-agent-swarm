@@ -147,6 +147,7 @@ model WorkspaceConnection {
   domain            String?
   status            String   // References ConnectionStatus.name
   lastSyncAt        DateTime?
+  lastRefreshedAt   DateTime? // Track when tokens were last refreshed
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -341,6 +342,36 @@ model AgentSocialMediaPermission {
   @@index([socialMediaConnectionId])
   @@index([accessLevel])
   @@index([isActive])
+}
+
+model AgentWorkspaceToolApproval {
+  id            String   @id @default(uuid())
+  agentId       String
+  toolName      String   // e.g., "send_email", "schedule_event", "create_spreadsheet"
+  needsApproval Boolean  @default(false)
+  grantedBy     String?  // Who configured this approval setting
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([agentId, toolName], name: "unique_agent_tool_approval")
+  @@index([agentId])
+  @@index([toolName])
+  @@index([needsApproval])
+}
+
+model AgentSocialMediaToolApproval {
+  id            String   @id @default(uuid())
+  agentId       String
+  toolName      String   // e.g., "twitter_post", "linkedin_analytics", "instagram_story"
+  needsApproval Boolean  @default(false)
+  grantedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([agentId, toolName], name: "unique_agent_social_tool_approval")
+  @@index([agentId])
+  @@index([toolName])
+  @@index([needsApproval])
 }
 
 model SocialMediaAuditLog {

@@ -48,13 +48,17 @@ const ChatMessages: React.FC<ChatMessagesProps> = React.memo(({
       return [];
     }
     
-    // Process messages to ensure consistent sender format
+    // Process messages to ensure consistent sender format - focus on role preservation
     const processedMessages = messages.map(msg => ({
       ...msg,
-      // Ensure sender is consistently an object
+      // Ensure sender is consistently an object, preserve roles
       sender: typeof msg.sender === 'string'
-        ? { id: msg.sender, name: msg.sender, role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' }
-        : msg.sender
+        ? { 
+            id: msg.sender, 
+            name: msg.sender, 
+            role: (msg.sender === 'You' || msg.sender === 'User') ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' 
+          }
+        : msg.sender // Always preserve the existing sender object with its role
     }));
 
     // Sort messages by timestamp

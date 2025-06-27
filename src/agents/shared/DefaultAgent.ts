@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AbstractAgentBase } from './base/AbstractAgentBase';
 import { BaseManager } from './base/managers/BaseManager';
 import { ManagerType } from './base/managers/ManagerType';
+import { ToolManager } from './base/managers/ToolManager.interface';
 import { AgentBaseConfig } from './base/types';
 
 // Import our refactored components
@@ -94,6 +95,7 @@ import { AgentErrorIntegration } from '../../services/errors/AgentErrorIntegrati
 import { DefaultErrorManagementService } from '../../services/errors/DefaultErrorManagementService';
 import { DefaultErrorClassificationEngine } from '../../services/errors/ErrorClassificationEngine';
 import { DefaultErrorNotificationService } from '../../services/errors/ErrorNotificationService';
+import { PrismaErrorDatabaseProvider } from '../../services/errors/providers/PrismaErrorDatabaseProvider';
 import { DefaultRecoveryStrategyManager } from '../../services/errors/RecoveryStrategyManager';
 
 // Agent status constants
@@ -1364,25 +1366,38 @@ Please provide a helpful, contextual response based on this analysis and memory 
 
       // Step 4: Check for workspace commands and process if applicable
       if (this.workspaceIntegration) {
+        this.logger.debug('Attempting workspace command processing', {
+          agentId: this.agentId,
+          message: message.substring(0, 100) + '...',
+          hasWorkspaceIntegration: !!this.workspaceIntegration
+        });
+
         try {
           const workspaceResult = await this.workspaceIntegration.processWorkspaceInput(
             this.agentId,
             message
           );
 
+          this.logger.info('🔍 Workspace processing result received', {
+            success: workspaceResult.success,
+            scheduled: workspaceResult.scheduled,
+            taskId: workspaceResult.taskId,
+            hasData: !!workspaceResult.data,
+            error: workspaceResult.error,
+            dataPreview: workspaceResult.data ? JSON.stringify(workspaceResult.data).substring(0, 200) : 'none'
+          });
+
           if (workspaceResult.success) {
-            this.logger.info('Workspace command processed successfully', {
+            this.logger.info('✅ Workspace command processed successfully', {
               scheduled: workspaceResult.scheduled,
               taskId: workspaceResult.taskId,
               hasData: !!workspaceResult.data
             });
 
             // Generate response based on result
-            let responseContent = 'Workspace command executed successfully.';
+            let responseContent = await this.formatWorkspaceResponse(workspaceResult, message);
             if (workspaceResult.scheduled) {
-              responseContent = `Workspace command scheduled for execution. Task ID: ${workspaceResult.taskId}`;
-            } else if (workspaceResult.data) {
-              responseContent = `Workspace command completed. Result: ${JSON.stringify(workspaceResult.data)}`;
+              responseContent = `I've scheduled that task for you. Task ID: ${workspaceResult.taskId}`;
             }
 
             // Return workspace response directly
@@ -2527,15 +2542,41 @@ Please provide a helpful, contextual response based on this analysis and memory 
    */
   private async getAvailableToolNames(): Promise<string[]> {
     try {
-      const toolManager = this.getManager<BaseManager>(ManagerType.TOOL);
-      if (toolManager && typeof (toolManager as any).getAllTools === 'function') {
-        const tools = await (toolManager as any).getAllTools();
-        if (Array.isArray(tools)) {
-          return tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
+      const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
+      if (toolManager) {
+        try {
+          // Use the proper async getTools method
+          const tools = await toolManager.getTools();
+          if (Array.isArray(tools) && tools.length > 0) {
+            const toolNames = tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
+            this.logger.debug('Retrieved tools from ToolManager', {
+              toolCount: tools.length,
+              toolNames
+            });
+            return toolNames;
+          }
+        } catch (error) {
+          this.logger.warn('ToolManager.getTools() failed, trying fallback methods', {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+
+        // Try alternative methods if getTools fails
+        if (typeof (toolManager as any).getAllTools === 'function') {
+          try {
+            const tools = await (toolManager as any).getAllTools();
+            if (Array.isArray(tools)) {
+              return tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
+            }
+          } catch (error) {
+            this.logger.warn('ToolManager.getAllTools() failed', {
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
         }
       }
 
-      // Fallback: check for registered tools in this agent
+      // Fallback: check for registered tools in this agent (synchronous method as last resort)
       const registeredTools = this.getRegisteredTools();
       if (Array.isArray(registeredTools)) {
         return registeredTools.map((tool: any) =>
@@ -2544,6 +2585,7 @@ Please provide a helpful, contextual response based on this analysis and memory 
       }
 
       // If we still don't have an array, return the fallback
+      this.logger.warn('No tools available from any source, using fallback tools');
       return ['send_message', 'general_llm_capabilities'];
     } catch (error) {
       this.logger.warn('Failed to get available tool names:', {
@@ -2803,6 +2845,91 @@ Task scheduled successfully (ID: ${safeTaskId})`;
   private estimateTokens(text: string): number {
     // Rough estimation: ~4 characters per token for English text
     return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Format workspace command results into conversational responses
+   */
+  private async formatWorkspaceResponse(workspaceResult: any, originalMessage: string): Promise<string> {
+    if (!workspaceResult.data) {
+      return 'I completed that task for you successfully.';
+    }
+
+    const data = workspaceResult.data;
+
+    // Handle smart email tool response format (success, result, selectedAccount, message)
+    if (data.success && data.result && data.selectedAccount) {
+      const emailData = data.result;
+      const selectedAccount = data.selectedAccount;
+
+      if (emailData.id && emailData.to && emailData.subject) {
+        const recipients = Array.isArray(emailData.to) ? emailData.to.join(', ') : emailData.to;
+        const fromEmail = selectedAccount.email || emailData.from;
+        return `✅ I've successfully sent your email to ${recipients} with the subject "${emailData.subject}". The email was delivered from ${fromEmail}. ${data.reason || ''}`;
+      }
+
+      // Fallback to the tool's own message if available
+      if (data.message) {
+        return `✅ ${data.message}`;
+      }
+    }
+
+    // Direct email sending response (legacy format)
+    if (data.id && data.from && data.to && data.subject) {
+      const recipients = Array.isArray(data.to) ? data.to.join(', ') : data.to;
+      return `✅ I've successfully sent your email to ${recipients} with the subject "${data.subject}". The email was delivered from ${data.from}.`;
+    }
+
+    // Email reading/checking response
+    if (data.needsAttention !== undefined || data.unreadCount !== undefined) {
+      const unreadCount = data.unreadCount || 0;
+      const urgentCount = data.urgentCount || 0;
+
+      if (unreadCount === 0) {
+        return "Good news! You have no unread emails that need your attention right now.";
+      } else {
+        let response = `You have ${unreadCount} unread email${unreadCount > 1 ? 's' : ''}`;
+        if (urgentCount > 0) {
+          response += `, including ${urgentCount} urgent message${urgentCount > 1 ? 's' : ''} that need${urgentCount === 1 ? 's' : ''} immediate attention`;
+        }
+        return response + ".";
+      }
+    }
+
+    // Calendar response
+    if (data.events !== undefined || data.summary) {
+      if (Array.isArray(data.events)) {
+        const eventCount = data.events.length;
+        if (eventCount === 0) {
+          return "Your calendar is clear - no events scheduled for the requested time period.";
+        } else {
+          return `I found ${eventCount} event${eventCount > 1 ? 's' : ''} on your calendar. ${data.summary || ''}`;
+        }
+      }
+      return data.summary || "I've checked your calendar for you.";
+    }
+
+    // File/Drive response
+    if (data.files && Array.isArray(data.files)) {
+      const fileCount = data.files.length;
+      if (fileCount === 0) {
+        return "I didn't find any files matching your search criteria.";
+      } else {
+        return `I found ${fileCount} file${fileCount > 1 ? 's' : ''} that match${fileCount === 1 ? 'es' : ''} your search.`;
+      }
+    }
+
+    // Spreadsheet response
+    if (data.id && data.title && data.url) {
+      return `✅ I've created a new spreadsheet called "${data.title}" for you. You can access it at: ${data.url}`;
+    }
+
+    // Generic success response for other operations
+    if (data.success === true || (typeof data === 'object' && Object.keys(data).length > 0)) {
+      return 'I completed that task for you successfully.';
+    }
+
+    return 'Task completed successfully.';
   }
 
   // ====== Multi-Agent Delegation Methods ======
@@ -3247,9 +3374,11 @@ Task scheduled successfully (ID: ${safeTaskId})`;
       this.recoveryStrategyManager = new DefaultRecoveryStrategyManager(this.logger);
       this.errorNotificationService = new DefaultErrorNotificationService(this.logger);
 
+      // Create real database provider using Prisma
+      const databaseProvider = new PrismaErrorDatabaseProvider(this.logger);
+
       this.errorManagementService = new DefaultErrorManagementService(
-        this.logger,
-        mockDatabaseProvider,
+        databaseProvider,
         notificationAdapter
       );
 

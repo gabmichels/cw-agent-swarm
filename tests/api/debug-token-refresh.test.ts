@@ -65,7 +65,15 @@ describe('Debug Token Refresh API', () => {
         connections: mockHealthSummary,
         summary: {
           healthyConnections: 1, // active - expiringWithin2Hours - missingRefreshToken = 4 - 2 - 1 = 1
-          needsAttention: 5, // expiringWithin2Hours + missingRefreshToken + expired = 2 + 1 + 1 = 4
+          needsAttention: 4, // expiringWithin2Hours + missingRefreshToken + expired = 2 + 1 + 1 = 4
+        },
+        intelligentRefresh: {
+          cooldownPeriodMinutes: 5,
+          immediateThresholdMinutes: 10,
+          proactiveThresholdHours: 2,
+          memoryTrackingEnabled: true,
+          databaseFieldAvailable: 'pending',
+          hotReloadingProtection: true,
         }
       });
 
@@ -174,6 +182,7 @@ describe('Debug Token Refresh API', () => {
         message: 'Token refresh completed',
         result: mockResult,
         timestamp: expect.any(String),
+        note: 'Intelligent cooldown checks prevent unnecessary refreshes during development hot reloading'
       });
 
       expect(logger.info).toHaveBeenCalledWith('Manual token refresh triggered via API');

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { WorkspaceConnection, WorkspaceCapabilityType } from '../../services/database/types';
-import { CheckCircle, AlertCircle, Settings, Mail, Calendar, FileText, BarChart3, Users, Clock } from 'lucide-react';
+import { CheckCircle, AlertCircle, Settings, Mail, Calendar, FileText, BarChart3, Users, Clock, Shield } from 'lucide-react';
 
 export interface AgentWorkspacePermissionConfig {
   connectionId: string;
@@ -10,6 +10,7 @@ export interface AgentWorkspacePermissionConfig {
     [key in WorkspaceCapabilityType]?: {
       enabled: boolean;
       restrictions?: Record<string, any>;
+      needsApproval?: boolean;
     };
   };
 }
@@ -17,7 +18,7 @@ export interface AgentWorkspacePermissionConfig {
 export interface AgentWorkspacePermissionManagerProps {
   agentId?: string; // Optional for new agents
   initialPermissions?: AgentWorkspacePermissionConfig[];
-  onChange: (permissions: AgentWorkspacePermissionConfig[]) => void;
+  onChange: (permissions: AgentWorkspacePermissionConfig[], approvalSettings?: Record<string, boolean>) => void;
   className?: string;
 }
 
@@ -125,6 +126,8 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
   
   const [permissions, setPermissions] = useState<AgentWorkspacePermissionConfig[]>(initialPermissions);
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(new Set());
+  const [approvalSettings, setApprovalSettings] = useState<Record<string, boolean>>({});
+  const [editedApprovalSettings, setEditedApprovalSettings] = useState<Record<string, boolean>>({});
 
   // Load connections on mount and when needed
   useEffect(() => {
@@ -135,6 +138,18 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
   useEffect(() => {
     setPermissions(initialPermissions);
   }, [initialPermissions]);
+
+  // Load approval settings when agentId changes
+  useEffect(() => {
+    if (agentId) {
+      loadApprovalSettings();
+    }
+  }, [agentId]);
+
+  // Sync edited approval settings with loaded settings
+  useEffect(() => {
+    setEditedApprovalSettings(approvalSettings);
+  }, [approvalSettings]);
 
   // Add a refresh function that can be called externally
   useEffect(() => {
@@ -174,6 +189,25 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
     }
   };
 
+  const loadApprovalSettings = async () => {
+    if (!agentId) return;
+    
+    try {
+      const response = await fetch(`/api/agent/workspace-approval?agentId=${agentId}`);
+      const data = await response.json();
+      
+      if (data.settings) {
+        const approvalMap: Record<string, boolean> = {};
+        data.settings.forEach((setting: any) => {
+          approvalMap[setting.toolName] = setting.needsApproval;
+        });
+        setApprovalSettings(approvalMap);
+      }
+    } catch (error) {
+      console.error('Error loading approval settings:', error);
+    }
+  };
+
   const toggleConnection = (connectionId: string) => {
     setExpandedConnections(prev => {
       const newSet = new Set(prev);
@@ -184,6 +218,43 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
       }
       return newSet;
     });
+  };
+
+  const updateApprovalSetting = (toolName: string, needsApproval: boolean) => {
+    const updatedSettings = {
+      ...editedApprovalSettings,
+      [toolName]: needsApproval
+    };
+    setEditedApprovalSettings(updatedSettings);
+    
+    // Notify parent of approval changes
+    setTimeout(() => onChange(permissions, updatedSettings), 0);
+  };
+
+  const getToolNameFromCapability = (capability: WorkspaceCapabilityType): string => {
+    // Map capabilities to tool names
+    const capabilityToToolMap: Record<WorkspaceCapabilityType, string> = {
+      [WorkspaceCapabilityType.EMAIL_SEND]: 'send_email',
+      [WorkspaceCapabilityType.EMAIL_READ]: 'read_specific_email',
+      [WorkspaceCapabilityType.CALENDAR_CREATE]: 'schedule_event',
+      [WorkspaceCapabilityType.CALENDAR_EDIT]: 'edit_event',
+      [WorkspaceCapabilityType.CALENDAR_DELETE]: 'delete_event',
+      [WorkspaceCapabilityType.CALENDAR_READ]: 'read_calendar',
+      [WorkspaceCapabilityType.DOCUMENT_CREATE]: 'create_document',
+      [WorkspaceCapabilityType.DOCUMENT_EDIT]: 'edit_document',
+      [WorkspaceCapabilityType.DOCUMENT_READ]: 'read_document',
+      [WorkspaceCapabilityType.DRIVE_UPLOAD]: 'upload_file',
+      [WorkspaceCapabilityType.DRIVE_MANAGE]: 'share_file',
+      [WorkspaceCapabilityType.DRIVE_READ]: 'search_files',
+      [WorkspaceCapabilityType.SPREADSHEET_CREATE]: 'create_spreadsheet',
+      [WorkspaceCapabilityType.SPREADSHEET_EDIT]: 'update_spreadsheet',
+      [WorkspaceCapabilityType.SPREADSHEET_READ]: 'read_spreadsheet',
+      [WorkspaceCapabilityType.SPREADSHEET_DELETE]: 'delete_spreadsheet',
+      [WorkspaceCapabilityType.CONTACTS_READ]: 'read_contacts',
+      [WorkspaceCapabilityType.CONTACTS_MANAGE]: 'manage_contacts'
+    };
+    
+    return capabilityToToolMap[capability] || capability.toLowerCase();
   };
 
   const updatePermission = (
@@ -226,7 +297,7 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
       }
 
       // Use setTimeout to defer the onChange call to avoid setState during render
-      setTimeout(() => onChange(updated), 0);
+      setTimeout(() => onChange(updated, editedApprovalSettings), 0);
       return updated;
     });
   };
@@ -275,7 +346,7 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
       }
 
       // Use setTimeout to defer the onChange call to avoid setState during render
-      setTimeout(() => onChange(updated), 0);
+      setTimeout(() => onChange(updated, editedApprovalSettings), 0);
       return updated;
     });
   };
@@ -443,26 +514,48 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
                           <div className="grid grid-cols-1 gap-3 ml-4">
                             {group.capabilities.map(capability => {
                               const isEnabled = isCapabilityEnabled(connection.id, capability);
+                              const toolName = getToolNameFromCapability(capability);
+                              const needsApproval = editedApprovalSettings[toolName] || false;
 
                               return (
-                                <div key={capability} className="flex items-center p-3 bg-gray-750 rounded-lg">
-                                  <input
-                                    type="checkbox"
-                                    checked={isEnabled}
-                                    onChange={(e) => updatePermission(
-                                      connection.id,
-                                      capability,
-                                      e.target.checked
+                                <div key={capability} className="p-3 bg-gray-750 rounded-lg">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={isEnabled}
+                                        onChange={(e) => updatePermission(
+                                          connection.id,
+                                          capability,
+                                          e.target.checked
+                                        )}
+                                        className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                                      />
+                                      <div className="ml-3">
+                                        <label className="text-sm font-medium text-white">
+                                          {capability.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                                        </label>
+                                        <p className="text-xs text-gray-400">
+                                          {CAPABILITY_DESCRIPTIONS[capability] || 'Workspace capability'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Approval Checkbox - only show for enabled capabilities */}
+                                    {isEnabled && agentId && (
+                                      <div className="flex items-center space-x-2">
+                                        <Shield className="h-4 w-4 text-orange-400" />
+                                        <label className="flex items-center cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={needsApproval}
+                                            onChange={(e) => updateApprovalSetting(toolName, e.target.checked)}
+                                            className="h-3 w-3 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500"
+                                          />
+                                          <span className="ml-1 text-xs text-orange-400">Needs Approval</span>
+                                        </label>
+                                      </div>
                                     )}
-                                    className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
-                                  />
-                                  <div className="ml-3">
-                                    <label className="text-sm font-medium text-white">
-                                      {capability.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                                    </label>
-                                    <p className="text-xs text-gray-400">
-                                      {CAPABILITY_DESCRIPTIONS[capability] || 'Workspace capability'}
-                                    </p>
                                   </div>
                                 </div>
                               );
@@ -487,9 +580,13 @@ export const AgentWorkspacePermissionManager: React.FC<AgentWorkspacePermissionM
                 <div className="text-xs text-gray-300 mt-1 space-y-1">
                   {permissions.map(config => {
                     const enabledCount = Object.values(config.permissions).filter(p => p.enabled).length;
+                    const approvalCount = Object.keys(editedApprovalSettings).filter(toolName => editedApprovalSettings[toolName]).length;
                     return (
                       <div key={config.connectionId}>
                         <strong>{config.connectionName}:</strong> {enabledCount} permission{enabledCount !== 1 ? 's' : ''} enabled
+                        {approvalCount > 0 && (
+                          <span className="text-orange-400 ml-2">({approvalCount} require{approvalCount !== 1 ? '' : 's'} approval)</span>
+                        )}
                       </div>
                     );
                   })}

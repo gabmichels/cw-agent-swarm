@@ -471,8 +471,14 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
     }
   })();
 
-  // Check if this is an assistant message (not a user message)
-  const isAssistantMessage = senderName !== 'You';
+  // Check if this is an assistant message (not a user message) - use role only
+  const isAssistantMessage = (() => {
+    if (typeof message.sender === 'object' && message.sender && 'role' in message.sender) {
+      return message.sender.role !== 'user';
+    }
+    // Fallback for legacy string senders
+    return senderName !== 'You';
+  })();
 
   // Navigate to previous version
   const goToPreviousVersion = () => {
@@ -491,8 +497,14 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
   // Get current content based on version index
   const currentContent = messageVersions[currentVersionIndex] || '';
   
-  // Check if this is a user message
-  const isUserMessage = senderName === 'You';
+  // Check if this is a user message - use role only
+  const isUserMessage = (() => {
+    if (typeof message.sender === 'object' && message.sender && 'role' in message.sender) {
+      return message.sender.role === 'user';
+    }
+    // Fallback for legacy string senders
+    return senderName === 'You';
+  })();
 
   // Determine CSS classes for message alignment and styling
   const alignmentClasses = isUserMessage 
@@ -541,12 +553,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
 
   return (
     <div 
-      className={`flex ${senderName === 'You' ? 'justify-end' : 'justify-start'} mb-4`}
+      className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'} mb-4`}
       onMouseEnter={() => setShowMenu(true)}
       onMouseLeave={() => setShowMenu(false)}
       id={message.id ? `message-${message.id}` : undefined}
     >
-      <div className={`flex flex-col ${senderName === 'You' ? 'items-end' : 'items-start'} max-w-2xl mr-3`}>
+      <div className={`flex flex-col ${isUserMessage ? 'items-end' : 'items-start'} max-w-2xl mr-3`}>
         <div className={`w-full rounded-lg p-3 shadow ${bgColorClasses}`}>
           {/* Message content */}
           <div className="mb-1 relative">

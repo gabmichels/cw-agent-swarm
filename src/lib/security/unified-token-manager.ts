@@ -151,6 +151,7 @@ export class UnifiedTokenManager {
   private refreshTimers = new Map<string, NodeJS.Timeout>();
   private configInitialized = false;
   private startupRecoveryCompleted = false;
+  private recentRefreshes = new Map<string, number>(); // Fallback tracking until DB field is available
 
   private constructor() {
     // Don't load configuration in constructor - use lazy loading
@@ -385,6 +386,25 @@ export class UnifiedTokenManager {
         timestamp: new Date(),
       });
 
+      // Track refresh timestamp to prevent unnecessary refreshes
+      // Try database first, fallback to memory tracking
+      const refreshTime = Date.now();
+      try {
+        const { DatabaseService } = await import('../../services/database/DatabaseService');
+        const db = DatabaseService.getInstance();
+        await db.updateWorkspaceConnection(connectionId, {
+          lastRefreshedAt: new Date(refreshTime)
+        });
+        logger.debug('Updated lastRefreshedAt in database', { connectionId, provider });
+      } catch (dbError) {
+        // Fallback to memory tracking if database field doesn't exist yet
+        this.recentRefreshes.set(connectionId, refreshTime);
+        logger.debug('Using memory tracking for refresh cooldown (database field not available)', {
+          connectionId,
+          provider
+        });
+      }
+
       // Schedule next refresh
       this.scheduleTokenRefresh(provider, connectionId, newTokenData);
 
@@ -591,7 +611,7 @@ export class UnifiedTokenManager {
     });
 
     const result = await handleAsync(async () => {
-      logger.info('Starting token recovery for existing connections...');
+      logger.info('Starting intelligent token recovery for existing connections...');
 
       // Import DatabaseService dynamically to avoid circular dependencies
       const { DatabaseService } = await import('../../services/database/DatabaseService');
@@ -604,7 +624,12 @@ export class UnifiedTokenManager {
 
       let recoveredCount = 0;
       let scheduledCount = 0;
+      let skippedRecentRefreshCount = 0;
       let errorCount = 0;
+
+      // Refresh cooldown configuration (5 minutes like TokenRefreshService)
+      const refreshCooldownMs = 5 * 60 * 1000; // 5 minutes
+      const now = Date.now();
 
       for (const connection of activeConnections) {
         try {
@@ -614,6 +639,30 @@ export class UnifiedTokenManager {
           }
 
           recoveredCount++;
+
+          // Check if token was recently refreshed (intelligent check)
+          // Check database first (persistent), then fallback to memory (this session)
+          let lastRefreshTime: number | null = null;
+          if (connection.lastRefreshedAt) {
+            lastRefreshTime = connection.lastRefreshedAt.getTime();
+          } else {
+            const memoryRefresh = this.recentRefreshes.get(connection.id);
+            if (memoryRefresh) {
+              lastRefreshTime = memoryRefresh;
+            }
+          }
+
+          if (lastRefreshTime && (now - lastRefreshTime) < refreshCooldownMs) {
+            skippedRecentRefreshCount++;
+            const minutesAgo = Math.round((now - lastRefreshTime) / 1000 / 60);
+            logger.debug(`Skipping ${connection.email} - refreshed ${minutesAgo} minutes ago`, {
+              connectionId: connection.id,
+              provider: connection.provider,
+              lastRefreshedAt: connection.lastRefreshedAt,
+              source: connection.lastRefreshedAt ? 'database' : 'memory'
+            });
+            continue;
+          }
 
           // Convert provider enum to string for unified manager
           const providerKey = this.getProviderKey(connection.provider);
@@ -626,36 +675,78 @@ export class UnifiedTokenManager {
             scopes: connection.scopes?.split(' ') || [],
           };
 
-          // Check if token needs immediate refresh (within 2 hours)
+          // Use the same 2-hour threshold as TokenRefreshService for consistency
           const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000);
-          if (connection.tokenExpiresAt && connection.tokenExpiresAt < twoHoursFromNow) {
-            logger.info('Token expires soon, scheduling immediate refresh', {
+          const isExpiringWithin2Hours = connection.tokenExpiresAt && connection.tokenExpiresAt < twoHoursFromNow;
+
+          // Check for immediate refresh need (within 10 minutes like TokenRefreshService)
+          const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000);
+          const isExpiringWithin10Minutes = connection.tokenExpiresAt && connection.tokenExpiresAt < tenMinutesFromNow;
+
+          if (isExpiringWithin10Minutes) {
+            logger.warn('Token expires very soon, scheduling immediate refresh', {
               connectionId: connection.id,
               provider: providerKey,
               email: connection.email,
               expiresAt: connection.tokenExpiresAt,
+              minutesLeft: Math.round((connection.tokenExpiresAt.getTime() - now) / 1000 / 60)
             });
 
-            // Schedule for immediate refresh (in 30 seconds to avoid startup overload)
+            // Schedule for immediate refresh (30 seconds to avoid startup overload)
             setTimeout(async () => {
               try {
                 await this.refreshTokens(providerKey, connection.id, tokenData);
-                logger.info('Startup token refresh completed', {
+                logger.info('✓ Startup immediate token refresh completed', {
                   connectionId: connection.id,
                   email: connection.email
                 });
               } catch (error) {
-                logger.error('Startup token refresh failed', {
+                logger.error('✗ Startup immediate token refresh failed', {
                   connectionId: connection.id,
                   email: connection.email,
                   error: error instanceof Error ? error.message : String(error),
                 });
               }
             }, 30000);
+
+          } else if (isExpiringWithin2Hours) {
+            logger.info('Token expires within 2 hours, scheduling proactive refresh', {
+              connectionId: connection.id,
+              provider: providerKey,
+              email: connection.email,
+              expiresAt: connection.tokenExpiresAt,
+              hoursLeft: Math.round((connection.tokenExpiresAt.getTime() - now) / 1000 / 60 / 60 * 10) / 10
+            });
+
+            // Schedule for proactive refresh (1 minute to spread the load)
+            setTimeout(async () => {
+              try {
+                await this.refreshTokens(providerKey, connection.id, tokenData);
+                logger.info('✓ Startup proactive token refresh completed', {
+                  connectionId: connection.id,
+                  email: connection.email
+                });
+              } catch (error) {
+                logger.error('✗ Startup proactive token refresh failed', {
+                  connectionId: connection.id,
+                  email: connection.email,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+            }, 60000);
+
           } else {
-            // Schedule normal refresh timing
+            // Schedule normal refresh timing for tokens that are still good
             this.scheduleTokenRefresh(providerKey, connection.id, tokenData);
             scheduledCount++;
+
+            const hoursLeft = Math.round((connection.tokenExpiresAt.getTime() - now) / 1000 / 60 / 60 * 10) / 10;
+            logger.debug(`Token scheduled for future refresh`, {
+              connectionId: connection.id,
+              provider: providerKey,
+              email: connection.email,
+              hoursLeft: hoursLeft
+            });
           }
 
         } catch (error) {
@@ -669,10 +760,11 @@ export class UnifiedTokenManager {
 
       this.startupRecoveryCompleted = true;
 
-      logger.info('Token recovery completed', {
+      logger.info('Intelligent token recovery completed', {
         totalConnections: activeConnections.length,
         recoveredCount,
         scheduledCount,
+        skippedRecentRefresh: skippedRecentRefreshCount,
         errorCount,
       });
 
@@ -680,6 +772,7 @@ export class UnifiedTokenManager {
         totalConnections: activeConnections.length,
         recoveredCount,
         scheduledCount,
+        skippedRecentRefresh: skippedRecentRefreshCount,
         errorCount,
       };
     }, context);

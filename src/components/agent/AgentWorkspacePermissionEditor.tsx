@@ -29,6 +29,7 @@ export const AgentWorkspacePermissionEditor: React.FC<AgentWorkspacePermissionEd
   });
   
   const [editedPermissions, setEditedPermissions] = useState<AgentWorkspacePermissionConfig[]>([]);
+  const [editedApprovalSettings, setEditedApprovalSettings] = useState<Record<string, boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -98,6 +99,7 @@ export const AgentWorkspacePermissionEditor: React.FC<AgentWorkspacePermissionEd
 
   const handleStartEditing = () => {
     setEditedPermissions([...permissionsState.permissions]);
+    setEditedApprovalSettings({});
     setSaveError(null);
     setSaveSuccess(false);
     onEditingChange(true);
@@ -105,13 +107,17 @@ export const AgentWorkspacePermissionEditor: React.FC<AgentWorkspacePermissionEd
 
   const handleCancelEditing = () => {
     setEditedPermissions([]);
+    setEditedApprovalSettings({});
     setSaveError(null);
     setSaveSuccess(false);
     onEditingChange(false);
   };
 
-  const handlePermissionsChange = (permissions: AgentWorkspacePermissionConfig[]) => {
+  const handlePermissionsChange = (permissions: AgentWorkspacePermissionConfig[], approvalSettings?: Record<string, boolean>) => {
     setEditedPermissions(permissions);
+    if (approvalSettings) {
+      setEditedApprovalSettings(approvalSettings);
+    }
   };
 
   const handleSavePermissions = async () => {
@@ -157,6 +163,26 @@ export const AgentWorkspacePermissionEditor: React.FC<AgentWorkspacePermissionEd
         const data = await response.json();
         if (!data.success) {
           throw new Error(data.error || 'Failed to save permissions');
+        }
+      }
+
+      // Save approval settings
+      if (Object.keys(editedApprovalSettings).length > 0) {
+        for (const [toolName, needsApproval] of Object.entries(editedApprovalSettings)) {
+          try {
+            await fetch('/api/agent/workspace-approval', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                agentId: agent.id,
+                toolName,
+                needsApproval,
+                grantedBy: 'user'
+              })
+            });
+          } catch (error) {
+            console.warn(`Failed to save approval setting for ${toolName}:`, error);
+          }
         }
       }
 

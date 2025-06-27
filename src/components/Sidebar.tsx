@@ -1,7 +1,7 @@
 import { AgentProfile } from '@/lib/multi-agent/types/agent';
 import { ChatProfile } from '@/lib/multi-agent/types/chat';
 import { getCurrentUser } from '@/lib/user';
-import { ActivityIcon, Loader, MessageSquare, PinIcon, Users } from 'lucide-react';
+import { ActivityIcon, Loader, MessageSquare, PinIcon, Users, Circle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
@@ -20,6 +20,13 @@ function getApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   
   return `${baseUrl}${normalizedPath}`;
+}
+
+interface ServiceStatus {
+  name: string;
+  port: number;
+  status: 'online' | 'offline' | 'checking';
+  lastChecked?: Date;
 }
 
 interface SidebarProps {
@@ -44,6 +51,117 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [chats, setChats] = useState<ChatProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
   
+  // Service status state
+  const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([
+    { name: 'Qdrant', port: 6333, status: 'checking' },
+    { name: 'Prisma Studio', port: 5555, status: 'checking' },
+    { name: 'FastServer', port: 8000, status: 'checking' }
+  ]);
+  
+  // Check service status
+  const checkServiceStatus = async (service: ServiceStatus): Promise<'online' | 'offline'> => {
+    try {
+      // Use a timeout to avoid hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+      
+      let checkUrl: string;
+      let fetchOptions: RequestInit;
+      
+      // Different endpoints and strategies for different services
+      switch (service.name) {
+        case 'Qdrant':
+          checkUrl = `http://localhost:${service.port}/`;
+          fetchOptions = {
+            method: 'GET',
+            signal: controller.signal,
+            mode: 'cors'
+          };
+          break;
+        case 'Prisma Studio':
+          // Prisma Studio blocks CORS, so we'll use a different strategy
+          // Try to check via our own API endpoint that can make the request server-side
+          checkUrl = getApiUrl(`/api/debug/service-status?service=prisma&port=${service.port}`);
+          fetchOptions = {
+            method: 'GET',
+            signal: controller.signal
+          };
+          break;
+        case 'FastServer':
+          checkUrl = `http://localhost:${service.port}/health`;
+          fetchOptions = {
+            method: 'GET',
+            signal: controller.signal,
+            mode: 'cors'
+          };
+          break;
+        default:
+          checkUrl = `http://localhost:${service.port}/`;
+          fetchOptions = {
+            method: 'GET',
+            signal: controller.signal,
+            mode: 'cors'
+          };
+      }
+      
+      const response = await fetch(checkUrl, fetchOptions);
+      
+      clearTimeout(timeoutId);
+      
+      // For most services, any response (even error) means the service is running
+      // For our API endpoint, check the JSON response
+      if (service.name === 'Prisma Studio') {
+        const data = await response.json();
+        return data.online ? 'online' : 'offline';
+      }
+      
+      // For direct service checks, any response means it's online
+      return 'online';
+    } catch (error) {
+      // Network error, timeout, or CORS error typically means service is down
+      return 'offline';
+    }
+  };
+  
+  // Check all services
+  const checkAllServices = async () => {
+    const updatedStatuses = await Promise.all(
+      serviceStatuses.map(async (service) => {
+        const status = await checkServiceStatus(service);
+        return {
+          ...service,
+          status,
+          lastChecked: new Date()
+        };
+      })
+    );
+    
+    setServiceStatuses(updatedStatuses);
+  };
+  
+  // Set up periodic checking (every 2 minutes)
+  useEffect(() => {
+    // Initial check
+    checkAllServices();
+    
+    // Set up interval for periodic checks
+    const interval = setInterval(checkAllServices, 2 * 60 * 1000); // 2 minutes
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  // Get status color and icon
+  const getStatusIndicator = (status: 'online' | 'offline' | 'checking') => {
+    switch (status) {
+      case 'online':
+        return <Circle className="h-3 w-3 fill-green-500 text-green-500" />;
+      case 'offline':
+        return <Circle className="h-3 w-3 fill-red-500 text-red-500" />;
+      case 'checking':
+        return <Circle className="h-3 w-3 fill-yellow-500 text-yellow-500 animate-pulse" />;
+    }
+  };
+
   // Fetch agents from API
   useEffect(() => {
     const fetchAgents = async () => {
@@ -375,7 +493,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         
         {/* Developer Section */}
         <h3 className="text-sm font-semibold mb-2 text-gray-400">DEVELOPER</h3>
-        <ul className="space-y-1">
+        <ul className="space-y-1 mb-4">
           <li>
             <Link 
               href="/debug/graph" 
@@ -406,6 +524,44 @@ const Sidebar: React.FC<SidebarProps> = ({
             </Link>
           </li>
         </ul>
+        
+        {/* Service Status Section */}
+        <div className="border-t border-gray-700 pt-4 mt-4">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-sm font-semibold text-gray-400">SERVICE STATUS</h3>
+            <button
+              onClick={checkAllServices}
+              className="text-xs text-blue-400 hover:text-blue-300"
+              title="Refresh status"
+            >
+              Refresh
+            </button>
+          </div>
+          
+          <div className="space-y-1">
+            {serviceStatuses.map((service) => (
+              <div
+                key={service.name}
+                className="flex items-center justify-between text-xs text-gray-300 py-1"
+              >
+                <div className="flex items-center space-x-2">
+                  {getStatusIndicator(service.status)}
+                  <span>{service.name}</span>
+                  <span className="text-gray-500">:{service.port}</span>
+                </div>
+                <span className="text-gray-500">
+                  {service.status === 'checking' ? 'Checking...' : service.status}
+                </span>
+              </div>
+            ))}
+          </div>
+          
+          {serviceStatuses.some(s => s.lastChecked) && (
+            <div className="text-xs text-gray-500 mt-2">
+              Last checked: {serviceStatuses.find(s => s.lastChecked)?.lastChecked?.toLocaleTimeString()}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

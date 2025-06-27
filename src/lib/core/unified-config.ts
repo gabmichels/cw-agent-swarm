@@ -95,7 +95,7 @@ export const ServiceConfigSchemas = {
       scopes: z.array(z.string()).default([]),
       redirectUri: z.string().url().optional(),
     })).default({}),
-    tokenRefreshBuffer: z.number().positive().default(300), // 5 minutes
+    tokenRefreshBuffer: z.number().positive().default(7200), // 2 hours (was 5 minutes)
     maxRetries: z.number().positive().default(3),
   }),
 

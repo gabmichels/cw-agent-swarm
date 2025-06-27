@@ -80,7 +80,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
     super();
     this.connectionId = connectionId;
     this.zohoProvider = zohoProvider;
-    
+
     // Initialize FileService with environment-based configuration
     this.fileService = new FileService({
       storageProvider: (process.env.STORAGE_PROVIDER as StorageProvider) || StorageProvider.LOCAL,
@@ -100,7 +100,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
    */
   async sendEmail(params: SendEmailParams, connectionId: string, agentId: string): Promise<EmailMessage> {
     const result = await this.sendZohoEmail(params);
-    
+
     // Convert result to EmailMessage format expected by interface
     return {
       id: result.id || 'unknown',
@@ -125,10 +125,10 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
   private async sendZohoEmail(params: SendEmailParams): Promise<EmailResult> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
-      
+
       // Get account ID first
       const accountId = await this.getAccountId(client);
-      
+
       // Handle attachments if present
       let zohoAttachments: ZohoAttachmentMetadata[] = [];
       if (params.attachments && params.attachments.length > 0) {
@@ -138,7 +138,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
           console.warn('Failed to upload attachments, sending email without attachments:', error);
         }
       }
-      
+
       // Build email content for Zoho Mail API
       const emailData: Record<string, any> = {
         fromAddress: await this.getDefaultFromAddress(client, accountId),
@@ -164,7 +164,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       });
 
       console.log('Sending email via Zoho Mail API:', {
-        endpoint: `/api/accounts/${accountId}/messages`,
+        endpoint: `/accounts/${accountId}/messages`,
         hasFromAddress: !!emailData.fromAddress,
         hasToAddress: !!emailData.toAddress,
         hasSubject: !!emailData.subject,
@@ -172,8 +172,8 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
         attachmentCount: zohoAttachments.length
       });
 
-      const response = await client.post(`/api/accounts/${accountId}/messages`, emailData);
-      
+      const response = await client.post(`/accounts/${accountId}/messages`, emailData);
+
       if (response.data.status?.code === 200 || response.data.data) {
         return {
           success: true,
@@ -195,10 +195,10 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
   async readEmails(query: EmailQuery): Promise<Email[]> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
-      
+
       // Get account ID first
       const accountId = await this.getAccountId(client);
-      
+
       const params: any = {
         limit: query.maxResults || 50,
         start: query.pageToken ? parseInt(query.pageToken) : 0
@@ -222,19 +222,19 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       }
 
       console.log('Reading emails from Zoho Mail API:', {
-        endpoint: `/api/accounts/${accountId}/messages/view`,
+        endpoint: `/accounts/${accountId}/messages/view`,
         params
       });
 
       // Get messages from Zoho Mail using correct endpoint
-      const response = await client.get(`/api/accounts/${accountId}/messages/view`, { params });
+      const response = await client.get(`/accounts/${accountId}/messages/view`, { params });
 
       if (response.data.status?.code !== 200) {
         throw new Error(response.data.status?.description || 'Failed to fetch emails');
       }
 
       const messages = response.data.data || [];
-      
+
       // Convert Zoho messages to our Email format
       const emails: Email[] = await Promise.all(
         messages.map(async (msg: any) => this.convertZohoMessageToEmail(client, msg))
@@ -253,11 +253,11 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
   async getEmail(emailId: string): Promise<Email> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
-      
+
       // Get account ID first
       const accountId = await this.getAccountId(client);
-      
-      const response = await client.get(`/api/accounts/${accountId}/messages/${emailId}`);
+
+      const response = await client.get(`/accounts/${accountId}/messages/${emailId}`);
 
       if (response.data.status?.code !== 200) {
         throw new Error(response.data.status?.description || 'Failed to fetch email');
@@ -339,7 +339,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       try {
         // Retrieve actual file data using the attachmentId
         const fileBuffer = await this.retrieveFileData(attachment.attachmentId);
-        
+
         // Upload to Zoho Mail using multipart form data
         const zohoAttachment = await this.uploadSingleAttachment(
           client,
@@ -347,15 +347,14 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
           attachment,
           fileBuffer
         );
-        
+
         uploadedAttachments.push(zohoAttachment);
-        
+
         console.log(`Successfully uploaded attachment: ${attachment.filename}`);
       } catch (error) {
         console.error(`Failed to upload attachment ${attachment.filename}:`, error);
         throw new Error(
-          `Failed to upload attachment ${attachment.filename}: ${
-            error instanceof Error ? error.message : 'Unknown error'
+          `Failed to upload attachment ${attachment.filename}: ${error instanceof Error ? error.message : 'Unknown error'
           }`
         );
       }
@@ -372,8 +371,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       return await this.fileService.getFile(attachmentId);
     } catch (error) {
       throw new Error(
-        `Failed to retrieve file data for attachment ${attachmentId}: ${
-          error instanceof Error ? error.message : 'Unknown error'
+        `Failed to retrieve file data for attachment ${attachmentId}: ${error instanceof Error ? error.message : 'Unknown error'
         }`
       );
     }
@@ -396,7 +394,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
 
     try {
       const response = await client.post(
-        `/api/accounts/${accountId}/messages/attachments?uploadType=multipart`,
+        `/accounts/${accountId}/messages/attachments?uploadType=multipart`,
         formData,
         {
           headers: {
@@ -409,7 +407,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       );
 
       const uploadResponse = response.data as ZohoAttachmentUploadResponse;
-      
+
       if (uploadResponse.status?.code !== 200) {
         throw new Error(
           uploadResponse.status?.description || 'Failed to upload attachment to Zoho'
@@ -431,8 +429,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
         throw error;
       }
       throw new Error(
-        `Zoho attachment upload API error: ${
-          error instanceof Error ? error.message : 'Unknown error'
+        `Zoho attachment upload API error: ${error instanceof Error ? error.message : 'Unknown error'
         }`
       );
     }
@@ -443,14 +440,14 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
    */
   private async getAccountId(client: AxiosInstance): Promise<string> {
     try {
-      const response = await client.get('/api/accounts');
-      
+      const response = await client.get('/accounts');
+
       console.log('Zoho accounts response:', {
         status: response.status,
         hasData: !!response.data,
         data: response.data
       });
-      
+
       // Handle the response format from the official API documentation
       if (response.status === 200 && response.data?.status?.code === 200) {
         const accounts = response.data.data;
@@ -460,7 +457,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
           return accountId;
         }
       }
-      
+
       throw new Error('No accounts found or invalid response format');
     } catch (error: any) {
       console.error('Failed to get account ID:', error);
@@ -477,8 +474,8 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
    */
   private async getDefaultFromAddress(client: AxiosInstance, accountId: string): Promise<string> {
     try {
-      const response = await client.get(`/api/accounts/${accountId}`);
-      
+      const response = await client.get(`/accounts/${accountId}`);
+
       if (response.data.status?.code === 200 && response.data.data) {
         return response.data.data.primaryEmailAddress || response.data.data.emailAddress || '';
       } else {

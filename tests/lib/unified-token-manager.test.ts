@@ -14,7 +14,7 @@ vi.mock('../../src/lib/core/unified-config', () => ({
     }
     if (service === 'oauth') {
       return {
-        tokenRefreshBuffer: 300, // 5 minutes
+        tokenRefreshBuffer: 7200, // 2 hours (updated from 5 minutes)
         maxRetries: 3
       };
     }
@@ -34,7 +34,7 @@ describe('UnifiedTokenManager', () => {
       email: 'user1@example.com',
       refreshToken: 'refresh-token-1',
       accessToken: 'access-token-1',
-      tokenExpiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes from now
+      tokenExpiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes from now - within 2 hour buffer
       scopes: 'email profile',
     },
     {
@@ -43,7 +43,7 @@ describe('UnifiedTokenManager', () => {
       email: 'user2@example.com',
       refreshToken: 'refresh-token-2',
       accessToken: 'access-token-2',
-      tokenExpiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000), // 3 hours from now
+      tokenExpiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000), // 4 hours from now - beyond 2 hour buffer
       scopes: 'email profile',
     },
     {
@@ -52,7 +52,7 @@ describe('UnifiedTokenManager', () => {
       email: 'user3@example.com',
       refreshToken: 'refresh-token-3',
       accessToken: 'access-token-3',
-      tokenExpiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes from now
+      tokenExpiresAt: new Date(Date.now() + 90 * 60 * 1000), // 90 minutes from now - within 2 hour buffer
       scopes: 'email profile',
     },
     {

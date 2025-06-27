@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import { DatabaseService } from '../../database/DatabaseService';
 import {
   ConnectionStatus,
@@ -27,6 +27,31 @@ import {
   decryptTokens
 } from '../../../lib/security/unified-token-manager';
 import { logger } from '../../../lib/logging';
+
+/**
+ * Zoho-specific rate limiting error
+ */
+export class ZohoRateLimitError extends Error {
+  public readonly retryAfter: number;
+  public readonly code = 'ZOHO_RATE_LIMIT_EXCEEDED';
+
+  constructor(message: string = 'Zoho API rate limit exceeded', retryAfter: number = 60) {
+    super(message);
+    this.name = 'ZohoRateLimitError';
+    this.retryAfter = retryAfter;
+  }
+}
+
+/**
+ * Rate limiting state tracker for Zoho API
+ */
+interface RateLimitState {
+  lastRequestTime: number;
+  requestCount: number;
+  resetTime: number;
+  rateLimitHit: boolean;
+  backoffUntil?: number;
+}
 
 /**
  * Zoho Workspace provider implementation with unified systems
@@ -62,6 +87,20 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
   private readonly redirectUri: string;
   private readonly region: string;
 
+  // Rate limiting state
+  private rateLimitState: RateLimitState = {
+    lastRequestTime: 0,
+    requestCount: 0,
+    resetTime: 0,
+    rateLimitHit: false
+  };
+
+  // Rate limiting configuration
+  private readonly maxRequestsPerMinute = 100; // Conservative limit for Zoho
+  private readonly minTimeBetweenRequests = 1000; // 1 second minimum between requests
+  private readonly baseBackoffDelay = 5000; // 5 seconds base backoff
+  private readonly maxBackoffDelay = 300000; // 5 minutes maximum backoff
+
   constructor() {
     // Get configuration directly from environment variables for immediate availability
     this.clientId = process.env.ZOHO_CLIENT_ID || '';
@@ -83,15 +122,174 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
       }
     });
 
+    // Add rate limiting interceptor
+    this.httpClient.interceptors.request.use(async (config) => {
+      await this.enforceRateLimit();
+      return config;
+    });
+
+    // Add response interceptor to handle rate limiting
+    this.httpClient.interceptors.response.use(
+      (response) => response,
+      async (error: AxiosError) => {
+        if (error.response?.status === 400) {
+          const data = error.response.data as any;
+          if (data?.error === 'Access Denied' &&
+            data?.error_description?.includes('too many requests')) {
+            this.handleRateLimitHit();
+            throw new ZohoRateLimitError(data.error_description, 60);
+          }
+        }
+        throw error;
+      }
+    );
+
     // Register token refresh callback with unified token manager
     registerTokenRefreshCallback('zoho-workspace', this.refreshTokenCallback.bind(this));
 
-    logger.info('Zoho Workspace provider initialized', {
+    logger.info('Zoho Workspace provider initialized with rate limiting', {
       providerId: this.providerId,
       region: this.region,
       authBaseUrl: this.authBaseUrl,
       supportedCapabilities: this.supportedCapabilities.length,
+      maxRequestsPerMinute: this.maxRequestsPerMinute,
     });
+  }
+
+  /**
+   * Enforce rate limiting before making requests
+   */
+  private async enforceRateLimit(): Promise<void> {
+    const now = Date.now();
+
+    // Check if we're in a backoff period
+    if (this.rateLimitState.backoffUntil && now < this.rateLimitState.backoffUntil) {
+      const waitTime = this.rateLimitState.backoffUntil - now;
+      logger.warn('Zoho rate limit backoff in effect, waiting...', {
+        waitTimeMs: waitTime,
+        backoffUntil: new Date(this.rateLimitState.backoffUntil).toISOString()
+      });
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      this.rateLimitState.backoffUntil = undefined;
+    }
+
+    // Reset counter if enough time has passed
+    if (now - this.rateLimitState.resetTime > 60000) { // 1 minute window
+      this.rateLimitState.requestCount = 0;
+      this.rateLimitState.resetTime = now;
+      this.rateLimitState.rateLimitHit = false;
+    }
+
+    // Check request count limit
+    if (this.rateLimitState.requestCount >= this.maxRequestsPerMinute) {
+      const waitTime = 60000 - (now - this.rateLimitState.resetTime);
+      if (waitTime > 0) {
+        logger.warn('Zoho request limit reached, waiting for reset', {
+          requestCount: this.rateLimitState.requestCount,
+          maxRequests: this.maxRequestsPerMinute,
+          waitTimeMs: waitTime
+        });
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        this.rateLimitState.requestCount = 0;
+        this.rateLimitState.resetTime = Date.now();
+      }
+    }
+
+    // Enforce minimum time between requests
+    const timeSinceLastRequest = now - this.rateLimitState.lastRequestTime;
+    if (timeSinceLastRequest < this.minTimeBetweenRequests) {
+      const waitTime = this.minTimeBetweenRequests - timeSinceLastRequest;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    // Update state
+    this.rateLimitState.requestCount++;
+    this.rateLimitState.lastRequestTime = Date.now();
+  }
+
+  /**
+   * Handle rate limit hit by setting backoff period
+   */
+  private handleRateLimitHit(): void {
+    this.rateLimitState.rateLimitHit = true;
+
+    // Calculate exponential backoff with jitter
+    const backoffMultiplier = Math.min(4, Math.pow(2, this.rateLimitState.requestCount / 10));
+    const jitter = Math.random() * 0.3; // 30% jitter
+    const backoffDelay = Math.min(
+      this.baseBackoffDelay * backoffMultiplier * (1 + jitter),
+      this.maxBackoffDelay
+    );
+
+    this.rateLimitState.backoffUntil = Date.now() + backoffDelay;
+    this.rateLimitState.requestCount = this.maxRequestsPerMinute; // Force wait for reset
+
+    logger.warn('Zoho rate limit hit, implementing backoff', {
+      backoffDelayMs: backoffDelay,
+      backoffUntil: new Date(this.rateLimitState.backoffUntil).toISOString(),
+      multiplier: backoffMultiplier
+    });
+  }
+
+  /**
+   * Retry wrapper with exponential backoff for rate-limited operations
+   */
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    maxRetries: number = 3
+  ): Promise<T> {
+    let lastError: Error | undefined;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error as Error;
+
+        if (error instanceof ZohoRateLimitError) {
+          if (attempt === maxRetries) {
+            logger.error(`${operationName} failed after ${maxRetries} attempts due to rate limiting`, {
+              attempt,
+              retryAfter: error.retryAfter,
+              error: error.message
+            });
+            throw error;
+          }
+
+          // Wait for the specified retry-after time plus some buffer
+          const waitTime = (error.retryAfter + 5) * 1000; // Add 5 seconds buffer
+          logger.warn(`${operationName} rate limited, retrying after delay`, {
+            attempt,
+            maxRetries,
+            waitTimeMs: waitTime,
+            retryAfter: error.retryAfter
+          });
+
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+
+        // For other errors, use exponential backoff
+        if (attempt < maxRetries) {
+          const backoffDelay = Math.min(
+            1000 * Math.pow(2, attempt - 1), // Exponential backoff
+            30000 // Max 30 seconds
+          );
+
+          logger.warn(`${operationName} failed, retrying after backoff`, {
+            attempt,
+            maxRetries,
+            backoffDelayMs: backoffDelay,
+            error: error instanceof Error ? error.message : String(error)
+          });
+
+          await new Promise(resolve => setTimeout(resolve, backoffDelay));
+        }
+      }
+    }
+
+    throw lastError || new Error(`${operationName} failed after ${maxRetries} attempts`);
   }
 
   async initiateConnection(config: ConnectionConfig): Promise<ConnectionResult> {
@@ -321,7 +519,7 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
   }
 
   /**
-   * Token refresh callback for unified token manager
+   * Token refresh callback for unified token manager with enhanced rate limiting
    */
   private async refreshTokenCallback(refreshToken: string, provider: string, connectionId: string): Promise<OAuthTokenData> {
     const context = createErrorContext('ZohoWorkspaceProvider', 'refreshTokenCallback', {
@@ -334,37 +532,47 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
         throw new Error('No refresh token provided for Zoho Workspace connection');
       }
 
-      // Refresh the access token using Zoho API
-      const tokenResponse = await this.httpClient.post(`${this.authBaseUrl}/token`, null, {
-        params: {
-          refresh_token: refreshToken,
-          grant_type: 'refresh_token',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
+      // Use retry wrapper for token refresh
+      return await this.retryWithBackoff(async () => {
+        logger.debug('Attempting Zoho token refresh', {
+          provider,
+          connectionId,
+          refreshToken: refreshToken.substring(0, 20) + '...'
+        });
+
+        // Refresh the access token using Zoho API
+        const tokenResponse = await this.httpClient.post(`${this.authBaseUrl}/token`, null, {
+          params: {
+            refresh_token: refreshToken,
+            grant_type: 'refresh_token',
+            client_id: this.clientId,
+            client_secret: this.clientSecret,
+          }
+        });
+
+        const tokens = tokenResponse.data;
+
+        if (!tokens.access_token) {
+          throw new Error('Failed to refresh Zoho access token - no new token received');
         }
-      });
 
-      const tokens = tokenResponse.data;
+        const refreshedTokens: OAuthTokenData = {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token || refreshToken,
+          expiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
+          scopes: tokens.scope?.split(' ') || [],
+        };
 
-      if (!tokens.access_token) {
-        throw new Error('Failed to refresh Zoho access token - no new token received');
-      }
+        logger.info('Zoho Workspace tokens refreshed successfully', {
+          provider,
+          connectionId,
+          hasNewRefreshToken: !!tokens.refresh_token,
+          newExpiresIn: tokens.expires_in,
+        });
 
-      const refreshedTokens: OAuthTokenData = {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token || refreshToken,
-        expiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : undefined,
-        scopes: tokens.scope?.split(' ') || [],
-      };
+        return refreshedTokens;
+      }, 'Zoho token refresh', 5); // Allow up to 5 retries for token refresh
 
-      logger.info('Zoho Workspace tokens refreshed successfully', {
-        provider,
-        connectionId,
-        hasNewRefreshToken: !!tokens.refresh_token,
-        newExpiresIn: tokens.expires_in,
-      });
-
-      return refreshedTokens;
     }, context);
 
     if (!result.success) {
@@ -379,25 +587,49 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
     return result.data!;
   }
 
-  // Simplified methods for brevity - maintaining original functionality but with structured error handling
+  /**
+   * Enhanced refresh connection method with rate limiting and retry logic
+   */
   async refreshConnection(connectionId: string): Promise<ConnectionResult> {
-    return await handleAsync(async () => {
+    const context = createErrorContext('ZohoWorkspaceProvider', 'refreshConnection', {
+      severity: ErrorSeverity.MEDIUM,
+      retryable: true,
+    });
+
+    const result = await handleAsync(async () => {
       const db = DatabaseService.getInstance();
       const connection = await db.getWorkspaceConnection(connectionId);
+
       if (!connection?.refreshToken) {
         throw new Error('No refresh token available');
       }
 
-      const tokenResponse = await this.httpClient.post(`${this.authBaseUrl}/token`, null, {
-        params: {
-          refresh_token: connection.refreshToken,
-          grant_type: 'refresh_token',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
+      logger.debug('Refreshing Zoho workspace connection', {
+        connectionId,
+        email: connection.email,
+        provider: connection.provider,
+        currentRateLimitState: {
+          requestCount: this.rateLimitState.requestCount,
+          lastRequestTime: this.rateLimitState.lastRequestTime,
+          rateLimitHit: this.rateLimitState.rateLimitHit
         }
       });
 
-      const tokens = tokenResponse.data;
+      // Use retry wrapper for connection refresh
+      const tokens = await this.retryWithBackoff(async () => {
+        const tokenResponse = await this.httpClient.post(`${this.authBaseUrl}/token`, null, {
+          params: {
+            refresh_token: connection.refreshToken,
+            grant_type: 'refresh_token',
+            client_id: this.clientId,
+            client_secret: this.clientSecret,
+          }
+        });
+
+        return tokenResponse.data;
+      }, 'Zoho connection refresh', 5);
+
+      // Update connection in database
       await db.updateWorkspaceConnection(connectionId, {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token || connection.refreshToken,
@@ -405,15 +637,24 @@ export class ZohoWorkspaceProvider implements IWorkspaceProvider {
         status: ConnectionStatus.ACTIVE
       });
 
+      logger.info('Zoho workspace connection refreshed successfully', {
+        connectionId,
+        email: connection.email,
+        newExpiresIn: tokens.expires_in,
+        hasNewRefreshToken: !!tokens.refresh_token
+      });
+
       return { connectionId };
-    }, createErrorContext('ZohoWorkspaceProvider', 'refreshConnection', { severity: ErrorSeverity.MEDIUM }))
-      .then(result => ({
-        success: result.success,
-        connectionId: result.data?.connectionId,
-        error: result.error?.message,
-      }));
+    }, context);
+
+    return {
+      success: result.success,
+      connectionId: result.data?.connectionId,
+      error: result.error?.message,
+    };
   }
 
+  // Simplified methods for brevity - maintaining original functionality but with structured error handling
   async validateConnection(connectionId: string): Promise<ValidationResult> {
     return await handleAsync(async () => {
       const db = DatabaseService.getInstance();

@@ -121,6 +121,7 @@ export interface WorkspaceConnection {
   domain?: string;
   status: ConnectionStatus;
   lastSyncAt?: Date;
+  lastRefreshedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -193,6 +194,7 @@ export interface WorkspaceConnectionUpdateInput {
   displayName?: string;
   status?: ConnectionStatus;
   lastSyncAt?: Date;
+  lastRefreshedAt?: Date;
 }
 
 export interface WorkspaceConnectionQuery {

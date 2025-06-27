@@ -1,22 +1,28 @@
 import { logger } from '../../lib/logging';
-import { unifiedTokenManager } from '../../lib/security/unified-token-manager';
+import { unifiedTokenManager, TokenEvent } from '../../lib/security/unified-token-manager';
 import { DatabaseService } from '../database/DatabaseService';
 import { ConnectionStatus } from '../database/types';
 import { WorkspaceService } from './WorkspaceService';
 
 /**
  * Enhanced background service that automatically refreshes workspace tokens before they expire
- * - Runs more frequent checks (every 10 minutes instead of 30)
- * - Refreshes tokens 1-2 hours before expiry instead of 10 minutes
- * - Integrates with unified token manager for startup recovery
+ * - Coordinates with unified token manager to avoid duplicate refreshes
+ * - Runs periodic checks every 30 minutes
+ * - Refreshes tokens 1-2 hours before expiry
+ * - Waits for startup recovery to complete before starting periodic checks
  */
 export class TokenRefreshService {
   private static instance: TokenRefreshService;
   private intervalId: NodeJS.Timeout | null = null;
-  private readonly refreshIntervalMs = 10 * 60 * 1000; // Check every 10 minutes (down from 30)
-  private readonly refreshThresholdMs = 2 * 60 * 60 * 1000; // Refresh if expiring within 2 hours (up from 10 minutes)
+  private readonly refreshIntervalMs = 30 * 60 * 1000; // Check every 30 minutes (reduced from 10)
+  private readonly refreshThresholdMs = 2 * 60 * 60 * 1000; // Refresh if expiring within 2 hours
   private readonly immediateRefreshThresholdMs = 10 * 60 * 1000; // Immediate refresh if expiring within 10 minutes
   private isStarted = false;
+  private startupRecoveryWaitTime = 60 * 1000; // Wait 60 seconds for startup recovery to complete
+
+  // Track recent refreshes to prevent duplicates across systems
+  private recentRefreshes = new Map<string, number>(); // connectionId -> timestamp
+  private readonly refreshCooldownMs = 5 * 60 * 1000; // 5 minute cooldown between refreshes
 
   private constructor() { }
 
@@ -28,7 +34,7 @@ export class TokenRefreshService {
   }
 
   /**
-   * Start the background token refresh service with startup recovery
+   * Start the background token refresh service with startup recovery coordination
    */
   async start(): Promise<void> {
     if (this.intervalId) {
@@ -39,6 +45,18 @@ export class TokenRefreshService {
     logger.info('Starting enhanced token refresh service...', {
       checkInterval: this.refreshIntervalMs / 1000 / 60,
       refreshThreshold: this.refreshThresholdMs / 1000 / 60 / 60,
+      startupDelay: this.startupRecoveryWaitTime / 1000,
+    });
+
+    // Listen for token refresh events from unified token manager to coordinate cooldowns
+    unifiedTokenManager.addLifecycleListener((event) => {
+      if (event.event === TokenEvent.REFRESHED && event.connectionId) {
+        this.recentRefreshes.set(event.connectionId, Date.now());
+        logger.debug('Tracked token refresh from unified manager', {
+          connectionId: event.connectionId,
+          provider: event.provider,
+        });
+      }
     });
 
     // Perform startup token recovery first
@@ -57,12 +75,13 @@ export class TokenRefreshService {
       });
     }, this.refreshIntervalMs);
 
-    // Run initial check after a short delay
+    // Wait longer for startup recovery to complete before first check
+    // This prevents overlap with the unified token manager's immediate refreshes
     setTimeout(() => {
       this.refreshExpiredTokens().catch(error => {
         logger.error('Error in initial token refresh', { error });
       });
-    }, 5000); // 5 second delay to let server finish starting
+    }, this.startupRecoveryWaitTime);
 
     this.isStarted = true;
     logger.info('Enhanced token refresh service started successfully');
@@ -98,6 +117,15 @@ export class TokenRefreshService {
       const db = DatabaseService.getInstance();
       const workspaceService = new WorkspaceService();
 
+      // Clean up old entries from recent refreshes map
+      const now = Date.now();
+      const cutoffTime = now - this.refreshCooldownMs;
+      for (const [connectionId, timestamp] of this.recentRefreshes.entries()) {
+        if (timestamp < cutoffTime) {
+          this.recentRefreshes.delete(connectionId);
+        }
+      }
+
       // Get all active connections
       const activeConnections = await db.findWorkspaceConnections({
         status: ConnectionStatus.ACTIVE
@@ -110,14 +138,15 @@ export class TokenRefreshService {
 
       logger.debug(`Checking ${activeConnections.length} active workspace connections for token expiration...`);
 
-      const now = new Date();
-      const refreshThreshold = new Date(now.getTime() + this.refreshThresholdMs);
-      const immediateThreshold = new Date(now.getTime() + this.immediateRefreshThresholdMs);
+      const refreshThreshold = new Date(now + this.refreshThresholdMs);
+      const immediateThreshold = new Date(now + this.immediateRefreshThresholdMs);
 
       let refreshedCount = 0;
       let scheduledCount = 0;
       let skippedCount = 0;
       let errorCount = 0;
+      let rateLimitedCount = 0;
+      let cooledDownCount = 0;
 
       for (const connection of activeConnections) {
         try {
@@ -133,35 +162,53 @@ export class TokenRefreshService {
             continue;
           }
 
+          // Check if this connection was recently refreshed (by any system)
+          // First check database (persistent across restarts), then fallback to memory
+          let lastRefreshTime: number | null = null;
+          if (connection.lastRefreshedAt) {
+            lastRefreshTime = connection.lastRefreshedAt.getTime();
+          } else {
+            const memoryRefresh = this.recentRefreshes.get(connection.id);
+            if (memoryRefresh) {
+              lastRefreshTime = memoryRefresh;
+            }
+          }
+
+          if (lastRefreshTime && (now - lastRefreshTime) < this.refreshCooldownMs) {
+            cooledDownCount++;
+            const minutesAgo = Math.round((now - lastRefreshTime) / 1000 / 60);
+            logger.debug(`Skipping ${connection.email} - refreshed ${minutesAgo} minutes ago`, {
+              connectionId: connection.id,
+              provider: connection.provider,
+              lastRefreshedAt: connection.lastRefreshedAt,
+            });
+            continue;
+          }
+
           // Determine refresh urgency
-          const isImmediate = connection.tokenExpiresAt < immediateThreshold;
-          const needsRefresh = connection.tokenExpiresAt < refreshThreshold;
+          const tokenTime = connection.tokenExpiresAt.getTime();
+          const isImmediate = tokenTime < immediateThreshold.getTime();
+          const needsRefresh = tokenTime < refreshThreshold.getTime();
 
           if (isImmediate) {
             // Token expires very soon - refresh immediately
             logger.warn(`Token expires very soon, refreshing immediately`, {
               connectionId: connection.id,
               email: connection.email,
+              provider: connection.provider,
               expiresAt: connection.tokenExpiresAt,
-              minutesLeft: Math.round((connection.tokenExpiresAt.getTime() - now.getTime()) / 1000 / 60)
+              minutesLeft: Math.round((tokenTime - now) / 1000 / 60)
             });
 
-            const refreshResult = await workspaceService.refreshConnection(connection.id);
+            const refreshResult = await this.attemptTokenRefresh(workspaceService, connection, 'immediate');
 
             if (refreshResult.success) {
               refreshedCount++;
-              logger.info(`✓ Successfully refreshed token for ${connection.email}`, {
-                connectionId: connection.id,
-                urgency: 'immediate'
-              });
+              this.recentRefreshes.set(connection.id, now); // Track this refresh
+            } else if (refreshResult.rateLimited) {
+              rateLimitedCount++;
             } else {
               errorCount++;
-              logger.error(`✗ Failed to refresh token for ${connection.email}`, {
-                connectionId: connection.id,
-                error: refreshResult.error,
-                urgency: 'immediate'
-              });
-
               // Mark connection as expired if immediate refresh fails
               await db.updateWorkspaceConnection(connection.id, {
                 status: ConnectionStatus.EXPIRED
@@ -173,26 +220,21 @@ export class TokenRefreshService {
             logger.info(`Token expires within refresh threshold, refreshing proactively`, {
               connectionId: connection.id,
               email: connection.email,
+              provider: connection.provider,
               expiresAt: connection.tokenExpiresAt,
-              hoursLeft: Math.round((connection.tokenExpiresAt.getTime() - now.getTime()) / 1000 / 60 / 60 * 10) / 10
+              hoursLeft: Math.round((tokenTime - now) / 1000 / 60 / 60 * 10) / 10
             });
 
-            const refreshResult = await workspaceService.refreshConnection(connection.id);
+            const refreshResult = await this.attemptTokenRefresh(workspaceService, connection, 'proactive');
 
             if (refreshResult.success) {
               refreshedCount++;
-              logger.info(`✓ Successfully refreshed token for ${connection.email}`, {
-                connectionId: connection.id,
-                urgency: 'proactive'
-              });
+              this.recentRefreshes.set(connection.id, now); // Track this refresh
+            } else if (refreshResult.rateLimited) {
+              rateLimitedCount++;
+              // Don't mark as expired for rate limiting - will retry later
             } else {
               errorCount++;
-              logger.error(`✗ Failed to refresh token for ${connection.email}`, {
-                connectionId: connection.id,
-                error: refreshResult.error,
-                urgency: 'proactive'
-              });
-
               // Don't mark as expired yet for proactive refreshes - might succeed later
             }
 
@@ -201,9 +243,10 @@ export class TokenRefreshService {
             scheduledCount++;
 
             // Debug-level logging for token status
-            const hoursLeft = Math.round((connection.tokenExpiresAt.getTime() - now.getTime()) / 1000 / 60 / 60 * 10) / 10;
+            const hoursLeft = Math.round((tokenTime - now) / 1000 / 60 / 60 * 10) / 10;
             logger.debug(`Token still valid for ${connection.email}`, {
               connectionId: connection.id,
+              provider: connection.provider,
               hoursLeft: hoursLeft
             });
           }
@@ -213,24 +256,97 @@ export class TokenRefreshService {
           logger.error(`Error processing connection ${connection.id}`, {
             connectionId: connection.id,
             email: connection.email,
+            provider: connection.provider,
             error: error instanceof Error ? error.message : String(error)
           });
         }
       }
 
-      if (refreshedCount > 0 || errorCount > 0) {
+      if (refreshedCount > 0 || errorCount > 0 || rateLimitedCount > 0 || cooledDownCount > 0) {
         logger.info(`Token refresh cycle completed`, {
           total: activeConnections.length,
           refreshed: refreshedCount,
           scheduled: scheduledCount,
           skipped: skippedCount,
-          errors: errorCount
+          cooledDown: cooledDownCount,
+          errors: errorCount,
+          rateLimited: rateLimitedCount
         });
       }
     } catch (error) {
       logger.error('Error in refreshExpiredTokens', {
         error: error instanceof Error ? error.message : String(error)
       });
+    }
+  }
+
+  /**
+   * Attempt to refresh a token with enhanced error handling for rate limiting
+   */
+  private async attemptTokenRefresh(
+    workspaceService: any,
+    connection: any,
+    urgency: 'immediate' | 'proactive'
+  ): Promise<{ success: boolean; rateLimited: boolean }> {
+    try {
+      const refreshResult = await workspaceService.refreshConnection(connection.id);
+
+      if (refreshResult.success) {
+        // Update database with refresh timestamp
+        // Note: This will fail until lastRefreshedAt field is added to database schema
+        try {
+          const db = DatabaseService.getInstance();
+          await db.updateWorkspaceConnection(connection.id, {
+            lastRefreshedAt: new Date()
+          });
+          logger.debug('Updated lastRefreshedAt in database', { connectionId: connection.id });
+        } catch (dbError) {
+          // Log but don't fail the refresh for a database update error
+          logger.debug('Could not update lastRefreshedAt in database (field may not exist yet)', {
+            connectionId: connection.id,
+            error: dbError instanceof Error ? dbError.message : String(dbError)
+          });
+        }
+
+        logger.info(`✓ Successfully refreshed token for ${connection.email}`, {
+          connectionId: connection.id,
+          provider: connection.provider,
+          urgency
+        });
+        return { success: true, rateLimited: false };
+      } else {
+        logger.error(`✗ Failed to refresh token for ${connection.email}`, {
+          connectionId: connection.id,
+          provider: connection.provider,
+          error: refreshResult.error,
+          urgency
+        });
+        return { success: false, rateLimited: false };
+      }
+    } catch (error) {
+      // Check if this is a rate limiting error
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isRateLimited = errorMessage.includes('rate limit') ||
+        errorMessage.includes('too many requests') ||
+        errorMessage.includes('RATE_LIMIT_EXCEEDED');
+
+      if (isRateLimited) {
+        logger.warn(`⏱ Token refresh rate limited for ${connection.email}`, {
+          connectionId: connection.id,
+          provider: connection.provider,
+          urgency,
+          error: errorMessage
+        });
+        return { success: false, rateLimited: true };
+      } else {
+        logger.error(`✗ Token refresh failed for ${connection.email}`, {
+          connectionId: connection.id,
+          provider: connection.provider,
+          urgency,
+          error: errorMessage
+        });
+        return { success: false, rateLimited: false };
+      }
     }
   }
 

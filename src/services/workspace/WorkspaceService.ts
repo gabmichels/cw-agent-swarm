@@ -104,6 +104,13 @@ export class WorkspaceService {
   }
 
   /**
+   * Get provider instance for external use (public method)
+   */
+  public getProviderInstance(provider: WorkspaceProvider): IWorkspaceProvider {
+    return this.getProvider(provider);
+  }
+
+  /**
    * Refresh connection tokens using the appropriate provider
    */
   async refreshConnection(connectionId: string): Promise<ConnectionResult> {

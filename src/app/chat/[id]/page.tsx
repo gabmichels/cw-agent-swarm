@@ -336,28 +336,83 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   useEffect(() => {
     if (sseData.messages.length > 0 && selectedTab === 'chat') {
       // Convert SSE messages to MessageWithId format
-      const convertedMessages = sseData.messages.map(msg => ({
-        id: msg.id,
-        content: msg.content,
-        sender: {
-          id: msg.sender.id,
-          name: msg.sender.name,
-          role: msg.sender.role
-        },
-        timestamp: msg.timestamp,
-        attachments: [],
-        tags: []
-      }));
-      
-      setMessages(prev => {
-        // Merge new messages with existing ones, avoiding duplicates
-        const existingIds = new Set(prev.map(m => m.id));
-        const newMessages = convertedMessages.filter(m => !existingIds.has(m.id));
-        return [...prev, ...newMessages];
+      const convertedMessages = sseData.messages.map(msg => {
+        // Ensure timestamp is a Date object
+        let parsedTimestamp: Date;
+        try {
+          if (msg.timestamp instanceof Date) {
+            parsedTimestamp = msg.timestamp;
+          } else if (typeof msg.timestamp === 'number') {
+            parsedTimestamp = new Date(msg.timestamp);
+          } else if (typeof msg.timestamp === 'string') {
+            // Handle both ISO strings and numeric strings
+            if (/^\d+$/.test(msg.timestamp)) {
+              parsedTimestamp = new Date(parseInt(msg.timestamp, 10));
+            } else {
+              parsedTimestamp = new Date(msg.timestamp);
+            }
+          } else {
+            parsedTimestamp = new Date(); // Fallback to current time
+          }
+          
+          // Validate the parsed date
+          if (isNaN(parsedTimestamp.getTime())) {
+            console.warn(`Invalid timestamp for SSE message ${msg.id}:`, msg.timestamp);
+            parsedTimestamp = new Date(); // Fallback to current time
+          }
+        } catch (timestampError) {
+          console.error(`Error parsing timestamp for SSE message ${msg.id}:`, timestampError);
+          parsedTimestamp = new Date(); // Fallback to current time
+        }
+
+        return {
+          id: msg.id,
+          content: msg.content,
+          sender: {
+            id: msg.sender.id,
+            name: msg.sender.name,
+            role: msg.sender.role
+          },
+          timestamp: parsedTimestamp,
+          attachments: [],
+          tags: []
+        };
       });
       
-      // Clear loading state when we get new messages
-      if (isLoading) {
+      // Determine new messages before updating state
+      const existingIds = new Set(messages.map(m => m.id));
+      const newMessages = convertedMessages.filter(m => !existingIds.has(m.id));
+      
+      setMessages(prev => {
+        // Merge new messages with existing ones, avoiding duplicates by ID
+        const existingIds = new Set(prev.map(m => m.id));
+        const newMessages = convertedMessages.filter(m => !existingIds.has(m.id));
+        
+        // Also remove temp messages that match the content and timing of new real messages
+        const filteredPrevMessages = prev.filter(prevMsg => {
+          if (!(prevMsg.id.startsWith('temp_') || prevMsg.id.includes('temp-'))) {
+            return true; // Keep non-temp messages
+          }
+          
+          // Check if any new message matches this temp message
+          const hasMatchingNewMessage = newMessages.some(newMsg => {
+            const contentMatches = newMsg.content.trim() === prevMsg.content.trim();
+            const senderMatches = newMsg.sender.role === prevMsg.sender.role;
+            const timeDiff = Math.abs(newMsg.timestamp.getTime() - prevMsg.timestamp.getTime());
+            const withinTimeWindow = timeDiff <= 5000; // 5 seconds
+            
+            return contentMatches && senderMatches && withinTimeWindow;
+          });
+          
+          // Remove temp message if there's a matching new message
+          return !hasMatchingNewMessage;
+        });
+        
+        return [...filteredPrevMessages, ...newMessages];
+      });
+      
+      // Clear loading state ONLY when we get new ASSISTANT messages (not user messages)
+      if (isLoading && newMessages.some(msg => msg.sender.role === 'assistant')) {
         setIsLoading(false);
       }
     }
@@ -389,11 +444,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     let pollInterval: NodeJS.Timeout | null = null;
     
     if (isLoading && chat?.id) {
-      console.log('Starting polling for agent response while thinking...');
-      
       // Poll every 2 seconds while thinking
       pollInterval = setInterval(async () => {
-        console.log('Polling for new messages...');
         try {
           await fetchMessages(chat.id, true); // shouldClearLoading = true to detect and clear thinking state
         } catch (error) {
@@ -405,7 +457,6 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     // Cleanup interval when loading stops or component unmounts
     return () => {
       if (pollInterval) {
-        console.log('Clearing polling interval');
         clearInterval(pollInterval);
       }
     };
@@ -452,6 +503,8 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         attachments: currentAttachments,
         tags: []
       };
+
+
 
       // Clear input and attachments immediately for better UX
       setInputMessage('');
@@ -789,10 +842,39 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             parsedTimestamp = new Date(); // Fallback to current time
           }
           
+          // Ensure sender format is consistent - focus on role correctness
+          let processedSender: MessageSender;
+          if (typeof msg.sender === 'string') {
+            // Handle string senders - determine role based on common patterns
+            const isUserMessage = msg.sender === 'You' || msg.sender === 'User' || msg.sender === userId;
+            processedSender = {
+              id: msg.sender,
+              name: msg.sender,
+              role: isUserMessage ? 'user' : 'assistant' as 'user' | 'assistant' | 'system'
+            };
+          } else if (msg.sender && typeof msg.sender === 'object') {
+            // Handle object senders - preserve existing structure but ensure role is set
+            const senderObj = msg.sender as any;
+            processedSender = {
+              id: senderObj.id || senderObj.name || 'unknown',
+              name: senderObj.name || senderObj.id || 'Unknown',
+              role: senderObj.role || 'assistant' // Preserve role or default to assistant
+            };
+          } else {
+            // Fallback for any other format
+            processedSender = {
+              id: 'unknown',
+              name: 'Unknown',
+              role: 'assistant'
+            };
+          }
+
+
+
           return {
             id: msg.id,
             content: msg.content,
-            sender: msg.sender,
+            sender: processedSender,
             timestamp: parsedTimestamp,
             attachments: processedAttachments,
             tags: msg.tags || [],
@@ -801,11 +883,25 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         });
         
         // Intelligent message merging: preserve temp messages that aren't on the server yet
-        // Temp messages have IDs that start with 'temp_' or are not found in server response
-        const tempMessages = messages.filter(msg => 
-          msg.id.startsWith('temp_') || msg.id.includes('temp-') || 
-          !formattedMessages.find(serverMsg => serverMsg.id === msg.id)
-        );
+        // BUT remove temp messages if we have a real message with the same content and timestamp (within 5 seconds)
+        const tempMessages = messages.filter(msg => {
+          if (!(msg.id.startsWith('temp_') || msg.id.includes('temp-'))) {
+            return false; // Not a temp message
+          }
+          
+          // Check if there's a real message with same content from same sender within 5 seconds
+          const hasMatchingRealMessage = formattedMessages.some(serverMsg => {
+            const contentMatches = serverMsg.content.trim() === msg.content.trim();
+            const senderMatches = serverMsg.sender.role === msg.sender.role;
+            const timeDiff = Math.abs(serverMsg.timestamp.getTime() - msg.timestamp.getTime());
+            const withinTimeWindow = timeDiff <= 5000; // 5 seconds
+            
+            return contentMatches && senderMatches && withinTimeWindow;
+          });
+          
+          // Only preserve temp message if no matching real message found
+          return !hasMatchingRealMessage;
+        });
         
         // Only preserve temp messages if we're in loading state (thinking) or if shouldClearLoading is false
         const shouldPreserveTempMessages = isLoading || !shouldClearLoading;
@@ -822,7 +918,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         if (shouldClearLoading) {
           setIsInitialLoading(false);
           
-          // For polling: clear AI thinking loading if we detect an agent response
+          // For polling: clear AI thinking loading ONLY if we detect a NEW agent response
           // Check for new assistant messages that weren't in the previous messages array
           const currentMessageIds = new Set(messages.map(msg => msg.id));
           const hasNewAgentResponse = formattedMessages.some(msg => 
@@ -830,24 +926,11 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             !currentMessageIds.has(msg.id)
           );
           
-          // Also check if we have any assistant messages and are currently loading (for simpler fallback)
-          const hasAnyAgentMessage = formattedMessages.some(msg => msg.sender.role === 'assistant');
-          const shouldClearThinking = hasNewAgentResponse || (isLoading && hasAnyAgentMessage && formattedMessages.length > messages.length);
+
           
-          console.log('fetchMessages debug:', {
-            shouldClearLoading,
-            isLoading,
-            formattedMessagesCount: formattedMessages.length,
-            currentMessagesCount: messages.length,
-            hasNewAgentResponse,
-            hasAnyAgentMessage,
-            shouldClearThinking,
-            lastFormattedMessage: formattedMessages[formattedMessages.length - 1]?.sender?.role
-          });
-          
-          // Clear AI thinking loading if we detect agent response
-          if (shouldClearThinking) {
-            console.log('Clearing AI thinking loading state due to agent response');
+          // Clear AI thinking loading ONLY if we detect a NEW agent response
+          // Do NOT clear thinking just because there are existing assistant messages or message count increased
+          if (hasNewAgentResponse) {
             setIsLoading(false);
           }
         }
@@ -936,16 +1019,18 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   // Memoize the transformed messages to prevent unnecessary re-renders
   const transformedMessages = useMemo(() => {
     return messages.map((msg: MessageWithId) => {
-      // Ensure sender is properly formatted as an object with correct properties
+      // Ensure sender is properly formatted - preserve roles, only fix structure
       let sender: MessageSender;
       if (typeof msg.sender === 'string') {
+        // For string senders, determine role based on common patterns
+        const isUserMessage = msg.sender === 'You' || msg.sender === 'User' || msg.sender === userId;
         sender = { 
           id: msg.sender, 
           name: msg.sender, 
-          role: msg.sender === 'You' ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' 
+          role: isUserMessage ? 'user' : 'assistant' as 'user' | 'assistant' | 'system' 
         };
       } else if (msg.sender && typeof msg.sender === 'object') {
-        // Make sure the sender object has all required fields
+        // PRESERVE the existing role - this is the key fix!
         sender = {
           id: msg.sender.id || '',
           name: msg.sender.name || '',
@@ -1086,6 +1171,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
             chloeCheckResults={{}}
             fixInstructions={{}}
             isDebugMode={false}
+            agentId={agentId}
           />
         );
       case 'visualizations':

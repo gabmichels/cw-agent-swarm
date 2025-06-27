@@ -1,8 +1,8 @@
 import { ISheetsCapabilities } from '../interfaces/ISheetsCapabilities';
-import { 
+import {
   SheetsCapabilities,
   SpreadsheetInfo,
-  CreateSpreadsheetParams, 
+  CreateSpreadsheetParams,
   UpdateCellsParams,
   DataAnalysisParams,
   DataAnalysisResult,
@@ -69,14 +69,14 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async createSpreadsheet(params: CreateSpreadsheetParams, connectionId: string, agentId: string): Promise<SpreadsheetInfo> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'sheet');
-      
+
       const formData = new URLSearchParams();
       formData.append('method', 'workbook.create');
       formData.append('workbook_name', params.title);
 
       console.log('Creating Zoho spreadsheet with data:', formData.toString());
 
-      const response = await client.post('/api/v2/create', formData, {
+      const response = await client.post('/create', formData, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         }
@@ -126,9 +126,9 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async getSpreadsheet(spreadsheetId: string, connectionId: string, agentId: string): Promise<SpreadsheetInfo> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'sheet');
-      
-      const response = await client.get(`/api/v2/workbooks/${spreadsheetId}`);
-      
+
+      const response = await client.get(`/workbooks/${spreadsheetId}`);
+
       return {
         id: spreadsheetId,
         title: response.data.workbook_name || 'Untitled Spreadsheet',
@@ -160,11 +160,11 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async readRange(spreadsheetId: string, range: string, connectionId: string, agentId: string): Promise<RangeData> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'sheet');
-      
-      const response = await client.get(`/api/v2/workbooks/${spreadsheetId}/data`, {
+
+      const response = await client.get(`/workbooks/${spreadsheetId}/data`, {
         params: { range }
       });
-      
+
       return {
         range,
         values: response.data.values || [],
@@ -181,7 +181,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async updateCells(params: UpdateCellsParams, connectionId: string, agentId: string): Promise<void> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'sheet');
-      
+
       const updateData = {
         values: params.values,
         range: params.range
@@ -193,7 +193,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
         valueCount: params.values.length
       });
 
-      await client.put(`/api/v2/workbooks/${params.spreadsheetId}/data`, updateData);
+      await client.put(`/workbooks/${params.spreadsheetId}/data`, updateData);
     } catch (error) {
       throw new Error(`Failed to update cells: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -205,13 +205,13 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async appendData(spreadsheetId: string, range: string, values: any[][], connectionId: string, agentId: string): Promise<void> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'sheet');
-      
+
       const appendData = {
         values,
         range
       };
 
-      await client.post(`/api/v2/workbooks/${spreadsheetId}/data/append`, appendData);
+      await client.post(`/workbooks/${spreadsheetId}/data/append`, appendData);
     } catch (error) {
       throw new Error(`Failed to append data: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -223,13 +223,13 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async searchSpreadsheets(criteria: SpreadsheetSearchCriteria, connectionId: string, agentId: string): Promise<SpreadsheetInfo[]> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'sheet');
-      
+
       const params: any = {};
       if (criteria.title) params.search = criteria.title;
       if (criteria.maxResults) params.limit = criteria.maxResults;
-      
-      const response = await client.get('/api/v2/workbooks', { params });
-      
+
+      const response = await client.get('/workbooks', { params });
+
       return (response.data.workbooks || []).map((workbook: any) => ({
         id: workbook.resource_id || workbook.workbook_id,
         title: workbook.workbook_name,
@@ -252,7 +252,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
     // For Zoho, provide a simplified analysis
     try {
       const rangeData = await this.readRange(params.spreadsheetId, params.range || 'A1:Z1000', connectionId, agentId);
-      
+
       return {
         summary: `Data analysis for ${params.analysisType} completed`,
         insights: [
@@ -275,7 +275,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
    */
   async createExpenseTracker(title: string, categories: string[], connectionId: string, agentId: string): Promise<SpreadsheetInfo> {
     const spreadsheet = await this.createSpreadsheet({ title }, connectionId, agentId);
-    
+
     // Add expense tracker headers
     const headers = ['Date', 'Category', 'Description', 'Amount'];
     await this.updateCells({
@@ -283,7 +283,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
       range: 'A1:D1',
       values: [headers]
     }, connectionId, agentId);
-    
+
     return spreadsheet;
   }
 
@@ -292,7 +292,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
    */
   async createBudgetTemplate(title: string, template: BudgetTemplate, connectionId: string, agentId: string): Promise<SpreadsheetInfo> {
     const spreadsheet = await this.createSpreadsheet({ title }, connectionId, agentId);
-    
+
     // Add budget template headers
     const headers = ['Category', 'Budgeted', 'Actual', 'Difference'];
     await this.updateCells({
@@ -300,7 +300,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
       range: 'A1:D1',
       values: [headers]
     }, connectionId, agentId);
-    
+
     return spreadsheet;
   }
 
@@ -308,7 +308,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async updateValues(params: UpdateValuesParams): Promise<UpdateValuesResult> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'sheet');
-      
+
       const updateData = {
         values: params.values,
         range: params.range
@@ -341,7 +341,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async getValues(params: GetValuesParams): Promise<GetValuesResult> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'sheet');
-      
+
       const queryParams = {
         range: params.range
       };
@@ -371,7 +371,7 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
     try {
       // For Zoho, we'll execute updates sequentially since batch operations may not be supported
       const results = [];
-      
+
       for (const request of params.requests) {
         if (request.updateCells) {
           // Handle cell updates
@@ -397,10 +397,10 @@ export class ZohoSheetsCapabilities extends SheetsCapabilities implements ISheet
   async testConnection(connectionId: string, agentId: string): Promise<{ success: boolean; message: string }> {
     try {
       const client = await this.zohoProvider.getServiceClient(connectionId, 'sheet');
-      
+
       // Test by trying to list spreadsheets or get user info
       const response = await client.get('/sheet/v2/spreadsheets');
-      
+
       return {
         success: true,
         message: 'Zoho Sheets connection test successful'

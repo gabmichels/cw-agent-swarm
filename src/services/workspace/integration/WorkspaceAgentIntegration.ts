@@ -44,7 +44,7 @@ export class WorkspaceAgentIntegration {
   async initializeAgentWorkspace(agent: AgentBase): Promise<void> {
     try {
       const agentId = agent.getAgentId();
-      
+
       if (this.integratedAgents.has(agentId)) {
         logger.debug(`Workspace already integrated for agent ${agentId}`);
         return;
@@ -54,7 +54,17 @@ export class WorkspaceAgentIntegration {
 
       // Get agent's workspace capabilities
       const capabilities = await this.permissionService.getAgentWorkspaceCapabilities(agentId);
-      
+
+      logger.debug('Agent workspace capabilities retrieved', {
+        agentId,
+        capabilityCount: capabilities.length,
+        capabilities: capabilities.map(c => ({
+          capability: c.capability,
+          provider: c.provider,
+          connectionId: c.connectionId
+        }))
+      });
+
       if (capabilities.length === 0) {
         logger.info(`No workspace capabilities found for agent ${agentId}`);
         return;
@@ -91,10 +101,27 @@ export class WorkspaceAgentIntegration {
     connectionId?: string
   ): Promise<WorkspaceIntegrationResult> {
     try {
+      logger.debug('Processing workspace input', {
+        agentId,
+        inputLength: input.length,
+        inputPreview: input.substring(0, 100) + '...'
+      });
+
       // Parse the input for workspace commands
       const command = parseWorkspaceCommand(input);
-      
+
+      logger.debug('Workspace command parsing result', {
+        agentId,
+        hasCommand: !!command,
+        commandType: command?.type || 'none',
+        confidence: command?.confidence || 0
+      });
+
       if (!command) {
+        logger.debug('No workspace command detected - command parsing returned null', {
+          agentId,
+          inputPreview: input.substring(0, 100) + '...'
+        });
         return {
           success: false,
           error: 'No workspace command detected'
@@ -106,14 +133,25 @@ export class WorkspaceAgentIntegration {
         confidence: command.confidence
       });
 
-      // If no connection ID provided, try to get the default one
+      // If no connection ID provided, handle based on command type
       if (!connectionId) {
-        connectionId = await this.getDefaultConnectionId(agentId);
-        if (!connectionId) {
+        // Always get a default connection for permission validation
+        const defaultConnectionId = await this.getDefaultConnectionId(agentId);
+        if (!defaultConnectionId) {
           return {
             success: false,
             error: 'No workspace connection available'
           };
+        }
+
+        // For email commands with sender preferences, we'll validate with default but execute with smart selection
+        if (command.type === WorkspaceCommandType.SEND_EMAIL && command.entities.senderPreference) {
+          // Use default connection for validation, but mark for smart selection during execution
+          connectionId = defaultConnectionId;
+          command.useSmartSelection = true; // Flag for later use
+        } else {
+          // For other commands, use the default connection
+          connectionId = defaultConnectionId;
         }
       }
 
@@ -219,14 +257,103 @@ export class WorkspaceAgentIntegration {
     const { type, entities } = command;
     const context = { agentId, userId: agentId };
 
+    logger.debug('Executing workspace command tool', {
+      agentId,
+      commandType: type,
+      entities,
+      connectionId
+    });
+
     switch (type) {
       case WorkspaceCommandType.SEND_EMAIL:
-        return await this.workspaceTools.sendEmailTool.execute({
-          to: entities.recipients || [],
-          subject: entities.subject || 'Email from Agent',
-          body: entities.body || 'This email was sent by your agent.',
-          connectionId
-        }, context);
+        // Use smart email sending if sender preference is available or if marked for smart selection
+        if (entities.senderPreference || (command as any).useSmartSelection) {
+          const smartEmailParams = {
+            to: entities.recipients || [],
+            subject: entities.subject || 'Email from Agent',
+            body: entities.body || 'This email was sent by your agent.',
+            originalMessage: command.originalText || '', // For NLP processing
+            senderPreference: entities.senderPreference
+          };
+
+          logger.debug('Sending email with smart selection', {
+            agentId,
+            smartEmailParams,
+            recipientsCount: smartEmailParams.to.length,
+            senderPreference: entities.senderPreference
+          });
+
+          if (smartEmailParams.to.length === 0) {
+            logger.warn('No recipients found for email command', {
+              agentId,
+              originalEntities: entities,
+              extractedRecipients: entities.recipients
+            });
+            throw new Error('No email recipients found. Please specify valid email addresses.');
+          }
+
+          try {
+            const result = await this.workspaceTools.smartSendEmailTool.execute(smartEmailParams, context);
+            logger.info('✅ Email sent successfully via smart selection', {
+              agentId,
+              recipients: smartEmailParams.to,
+              subject: smartEmailParams.subject,
+              senderPreference: entities.senderPreference,
+              result
+            });
+            return result;
+          } catch (error) {
+            logger.error('❌ Smart email sending failed', {
+              agentId,
+              smartEmailParams,
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined
+            });
+            throw error;
+          }
+        } else {
+          // Fallback to regular email tool with specified connectionId
+          const emailParams = {
+            to: entities.recipients || [],
+            subject: entities.subject || 'Email from Agent',
+            body: entities.body || 'This email was sent by your agent.',
+            connectionId
+          };
+
+          logger.debug('Sending email with specified connection', {
+            agentId,
+            emailParams,
+            recipientsCount: emailParams.to.length
+          });
+
+          if (emailParams.to.length === 0) {
+            logger.warn('No recipients found for email command', {
+              agentId,
+              originalEntities: entities,
+              extractedRecipients: entities.recipients
+            });
+            throw new Error('No email recipients found. Please specify valid email addresses.');
+          }
+
+          try {
+            const result = await this.workspaceTools.sendEmailTool.execute(emailParams, context);
+            logger.info('✅ Email sent successfully', {
+              agentId,
+              recipients: emailParams.to,
+              subject: emailParams.subject,
+              result
+            });
+            return result;
+          } catch (error) {
+            logger.error('❌ Email sending failed', {
+              agentId,
+              emailParams,
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined
+            });
+            throw error;
+          }
+        }
 
       case WorkspaceCommandType.READ_EMAIL:
         return await this.workspaceTools.readSpecificEmailTool.execute({
@@ -276,7 +403,7 @@ export class WorkspaceAgentIntegration {
         const today = new Date();
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
-        
+
         return await this.workspaceTools.readCalendarTool.execute({
           startDate: today.toISOString().split('T')[0],
           endDate: tomorrow.toISOString().split('T')[0],
@@ -294,7 +421,7 @@ export class WorkspaceAgentIntegration {
         const dayStart = new Date();
         const dayEnd = new Date();
         dayEnd.setHours(23, 59, 59, 999);
-        
+
         return await this.workspaceTools.readCalendarTool.execute({
           startDate: dayStart.toISOString().split('T')[0],
           endDate: dayEnd.toISOString().split('T')[0],
@@ -360,7 +487,7 @@ export class WorkspaceAgentIntegration {
     capabilities: any[]
   ): Promise<void> {
     const availableTools = await this.workspaceTools.getAvailableTools(agentId);
-    
+
     for (const tool of availableTools) {
       try {
         // Convert AgentTool to Tool format for ToolManager
@@ -377,7 +504,7 @@ export class WorkspaceAgentIntegration {
             return await tool.execute(params as any, context as any);
           }
         };
-        
+
         await toolManager.registerTool(toolForManager);
         logger.debug(`Registered workspace tool: ${tool.name} for agent ${agentId}`);
       } catch (error) {
@@ -432,11 +559,28 @@ export class WorkspaceAgentIntegration {
     }
 
     try {
+      logger.debug('Validating workspace command permission', {
+        agentId,
+        commandType: command.type,
+        requiredCapability,
+        connectionId
+      });
+
       const validation = await this.permissionService.validatePermissions(
         agentId,
         requiredCapability as any,
         connectionId
       );
+
+      logger.debug('Permission validation result', {
+        agentId,
+        commandType: command.type,
+        requiredCapability,
+        connectionId,
+        isValid: validation.isValid,
+        error: validation.error
+      });
+
       return validation.isValid;
     } catch (error) {
       logger.error('Permission validation failed:', error);
