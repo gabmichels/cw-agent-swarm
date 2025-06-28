@@ -1046,6 +1046,12 @@ export class AgentConfigValidator {
             }
           },
           description: 'Visualization configuration'
+        },
+        enableLLMFormatting: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable LLM-based tool response formatting'
         }
       }
     });

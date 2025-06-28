@@ -18,11 +18,11 @@ import { ManagerType } from '../../agents/shared/base/managers/ManagerType';
 import { VisualizationConfig } from '../../types/visualization-integration';
 
 // Import new bootstrap utilities at the top of the file
-import { 
-  agentBootstrapRegistry, 
-  AgentBootstrapState 
+import {
+  agentBootstrapRegistry,
+  AgentBootstrapState
 } from './agent-bootstrap-registry';
-import { 
+import {
   validateAgentPreInitialization,
   handlePostInitialization
 } from './agent-bootstrap-utils';
@@ -34,8 +34,8 @@ import {
 // Update imports to include our new error handling and metrics components
 import { safelyInitializeAgent } from './agent-error-boundary';
 import { checkAgentHealth, registerAgentForHealthMonitoring } from './agent-health-check';
-import { 
-  recordInitializationMetric, 
+import {
+  recordInitializationMetric,
   startResourceMetricsCollection,
   getAgentsSummaryMetrics,
 } from './agent-metrics';
@@ -64,7 +64,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       { agentName: dbAgent.name || 'Unknown' }
     );
   }
-  
+
   // Register with bootstrap registry if not already registered
   if (!agentBootstrapRegistry.isAgentRegistered(dbAgent.id)) {
     agentBootstrapRegistry.registerAgent(
@@ -77,23 +77,26 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       }
     );
   }
-  
+
   // Create the agent instance
   logger.debug(`🔍 Creating DefaultAgent for ${dbAgent.id} (${dbAgent.name})...`);
-  
+
   // Create agent configuration
   const agentConfig = {
     id: dbAgent.id,
     name: dbAgent.name || 'Unnamed Agent',
     description: dbAgent.description || '',
-    
+
     // Use enhanced managers
     useEnhancedMemory: true,
     useEnhancedReflection: true,
-    
+
     // Enable adaptive behavior
     adaptiveBehavior: true,
-    
+
+    // CRITICAL: Enable LLM-based tool response formatting
+    enableLLMFormatting: true,
+
     // CRITICAL: Enable all required managers explicitly
     enableMemoryManager: true,
     enablePlanningManager: true,
@@ -104,26 +107,26 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     enableInputProcessor: true,
     enableOutputProcessor: true,
     enableResourceTracking: true,
-    
+
     // Phase 2 managers (enable communication and collaboration for multi-agent capabilities)
     enableEthicsManager: false,
     enableCollaborationManager: true,  // Enable for multi-agent approvals/coordination
     enableCommunicationManager: true,  // Enable for multi-agent messaging/delegation
     enableNotificationManager: false,
-    
+
     // Configure memory refresh
     memoryRefresh: {
       enabled: true,
       interval: 3600000, // 1 hour
       maxCriticalMemories: 10
     },
-    
+
     // System prompt and persona
-    systemPrompt: (dbAgent.parameters as any)?.systemPrompt || 
-                 "You are a helpful assistant. Provide concise, accurate, and helpful responses.",
-                 
+    systemPrompt: (dbAgent.parameters as any)?.systemPrompt ||
+      "You are a helpful assistant. Provide concise, accurate, and helpful responses.",
+
     persona: (dbAgent.metadata as any)?.persona || {},
-    
+
     // Visualization configuration - ensure comprehensive tracking is enabled
     visualizationConfig: {
       enabled: true,
@@ -134,7 +137,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       includePerformanceMetrics: true,
       includeContextData: true
     },
-    
+
     // Manager-specific configurations
     managersConfig: {
       memoryManager: {},
@@ -159,7 +162,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
         trackPerTaskUtilization: true
       }
     },
-    
+
     // Clean slate component configurations (legacy support)
     componentsConfig: {
       // Manager configurations (these provide backward compatibility)
@@ -169,13 +172,13 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       knowledgeManager: { enabled: true },
       schedulerManager: { enabled: true },
       reflectionManager: { enabled: true },
-      
+
       // New manager configurations (Phase 2 integration - disabled by default)
       ethicsManager: { enabled: false },
       collaborationManager: { enabled: false },
       communicationManager: { enabled: false },
       notificationManager: { enabled: false },
-      
+
       // Component configurations
       initializer: {
         enabled: true,
@@ -229,10 +232,10 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       }
     }
   };
-  
+
   // Create the agent using DefaultAgent
   const agent = new DefaultAgent(agentConfig);
-  
+
   // Verify ID is set correctly
   const agentId = agent.getAgentId();
   if (agentId !== dbAgent.id) {
@@ -243,7 +246,7 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       { expectedId: dbAgent.id, actualId: agentId }
     );
   }
-  
+
   logger.debug(`✓ Agent ID verified: ${agentId}`);
   return agent;
 }
@@ -255,63 +258,63 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
  */
 export async function bootstrapAgentsFromDatabase(): Promise<number> {
   const bootstrapRequestId = uuidv4();
-  
+
   try {
-    logger.info('Bootstrapping agents from database into runtime registry...', { 
-      requestId: bootstrapRequestId 
+    logger.info('Bootstrapping agents from database into runtime registry...', {
+      requestId: bootstrapRequestId
     });
     logger.debug('🤖 Starting agent bootstrap process...');
-    
+
     // Get memory service
     const { memoryService } = await getMemoryServices();
     const agentService = await createAgentMemoryService(memoryService);
-    
+
     // Get all agents from database
     const getResult = await agentService.getAgents();
-    
+
     if (getResult.isError || !getResult.value) {
-      const errorMsg = 'Failed to load agents from database: ' + 
+      const errorMsg = 'Failed to load agents from database: ' +
         (getResult.error?.message || 'Unknown error');
-      
+
       logger.error(errorMsg, { requestId: bootstrapRequestId });
       logger.debug('❌ ' + errorMsg);
       return 0;
     }
-    
+
     const dbAgents = getResult.value;
-    logger.info(`Found ${dbAgents.length} agents in database`, { 
+    logger.info(`Found ${dbAgents.length} agents in database`, {
       requestId: bootstrapRequestId,
       agentCount: dbAgents.length
     });
     logger.debug(`📋 Found ${dbAgents.length} agents in database`);
-    
+
     // Log all available agents in database
     logger.debug('📝 Agents available in database:');
     dbAgents.forEach((agent: AgentMemoryEntity) => {
       logger.debug(`   - Agent ID: ${agent.id}, Name: ${agent.name}`);
     });
-    
+
     let loadedCount = 0;
     const failedAgents: Array<{ id: string; reason: string }> = [];
-    
+
     // Load and register each agent simply
     for (const dbAgent of dbAgents) {
       try {
         // Skip if agent is already registered in runtime registry
         if (getAgentById(dbAgent.id)) {
           const logMsg = `Agent ${dbAgent.id} already registered in runtime registry, skipping`;
-          logger.info(logMsg, { 
-            agentId: dbAgent.id, 
+          logger.info(logMsg, {
+            agentId: dbAgent.id,
             agentName: dbAgent.name,
             requestId: bootstrapRequestId
           });
           logger.debug(`⏩ ${logMsg}`);
           continue;
         }
-        
+
         // Create agent instance with pre-validation
         const agent = await createAgentInstance(dbAgent);
-        
+
         // Record pre-initialization metrics
         recordInitializationMetric(agent, 'bootstrap_started', {
           timestamp: new Date().toISOString(),
@@ -320,17 +323,17 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           agentName: dbAgent.name,
           metadata: dbAgent.metadata
         });
-        
+
         // Log initialization stage
         logAgentInitializationStage(agent, 'bootstrap_started', {
           requestId: bootstrapRequestId,
           agentType: agent.getType ? agent.getType() : 'unknown',
           timestamp: new Date().toISOString()
         });
-        
+
         // Initialize with error boundary
         logger.debug(`🔄 Initializing agent ${dbAgent.id}...`);
-        
+
         const startTime = Date.now();
         const initResult = await safelyInitializeAgent(agent, {
           operationName: 'bootstrap_initialization',
@@ -343,14 +346,14 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
         });
         const endTime = Date.now();
         const durationMs = endTime - startTime;
-        
+
         // Record metrics for initialization
         recordInitializationMetric(agent, 'initialization_result', {
           success: initResult.success,
           durationMs,
           error: initResult.error ? initResult.error.message : undefined
         });
-        
+
         // Record performance metrics
         recordInitializationMetrics(agent, 'performance', {
           startTime: new Date(startTime),
@@ -358,7 +361,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
           durationMs,
           success: initResult.success
         });
-        
+
         if (initResult.success) {
           // Log successful initialization
           logAgentInitializationStage(agent, 'bootstrap_completed', {
@@ -366,14 +369,14 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             timestamp: new Date().toISOString(),
             requestId: bootstrapRequestId
           });
-          
+
           // Handle post-initialization
           handlePostInitialization(agent);
           logger.debug(`✅ Successfully initialized agent ${dbAgent.id} and all its managers`);
-          
+
           // Register with runtime registry
           logger.debug(`📝 Registering agent ${dbAgent.id} with runtime registry...`);
-          
+
           // DEBUG: Check agent state before registration
           const preRegManagers = agent.getManagers();
           const preRegToolManager = agent.getManager(ManagerType.TOOL);
@@ -384,9 +387,9 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             toolManagerType: preRegToolManager?.constructor.name,
             managerTypes: preRegManagers.map(m => m.managerType)
           });
-          
+
           registerAgent(agent);
-          
+
           // VERIFY REGISTRATION: Check if agent was actually registered
           const registeredAgent = getAgentById(dbAgent.id);
           if (!registeredAgent) {
@@ -397,7 +400,7 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
               { agentId: dbAgent.id, agentName: dbAgent.name }
             );
           }
-          
+
           // DEBUG: Check if it's the same instance
           const isSameInstance = registeredAgent === agent;
           logger.debug(`🔍 POST-REGISTRATION verification for ${dbAgent.id}`, {
@@ -405,15 +408,15 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             originalInstanceId: (agent as any)._instanceId || 'no-instance-id',
             registeredInstanceId: (registeredAgent as any)._instanceId || 'no-instance-id'
           });
-          
+
           // VERIFY AGENT METHODS: Ensure the agent has required methods
           try {
             const agentId = registeredAgent.getId();
             const health = await registeredAgent.getHealth();
-            
+
             // VERIFY TOOL REGISTRATION: Check if tools are registered
             const toolManager = registeredAgent.getManager(ManagerType.TOOL);
-            
+
             // DEBUG: Add detailed manager inspection
             const allManagers = registeredAgent.getManagers();
             const managerInfo = allManagers.map(m => ({
@@ -422,41 +425,41 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
               hasGetAllTools: typeof (m as any).getAllTools === 'function',
               hasGetTools: typeof (m as any).getTools === 'function'
             }));
-            
-            logger.debug(`🔍 Manager inspection for agent ${dbAgent.id}`, { 
+
+            logger.debug(`🔍 Manager inspection for agent ${dbAgent.id}`, {
               managerCount: allManagers.length,
               managers: managerInfo,
               toolManagerFound: !!toolManager,
               lookingForType: ManagerType.TOOL
             });
-            
+
             if (toolManager && typeof (toolManager as any).getTools === 'function') {
               try {
                 const allTools = await (toolManager as any).getTools();
                 const toolCount = Array.isArray(allTools) ? allTools.length : 0;
                 const toolNames = Array.isArray(allTools) ? allTools.map((t: any) => t.name || t.id).join(', ') : 'none';
-                
+
                 // Check specifically for send_message tool
                 const hasSendMessage = Array.isArray(allTools) && allTools.some((t: any) => t.id === 'send_message' || t.name === 'send_message');
-                
+
                 logger.debug(`🔧 Tool registration verification for agent ${dbAgent.id}`, {
                   toolCount,
                   hasSendMessage,
                   toolNames: toolNames.substring(0, 200) + (toolNames.length > 200 ? '...' : '')
                 });
-                
+
                 if (hasSendMessage) {
                   console.log(`✅ CRITICAL: send_message tool successfully registered for agent ${dbAgent.id}`);
                 } else {
                   console.log(`❌ CRITICAL: send_message tool NOT FOUND for agent ${dbAgent.id} - scheduled messaging will not work!`);
                 }
-                
+
                 if (toolCount === 0) {
                   console.log(`⚠️ WARNING: No tools registered for agent ${dbAgent.id} - agent will have limited capabilities`);
                 } else {
                   console.log(`📋 Agent ${dbAgent.id} registered with ${toolCount} tools: ${toolNames.substring(0, 100)}${toolNames.length > 100 ? '...' : ''}`);
                 }
-                
+
               } catch (toolError) {
                 logger.debug(`Failed to verify tool registration for agent ${dbAgent.id}`, {
                   error: toolError instanceof Error ? toolError.message : String(toolError)
@@ -466,110 +469,110 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
             } else {
               console.log(`❌ CRITICAL: No tool manager found for agent ${dbAgent.id} - tools will not be available!`);
             }
-            
+
             logger.debug(`Verified registered agent ${dbAgent.id}`, {
               agentId,
               healthStatus: health.status,
               hasPlanAndExecute: typeof (registeredAgent as any).planAndExecute === 'function'
             });
-            
+
           } catch (verificationError) {
             logger.debug(`Agent verification failed for ${dbAgent.id}`, {
               error: verificationError instanceof Error ? verificationError.message : String(verificationError)
             });
           }
-          
+
           logger.info(`Agent registered: ${dbAgent.id} (${dbAgent.name})`, {
             agentId: dbAgent.id,
             requestId: bootstrapRequestId,
             agentType: agent.constructor.name
           });
-          
+
           logger.debug('Agent registration capabilities', {
             agentId: dbAgent.id,
             hasGetId: typeof agent.getId === 'function',
             hasGetHealth: typeof agent.getHealth === 'function',
             hasPlanAndExecute: typeof (agent as any).planAndExecute === 'function'
           });
-          
+
           console.log(`✅ Registered agent ${dbAgent.id} (${dbAgent.name}) in runtime registry as DefaultAgent with all managers`);
-          
+
           // Perform initial health check
           const healthCheckResult = await checkAgentHealth(agent, {
             deepCheck: true,
             checkManagers: true
           });
-          
+
           // Set up health monitoring
           const stopHealthMonitoring = registerAgentForHealthMonitoring(agent);
-          
+
           // Set up resource metrics collection
           const stopResourceMetrics = startResourceMetricsCollection(agent);
-          
+
           // Store monitoring cancellation functions if needed later
           (agent as any)._monitoringCleanup = {
             stopHealthMonitoring,
             stopResourceMetrics
           };
-          
+
           loadedCount++;
         } else {
           // Release lock and log failure
           agentBootstrapRegistry.releaseLock(dbAgent.id);
           agentBootstrapRegistry.updateAgentBootstrapState(dbAgent.id, AgentBootstrapState.FAILED);
-          
+
           const errorMsg = `Failed to initialize agent ${dbAgent.id}: ${initResult.error?.message || 'Unknown error'}`;
-          logger.error(errorMsg, { 
-            agentId: dbAgent.id, 
+          logger.error(errorMsg, {
+            agentId: dbAgent.id,
             requestId: bootstrapRequestId,
             error: initResult.error
           });
           logger.debug(`❌ ${errorMsg}`);
-          
-          failedAgents.push({ 
-            id: dbAgent.id, 
-            reason: initResult.error?.message || 'Initialization failed' 
+
+          failedAgents.push({
+            id: dbAgent.id,
+            reason: initResult.error?.message || 'Initialization failed'
           });
         }
       } catch (error) {
         // Release lock and update state
         agentBootstrapRegistry.releaseLock(dbAgent.id);
-        
+
         const errorObj = error instanceof Error ? error : new Error(String(error));
         agentBootstrapRegistry.updateAgentBootstrapState(
-          dbAgent.id, 
+          dbAgent.id,
           AgentBootstrapState.FAILED,
           errorObj
         );
-        
+
         logger.error(`Error bootstrapping agent ${dbAgent.id}:`, {
           error: errorObj,
           agentId: dbAgent.id,
           requestId: bootstrapRequestId
         });
         logger.debug(`❌ Error bootstrapping agent ${dbAgent.id} (${dbAgent.name}):`, error);
-        
-        failedAgents.push({ 
-          id: dbAgent.id, 
+
+        failedAgents.push({
+          id: dbAgent.id,
           reason: error instanceof Error ? error.message : String(error)
         });
       }
     }
-    
+
     // Get summary metrics
     const summaryMetrics = getAgentsSummaryMetrics();
-    
+
     // FINAL VERIFICATION: Check runtime registry state
     const { getAllAgents, getRegistryStats } = await import('./agent-service');
     const finalAgents = getAllAgents();
     const finalStats = getRegistryStats();
-    
+
     logger.debug(`🔍 Final runtime registry verification:`);
     logger.debug(`   - Agents in runtime registry: ${finalAgents.length}`);
     logger.debug(`   - Registry size: ${finalStats.totalAgents}`);
     logger.debug(`   - Agent IDs: [${finalStats.agentIds.join(', ')}]`);
     logger.debug(`   - Agent Types: [${finalStats.agentTypes.join(', ')}]`);
-    
+
     if (finalAgents.length === 0 && loadedCount > 0) {
       logger.error('Runtime registry empty despite successful agent loading', {
         requestId: bootstrapRequestId,
@@ -581,10 +584,10 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
     } else {
       logger.info(`✅ Registry verification successful: ${finalAgents.length} agents available`);
     }
-    
+
     // Log summary of bootstrap process
     const summaryMsg = `Successfully bootstrapped ${loadedCount} agents from database into runtime registry`;
-    logger.info(summaryMsg, { 
+    logger.info(summaryMsg, {
       requestId: bootstrapRequestId,
       loadedCount,
       failedCount: failedAgents.length,
@@ -593,20 +596,20 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
       finalRuntimeRegistryCount: finalAgents.length
     });
     logger.debug(`🚀 ${summaryMsg}`);
-    
+
     if (failedAgents.length > 0) {
       logger.debug(`⚠️ Failed to bootstrap ${failedAgents.length} agents:`);
       failedAgents.forEach(({ id, reason }) => {
         logger.debug(`   - Agent ID: ${id}, Reason: ${reason}`);
       });
     }
-    
+
     // Output summary metrics to console
     logger.debug(`📊 Bootstrap Summary:`);
     logger.debug(`   - Total Agents: ${summaryMetrics.totalAgents}`);
     logger.debug(`   - Success Rate: ${(summaryMetrics.initializationSuccessRate * 100).toFixed(1)}%`);
     logger.debug(`   - Avg Init Time: ${(summaryMetrics.averageInitializationTime / 1000).toFixed(2)}s`);
-    
+
     // Start a single centralized scheduler for all agents
     if (loadedCount > 0) {
       logger.info('Agent-specific schedulers will handle task execution - global scheduler disabled');
@@ -638,11 +641,11 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
       }
       */
     }
-    
+
     return loadedCount;
   } catch (error) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
-    
+
     logger.error('Error bootstrapping agents from database:', {
       error: errorObj,
       requestId: bootstrapRequestId

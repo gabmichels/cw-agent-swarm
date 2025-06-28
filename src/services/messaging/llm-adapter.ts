@@ -21,11 +21,11 @@ export class OpenAIMessagingLLMService implements AgentLLMService {
   constructor() {
     // Use cheap model for messaging since smart thinking already happened
     const modelName = process.env.OPENAI_CHEAP_MODEL || CHEAP_LLM_MODEL;
-    
+
     this.llm = new ChatOpenAI({
       modelName,
       temperature: 0.3, // Low temperature for consistent, focused messaging
-      maxTokens: process.env.OPENAI_MAX_TOKENS || 8000, // Messages should be concise
+      maxTokens: process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) : 8000, // Messages should be concise
       apiKey: process.env.OPENAI_API_KEY,
       timeout: 10000 // 10 second timeout - messaging should be fast
     });
@@ -49,7 +49,7 @@ export class OpenAIMessagingLLMService implements AgentLLMService {
 
       // @ts-ignore - LangChain types are not correctly defined for message arrays
       const response = await this.llm.invoke(messages);
-      
+
       // Handle response content - it should be a string or have a toString method
       return response.content.toString();
 

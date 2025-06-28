@@ -1,37 +1,63 @@
-import { getServiceConfig } from '../../lib/core/unified-config';
-import { logger } from '../../lib/logging';
-import { DatabaseService } from '../database/DatabaseService';
 import { IDatabaseProvider } from '../database/IDatabaseProvider';
+import { DatabaseService } from '../database/DatabaseService';
+import { logger } from '../../lib/logging';
 import {
-  ConnectionStatus,
-  WorkspaceCapabilityType,
+  WorkspaceProvider,
   WorkspaceConnection,
-  WorkspaceProvider
+  WorkspaceCapabilityType,
+  ConnectionStatus
 } from '../database/types';
+import {
+  IWorkspaceProvider,
+  ConnectionResult,
+  ValidationResult
+} from './providers/IWorkspaceProvider';
 import { GoogleWorkspaceProvider } from './providers/GoogleWorkspaceProvider';
-import { ConnectionResult, IWorkspaceProvider, ValidationResult } from './providers/IWorkspaceProvider';
 import { ZohoWorkspaceProvider } from './providers/ZohoWorkspaceProvider';
+import { getServiceConfig } from '../../lib/core/unified-config';
 
 /**
- * Main workspace service that orchestrates multiple workspace providers
- * Handles connection management, token refresh, and validation across all providers
+ * Centralized service for managing workspace connections and providers
+ * Handles Google Workspace, Zoho, Microsoft 365, and other workspace integrations
  */
 export class WorkspaceService {
   private providers: Map<WorkspaceProvider, IWorkspaceProvider> = new Map();
   private db: IDatabaseProvider;
+  private providersInitialized = false;
 
   constructor() {
     this.db = DatabaseService.getInstance();
-    this.initializeProviders();
+    // Don't initialize providers in constructor - do it lazily when needed
+  }
+
+  /**
+   * Ensure configuration is loaded before accessing it
+   */
+  private async ensureConfigLoaded(): Promise<void> {
+    try {
+      const { unifiedConfig } = await import('../../lib/core/unified-config');
+      await unifiedConfig.loadConfig();
+    } catch (error) {
+      logger.error('Failed to load unified configuration in WorkspaceService', { error });
+      throw error;
+    }
   }
 
   /**
    * Initialize all available workspace providers
    */
-  private initializeProviders(): void {
+  private async initializeProviders(): Promise<void> {
+    // Skip if already initialized
+    if (this.providersInitialized) {
+      return;
+    }
+
     const initializedProviders: string[] = [];
 
     try {
+      // Load configuration first if not already loaded
+      await this.ensureConfigLoaded();
+
       // Get OAuth configuration to check which providers are available
       const oauthConfig = getServiceConfig('oauth');
 
@@ -65,19 +91,6 @@ export class WorkspaceService {
         logger.debug('Zoho Workspace provider not initialized - credentials not configured');
       }
 
-      // TODO: Add Microsoft 365 provider when implemented
-      // if (oauthConfig.providers.microsoft) {
-      //   try {
-      //     const microsoftProvider = new MicrosoftWorkspaceProvider();
-      //     this.providers.set(WorkspaceProvider.MICROSOFT_365, microsoftProvider);
-      //     initializedProviders.push('Microsoft 365');
-      //   } catch (error) {
-      //     logger.warn('Failed to initialize Microsoft 365 provider', { 
-      //       error: error instanceof Error ? error.message : 'Unknown error' 
-      //     });
-      //   }
-      // }
-
       if (initializedProviders.length > 0) {
         logger.info('Workspace providers initialized', {
           availableProviders: Array.from(this.providers.keys()),
@@ -89,13 +102,19 @@ export class WorkspaceService {
     } catch (error) {
       logger.error('Failed to initialize workspace providers', { error });
       // Don't throw error - service should work even without providers
+    } finally {
+      // Mark as initialized even if some providers failed
+      this.providersInitialized = true;
     }
   }
 
   /**
    * Get provider instance for a specific workspace provider
    */
-  private getProvider(provider: WorkspaceProvider): IWorkspaceProvider {
+  private async getProvider(provider: WorkspaceProvider): Promise<IWorkspaceProvider> {
+    // Ensure providers are initialized
+    await this.initializeProviders();
+
     const providerInstance = this.providers.get(provider);
     if (!providerInstance) {
       throw new Error(`Provider ${provider} not found or not initialized`);
@@ -106,7 +125,7 @@ export class WorkspaceService {
   /**
    * Get provider instance for external use (public method)
    */
-  public getProviderInstance(provider: WorkspaceProvider): IWorkspaceProvider {
+  public async getProviderInstance(provider: WorkspaceProvider): Promise<IWorkspaceProvider> {
     return this.getProvider(provider);
   }
 
@@ -142,7 +161,7 @@ export class WorkspaceService {
       }
 
       // Get the appropriate provider
-      const provider = this.getProvider(connection.provider);
+      const provider = await this.getProvider(connection.provider);
 
       // Refresh using the provider
       const result = await provider.refreshConnection(connectionId);
@@ -193,7 +212,7 @@ export class WorkspaceService {
         };
       }
 
-      const provider = this.getProvider(connection.provider);
+      const provider = await this.getProvider(connection.provider);
       const result = await provider.validateConnection(connectionId);
 
       logger.debug('Connection validation result', {
@@ -269,40 +288,12 @@ export class WorkspaceService {
   }
 
   /**
-   * Check health of all providers
-   */
-  async checkProviderHealth(): Promise<Record<WorkspaceProvider, boolean>> {
-    const healthStatus: Record<WorkspaceProvider, boolean> = {} as any;
-
-    for (const [providerType, provider] of Array.from(this.providers.entries())) {
-      try {
-        healthStatus[providerType] = await provider.isHealthy();
-      } catch (error) {
-        logger.warn(`Provider ${providerType} health check failed`, { error });
-        healthStatus[providerType] = false;
-      }
-    }
-
-    return healthStatus;
-  }
-
-  /**
-   * Get supported capabilities for a provider
-   */
-  getSupportedCapabilities(provider: WorkspaceProvider): WorkspaceCapabilityType[] {
-    try {
-      const providerInstance = this.getProvider(provider);
-      return providerInstance.supportedCapabilities;
-    } catch (error) {
-      logger.error(`Error getting capabilities for provider ${provider}`, { error });
-      return [];
-    }
-  }
-
-  /**
    * Get all available providers
    */
-  getAvailableProviders(): WorkspaceProvider[] {
+  async getAvailableProviders(): Promise<WorkspaceProvider[]> {
+    // Ensure providers are initialized
+    await this.initializeProviders();
+
     return Array.from(this.providers.keys());
   }
 
@@ -325,39 +316,6 @@ export class WorkspaceService {
         provider: connection.provider,
         email: connection.email
       });
-
-      // Try to get the provider instance - but don't fail if it's not available
-      const provider = this.providers.get(connection.provider);
-
-      if (provider) {
-        logger.debug('Provider found, attempting provider-level revocation', {
-          provider: connection.provider
-        });
-
-        // Revoke the connection through the provider if it supports it
-        try {
-          if ('revokeConnection' in provider && typeof provider.revokeConnection === 'function') {
-            await (provider as any).revokeConnection(connectionId);
-            logger.debug('Provider-level revocation completed', { connectionId });
-          } else {
-            logger.debug('Provider does not support revocation method', {
-              provider: connection.provider
-            });
-          }
-        } catch (providerError) {
-          // Log provider error but continue with database deletion
-          logger.warn('Provider revocation failed, continuing with database deletion', {
-            connectionId,
-            provider: connection.provider,
-            error: providerError instanceof Error ? providerError.message : 'Unknown provider error'
-          });
-        }
-      } else {
-        logger.warn('Provider not available for revocation, proceeding with database deletion only', {
-          provider: connection.provider,
-          availableProviders: Array.from(this.providers.keys())
-        });
-      }
 
       // Delete the connection from database - this is the most important part
       // First, we need to clean up related records to avoid foreign key constraint violations
@@ -431,4 +389,4 @@ export class WorkspaceService {
       };
     }
   }
-} 
+}

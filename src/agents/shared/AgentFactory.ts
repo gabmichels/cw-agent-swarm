@@ -24,7 +24,7 @@ export class AgentFactory {
         }
         agentConfig = agentProfile;
       }
-      
+
       // Determine the format of the agent config and use the appropriate factory method
       if (this.isDbEntity(agentConfig)) {
         return AgentFactory.createFromDbEntity(agentConfig);
@@ -41,21 +41,21 @@ export class AgentFactory {
       return null;
     }
   }
-  
+
   /**
    * Determine if the agent config is a database entity
    */
   private isDbEntity(config: any): config is AgentMemoryEntity {
     return config?.type === 'agent' && 'content' in config;
   }
-  
+
   /**
    * Determine if the agent config is an API profile
    */
   private isApiProfile(config: any): config is AgentProfile {
     return 'id' in config && 'name' in config && 'capabilities' in config;
   }
-  
+
   /**
    * Normalize any agent config format to API Profile format
    */
@@ -88,15 +88,15 @@ export class AgentFactory {
       createdAt: config.createdAt || new Date(),
       updatedAt: config.updatedAt || new Date()
     };
-    
+
     // Extract capabilities
     if (Array.isArray(config.capabilities)) {
       profile.capabilities = config.capabilities.map((cap: any) => {
         if (typeof cap === 'string') {
-          return { 
-            id: `cap-${uuidv4()}`, 
-            name: cap, 
-            description: `Capability ${cap}` 
+          return {
+            id: `cap-${uuidv4()}`,
+            name: cap,
+            description: `Capability ${cap}`
           };
         } else if (typeof cap === 'object') {
           return {
@@ -105,30 +105,30 @@ export class AgentFactory {
             description: cap.description || `Capability ${cap.name || 'Unknown'}`
           };
         }
-        return { 
-          id: `cap-${uuidv4()}`, 
-          name: 'unknown', 
-          description: 'Unknown capability' 
+        return {
+          id: `cap-${uuidv4()}`,
+          name: 'unknown',
+          description: 'Unknown capability'
         };
       });
     }
-    
+
     // Add any other parameters that might be in the config
     if (config.parameters) {
-      profile.parameters = { 
+      profile.parameters = {
         ...profile.parameters,
         ...config.parameters
       };
     }
-    
+
     // Add any other metadata that might be in the config
     if (config.metadata) {
-      profile.metadata = { 
+      profile.metadata = {
         ...profile.metadata,
         ...config.metadata
       };
     }
-    
+
     return profile;
   }
 
@@ -144,13 +144,13 @@ export class AgentFactory {
       version: '1.0', // Default version if not provided
       parameters: {}  // Default empty parameters
     }));
-    
+
     // Keep tools as string array since that's what the new interface expects
     const tools: string[] = profile.parameters.tools || [];
-    
+
     // Generate new agent ID or use existing one
     const agentId = profile.id || IdGenerator.generate('agent');
-    
+
     // Create agent data conforming to the DB entity format
     const agentData: Partial<AgentMemoryEntity> = {
       id: agentId.toString(),
@@ -174,7 +174,7 @@ export class AgentFactory {
         ...profile.metadata,
         tags: profile.metadata.tags || [],
         domain: profile.metadata.domain || [],
-        specialization: profile.metadata.specialization || [], 
+        specialization: profile.metadata.specialization || [],
         performanceMetrics: profile.metadata.performanceMetrics || {
           successRate: 0,
           averageResponseTime: 0,
@@ -184,7 +184,7 @@ export class AgentFactory {
         isPublic: profile.metadata.isPublic || false
       }
     };
-    
+
     // Create the DefaultAgent with the converted data, and make sure to preserve the ID
     const agent = new DefaultAgent({
       // Force set ID by redefining it
@@ -192,6 +192,8 @@ export class AgentFactory {
       agentId: agentId.toString(), // Try both ways
       _id: agentId.toString(), // Try all possible property names
       ...agentData as any,
+      // Enable LLM formatting for API-created agents
+      enableLLMFormatting: true,
       componentsConfig: {
         memoryManager: { enabled: true },
         planningManager: { enabled: true },
@@ -200,7 +202,7 @@ export class AgentFactory {
         schedulerManager: { enabled: true }
       }
     });
-    
+
     // Try to force set ID directly on the agent instance
     try {
       (agent as any)._id = agentId.toString();
@@ -209,10 +211,10 @@ export class AgentFactory {
     } catch (e) {
       console.warn('Failed to directly set agent ID:', e);
     }
-    
+
     return agent;
   }
-  
+
   /**
    * Create a DefaultAgent instance from a DB entity
    */
@@ -220,6 +222,8 @@ export class AgentFactory {
     // Create the DefaultAgent with the entity data
     const agent = new DefaultAgent({
       ...entity as any,
+      // Enable LLM formatting for DB-created agents
+      enableLLMFormatting: true,
       componentsConfig: {
         memoryManager: { enabled: true },
         planningManager: { enabled: true },
@@ -228,7 +232,7 @@ export class AgentFactory {
         schedulerManager: { enabled: true }
       }
     });
-    
+
     return agent;
   }
 } 

@@ -1406,12 +1406,20 @@ Please provide a helpful, contextual response based on this analysis and memory 
             dataPreview: workspaceResult.data ? JSON.stringify(workspaceResult.data).substring(0, 200) : 'none'
           });
 
-          if (workspaceResult.success) {
-            this.logger.info('✅ Workspace command processed successfully', {
-              scheduled: workspaceResult.scheduled,
-              taskId: workspaceResult.taskId,
-              hasData: !!workspaceResult.data
-            });
+          // Process both successful AND failed workspace results
+          if (workspaceResult.success || workspaceResult.error) {
+            if (workspaceResult.success) {
+              this.logger.info('✅ Workspace command processed successfully', {
+                scheduled: workspaceResult.scheduled,
+                taskId: workspaceResult.taskId,
+                hasData: !!workspaceResult.data
+              });
+            } else {
+              this.logger.warn('❌ Workspace command failed', {
+                error: workspaceResult.error,
+                hasData: !!workspaceResult.data
+              });
+            }
 
             // Generate response based on result
             let responseContent = await this.formatWorkspaceResponse(workspaceResult, message);
@@ -1419,10 +1427,12 @@ Please provide a helpful, contextual response based on this analysis and memory 
               responseContent = `I've scheduled that task for you. Task ID: ${workspaceResult.taskId}`;
             }
 
-            // Create workspace response for unified formatting
+            // Create workspace response for unified formatting (both success and failure)
             const workspaceResponse: AgentResponse = {
               content: responseContent,
-              thoughts: [`Processed workspace command successfully`],
+              thoughts: workspaceResult.success
+                ? [`Processed workspace command successfully`]
+                : [`Workspace command failed: ${workspaceResult.error}`],
               metadata: {
                 workspaceProcessed: true,
                 scheduled: workspaceResult.scheduled,
@@ -1435,6 +1445,11 @@ Please provide a helpful, contextual response based on this analysis and memory 
                   toolId: 'workspace_integration',
                   success: workspaceResult.success,
                   data: workspaceResult.data,
+                  error: workspaceResult.error ? {
+                    message: workspaceResult.error,
+                    code: 'WORKSPACE_EXECUTION_FAILED',
+                    details: workspaceResult.data
+                  } : undefined,
                   metrics: {
                     startTime: Date.now() - 1000,
                     endTime: Date.now(),
@@ -2898,11 +2913,22 @@ Task scheduled successfully (ID: ${safeTaskId})`;
    * Format workspace command results into conversational responses
    */
   private async formatWorkspaceResponse(workspaceResult: any, originalMessage: string): Promise<string> {
+    // Handle failed workspace results first
+    if (!workspaceResult.success && workspaceResult.error) {
+      // Return the error message directly if available
+      return workspaceResult.error;
+    }
+
     if (!workspaceResult.data) {
       return 'I completed that task for you successfully.';
     }
 
     const data = workspaceResult.data;
+
+    // Handle failed smart email tool responses (data.success = false)
+    if (data.success === false && data.error) {
+      return data.error;
+    }
 
     // Handle smart email tool response format (success, result, selectedAccount, message)
     if (data.success && data.result && data.selectedAccount) {

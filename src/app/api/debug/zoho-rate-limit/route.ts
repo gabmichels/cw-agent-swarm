@@ -23,7 +23,7 @@ export async function GET() {
     });
 
     // Check if Zoho provider is available
-    const availableProviders = workspaceService.getAvailableProviders();
+    const availableProviders = await workspaceService.getAvailableProviders();
     const zohoAvailable = availableProviders.includes(WorkspaceProvider.ZOHO);
 
     // Analyze connection health
