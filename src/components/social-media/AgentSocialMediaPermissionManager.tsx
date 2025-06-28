@@ -456,44 +456,44 @@ export const AgentSocialMediaPermissionManager: React.FC<AgentSocialMediaPermiss
                             <div key={capability} className="p-3 bg-gray-750 rounded-lg">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center space-x-3 flex-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={isEnabled}
-                                    onChange={(e) => updatePermission(
-                                      connection.id, 
-                                      capability, 
-                                      e.target.checked,
-                                      AccessLevel.READ
-                                    )}
+                                <input
+                                  type="checkbox"
+                                  checked={isEnabled}
+                                  onChange={(e) => updatePermission(
+                                    connection.id, 
+                                    capability, 
+                                    e.target.checked,
+                                    AccessLevel.READ
+                                  )}
                                     className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
-                                  />
+                                />
                                   <div className="flex-1">
                                     <label className="text-sm font-medium text-white">
-                                      {getCapabilityDisplayName(capability)}
-                                    </label>
+                                  {getCapabilityDisplayName(capability)}
+                                </label>
                                     <p className="text-xs text-gray-400">
                                       Tool: {toolName}
                                     </p>
                                   </div>
-                                </div>
-                                
+                              </div>
+                              
                                 <div className="flex items-center space-x-3">
                                   {/* Access Level Selector */}
-                                  {isEnabled && (
-                                    <select
-                                      value={permission?.accessLevel || AccessLevel.READ}
-                                      onChange={(e) => updateAccessLevel(
-                                        connection.id, 
-                                        capability, 
-                                        e.target.value as AccessLevel
-                                      )}
-                                      className="text-xs bg-gray-600 border border-gray-500 rounded px-2 py-1 text-gray-300"
-                                    >
-                                      <option value={AccessLevel.READ}>Read</option>
-                                      <option value={AccessLevel.LIMITED}>Limited</option>
-                                      <option value={AccessLevel.FULL}>Full</option>
-                                    </select>
+                              {isEnabled && (
+                                <select
+                                  value={permission?.accessLevel || AccessLevel.READ}
+                                  onChange={(e) => updateAccessLevel(
+                                    connection.id, 
+                                    capability, 
+                                    e.target.value as AccessLevel
                                   )}
+                                  className="text-xs bg-gray-600 border border-gray-500 rounded px-2 py-1 text-gray-300"
+                                >
+                                  <option value={AccessLevel.READ}>Read</option>
+                                  <option value={AccessLevel.LIMITED}>Limited</option>
+                                  <option value={AccessLevel.FULL}>Full</option>
+                                </select>
+                              )}
                                   
                                   {/* Approval Checkbox - always show when enabled */}
                                   {isEnabled && (

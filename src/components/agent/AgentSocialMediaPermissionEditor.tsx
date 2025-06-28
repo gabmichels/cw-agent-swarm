@@ -96,21 +96,21 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
 
     try {
       // Save permissions using the same API as the manager component
-      const response = await fetch(`/api/agents/${agent.id}/social-media-permissions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        const response = await fetch(`/api/agents/${agent.id}/social-media-permissions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
           permissions: permissions,
           approvalSettings: approvalSettings,
           grantedBy: 'user'
-        }),
-      });
+          }),
+        });
 
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to save permissions');
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to save permissions');
       }
 
       onEditingChange(false);
@@ -191,12 +191,12 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
             Configure which social media accounts this agent can access and what actions require approval.
           </p>
           {permissions.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <Share2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+        <div className="text-center py-8 text-gray-400">
+          <Share2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No social media permissions configured.</p>
               <p className="text-sm">Click Edit to configure permissions.</p>
-            </div>
-          ) : (
+        </div>
+      ) : (
             <div className="space-y-3">
               {permissions.map((config) => {
                 const enabledCount = Object.values(config.permissions).filter(p => p.enabled).length;
@@ -206,14 +206,14 @@ export const AgentSocialMediaPermissionEditor: React.FC<AgentSocialMediaPermissi
                       <h3 className="font-medium text-white">{config.connectionName}</h3>
                       <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded">
                         {enabledCount} permission{enabledCount !== 1 ? 's' : ''}
-                      </span>
-                    </div>
+                        </span>
+                      </div>
                     <div className="text-sm text-gray-300">
                       <strong>Provider:</strong> {config.provider.replace('_', ' ')}
                     </div>
                     <div className="text-sm text-gray-300 mt-1">
                       <strong>Capabilities:</strong> {Object.keys(config.permissions).join(', ')}
-                    </div>
+                </div>
                   </div>
                 );
               })}

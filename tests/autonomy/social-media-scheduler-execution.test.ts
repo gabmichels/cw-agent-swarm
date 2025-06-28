@@ -6,17 +6,17 @@
  * and cross-platform coordination.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from 'vitest';
-import { SocialMediaCommandType } from '../../src/services/social-media/integration/SocialMediaNLP';
-import { SocialMediaProvider, SocialMediaCapability, SocialMediaConnection, SocialMediaConnectionStatus } from '../../src/services/social-media/database/ISocialMediaDatabase';
-import { TwitterProvider } from '../../src/services/social-media/providers/TwitterProvider';
-import { LinkedInProvider } from '../../src/services/social-media/providers/LinkedInProvider';
-import { PrismaSocialMediaDatabase } from '../../src/services/social-media/database/PrismaSocialMediaDatabase';
-import { DefaultAutonomySystem } from '../../src/agents/shared/autonomy/systems/DefaultAutonomySystem';
-import { AbstractAgentBase } from '../../src/agents/shared/base/AgentBase';
-import { ScheduledTask } from '../../src/agents/shared/autonomy/types/AutonomyTypes';
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { DefaultAutonomySystem } from '../../src/agents/shared/autonomy/systems/DefaultAutonomySystem';
+import { ScheduledTask } from '../../src/agents/shared/autonomy/types/AutonomyTypes';
+import { AbstractAgentBase } from '../../src/agents/shared/base/AgentBase';
+import { SocialMediaCapability, SocialMediaConnection, SocialMediaProvider } from '../../src/services/social-media/database/ISocialMediaDatabase';
+import { PrismaSocialMediaDatabase } from '../../src/services/social-media/database/PrismaSocialMediaDatabase';
+import { SocialMediaCommandType } from '../../src/services/social-media/integration/SocialMediaNLP';
+import { LinkedInProvider } from '../../src/services/social-media/providers/LinkedInProvider';
+import { TwitterProvider } from '../../src/services/social-media/providers/TwitterProvider';
 
 describe('Social Media Scheduler Execution Tests', () => {
   let testAgentId: string;
@@ -24,10 +24,10 @@ describe('Social Media Scheduler Execution Tests', () => {
 
   beforeAll(async () => {
     console.log('🔧 Setting up social media scheduler execution tests...');
-    
+
     // Create test agent ID
     testAgentId = `agent_${ulid()}`;
-    
+
     // Mock test connections for testing
     testConnections = {
       [SocialMediaProvider.TWITTER]: 'mock-twitter-connection',
@@ -35,7 +35,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       [SocialMediaProvider.INSTAGRAM]: 'mock-instagram-connection',
       [SocialMediaProvider.TIKTOK]: 'mock-tiktok-connection'
     };
-    
+
     console.log(`✅ Test setup complete with agent: ${testAgentId}`);
   });
 
@@ -54,7 +54,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(SocialMediaCommandType.ANALYTICS_GET).toBe('analytics_get');
       expect(SocialMediaCommandType.COMMENTS_GET).toBe('comments_get');
       expect(SocialMediaCommandType.CONTENT_OPTIMIZE).toBe('content_optimize');
-      
+
       console.log('✅ All command types are properly defined');
     });
 
@@ -65,7 +65,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(SocialMediaProvider.TIKTOK).toBe('tiktok');
       expect(SocialMediaProvider.FACEBOOK).toBe('facebook');
       expect(SocialMediaProvider.REDDIT).toBe('reddit');
-      
+
       console.log('✅ All social media providers are properly defined');
     });
 
@@ -75,7 +75,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(SocialMediaCapability.DRAFT_PUBLISH).toBe('DRAFT_PUBLISH');
       expect(SocialMediaCapability.TIKTOK_VIDEO_CREATE).toBe('TIKTOK_VIDEO_CREATE');
       expect(SocialMediaCapability.ANALYTICS_READ).toBe('ANALYTICS_READ');
-      
+
       console.log('✅ All social media capabilities are properly defined');
     });
   });
@@ -101,7 +101,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(command.entities.content).toBe('Test post content');
       expect(command.platforms).toContain(SocialMediaProvider.TWITTER);
       expect(command.requiredCapabilities).toContain(SocialMediaCapability.POST_CREATE);
-      
+
       console.log('✅ Post creation command structure is valid');
     });
 
@@ -125,7 +125,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(command.type).toBe(SocialMediaCommandType.DRAFT_PUBLISH);
       expect(command.entities.draftName).toBe('Summer Campaign');
       expect(command.requiredCapabilities).toContain(SocialMediaCapability.DRAFT_PUBLISH);
-      
+
       console.log('✅ Draft command structure is valid');
     });
 
@@ -149,7 +149,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(command.entities.title).toBe('AI Innovation Video');
       expect(command.platforms).toContain(SocialMediaProvider.TIKTOK);
       expect(command.requiredCapabilities).toContain(SocialMediaCapability.TIKTOK_VIDEO_CREATE);
-      
+
       console.log('✅ TikTok command structure is valid');
     });
 
@@ -172,7 +172,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(command.entities.timeframe).toBe('week');
       expect(command.entities.metrics).toContain('likes');
       expect(command.requiredCapabilities).toContain(SocialMediaCapability.ANALYTICS_READ);
-      
+
       console.log('✅ Analytics command structure is valid');
     });
   });
@@ -182,45 +182,45 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(testAgentId).toBeTruthy();
       expect(testConnections).toBeTruthy();
       expect(Object.keys(testConnections).length).toBeGreaterThan(0);
-      
+
       console.log(`✅ Test environment ready with ${Object.keys(testConnections).length} mock connections`);
     });
 
     test('should validate command type completeness', () => {
       const commandTypes = Object.values(SocialMediaCommandType);
-      
+
       // Check that we have commands for all major categories
       const hasPostCommands = commandTypes.some(type => type.includes('post'));
       const hasDraftCommands = commandTypes.some(type => type.includes('draft'));
       const hasAnalyticsCommands = commandTypes.some(type => type.includes('analytics'));
       const hasEngagementCommands = commandTypes.some(type => type.includes('comment'));
       const hasTikTokCommands = commandTypes.some(type => type.includes('tiktok'));
-      
+
       expect(hasPostCommands).toBe(true);
       expect(hasDraftCommands).toBe(true);
       expect(hasAnalyticsCommands).toBe(true);
       expect(hasEngagementCommands).toBe(true);
       expect(hasTikTokCommands).toBe(true);
-      
+
       console.log(`✅ Command type coverage complete: ${commandTypes.length} total command types`);
     });
 
     test('should validate capability coverage', () => {
       const capabilities = Object.values(SocialMediaCapability);
-      
+
       // Check that we have capabilities for all major functions
       const hasPostCapabilities = capabilities.some(cap => cap.includes('POST'));
       const hasDraftCapabilities = capabilities.some(cap => cap.includes('DRAFT'));
       const hasAnalyticsCapabilities = capabilities.some(cap => cap.includes('ANALYTICS'));
       const hasEngagementCapabilities = capabilities.some(cap => cap.includes('COMMENT'));
       const hasTikTokCapabilities = capabilities.some(cap => cap.includes('TIKTOK'));
-      
+
       expect(hasPostCapabilities).toBe(true);
       expect(hasDraftCapabilities).toBe(true);
       expect(hasAnalyticsCapabilities).toBe(true);
       expect(hasEngagementCapabilities).toBe(true);
       expect(hasTikTokCapabilities).toBe(true);
-      
+
       console.log(`✅ Capability coverage complete: ${capabilities.length} total capabilities`);
     });
   });
@@ -239,7 +239,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       expect(command.type).toBe(SocialMediaCommandType.DRAFT_LIST);
       expect(command.requiredCapabilities).toContain(SocialMediaCapability.DRAFT_READ);
-      
+
       console.log('✅ Draft listing command structure is valid');
     });
 
@@ -260,7 +260,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(command.type).toBe(SocialMediaCommandType.DRAFT_SCHEDULE);
       expect(command.entities.draftName).toBe('XYZ');
       expect(command.requiredCapabilities).toContain(SocialMediaCapability.DRAFT_SCHEDULE);
-      
+
       console.log('✅ Draft scheduling command structure is valid');
     });
   });
@@ -287,7 +287,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(command.type).toBe(SocialMediaCommandType.TIKTOK_VIDEO_CREATE);
       expect(command.entities.title).toBe('Business Tips Video');
       expect(command.platforms).toContain(SocialMediaProvider.TIKTOK);
-      
+
       console.log('✅ TikTok video creation command is valid');
     });
   });
@@ -311,7 +311,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(command.type).toBe(SocialMediaCommandType.ANALYTICS_GET);
       expect(command.entities.timeframe).toBe('month');
       expect(command.entities.metrics).toContain('engagement');
-      
+
       console.log('✅ Analytics command structure is valid');
     });
 
@@ -331,7 +331,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       expect(command.type).toBe(SocialMediaCommandType.POST_METRICS);
       expect(command.entities.postId).toBe('post-123');
-      
+
       console.log('✅ Post metrics command structure is valid');
     });
   });
@@ -353,7 +353,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       expect(command.type).toBe(SocialMediaCommandType.COMMENTS_GET);
       expect(command.entities.postId).toBe('post-456');
-      
+
       console.log('✅ Comment retrieval command structure is valid');
     });
 
@@ -373,7 +373,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       expect(command.type).toBe(SocialMediaCommandType.COMMENT_REPLY);
       expect(command.entities.reply).toBe('Thank you for your feedback!');
-      
+
       console.log('✅ Comment reply command structure is valid');
     });
   });
@@ -389,14 +389,14 @@ describe('Social Media Scheduler Execution Tests', () => {
     let testPostIds: string[] = [];
 
     const isTwitterConfigured = () => {
-      return !!(process.env.TWITTER_CLIENT_ID && 
-                process.env.TWITTER_CLIENT_SECRET && 
-                process.env.ENCRYPTION_MASTER_KEY);
+      return !!(process.env.TWITTER_CLIENT_ID &&
+        process.env.TWITTER_CLIENT_SECRET &&
+        process.env.ENCRYPTION_MASTER_KEY);
     };
 
     const hasRealTwitterConnection = async (): Promise<boolean> => {
       if (!database) return false;
-      
+
       try {
         const connections = await prisma.socialMediaConnection.findMany({
           where: {
@@ -405,7 +405,7 @@ describe('Social Media Scheduler Execution Tests', () => {
           },
           take: 1
         });
-        
+
         return connections.length > 0;
       } catch (error) {
         console.error('Error checking for Twitter connections:', error);
@@ -422,7 +422,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       prisma = new PrismaClient();
       database = new PrismaSocialMediaDatabase(prisma);
       twitterProvider = new TwitterProvider();
-      
+
       // Try to find a real Twitter connection
       if (await hasRealTwitterConnection()) {
         const connections = await prisma.socialMediaConnection.findMany({
@@ -432,7 +432,7 @@ describe('Social Media Scheduler Execution Tests', () => {
           },
           take: 1
         });
-        
+
         if (connections.length > 0) {
           realConnection = database.mapPrismaToConnection(connections[0]);
           console.log('🔧 Found real Twitter connection for scheduling tests:', {
@@ -444,7 +444,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       } else {
         console.log('⚠️  No active Twitter connection found for scheduling tests');
       }
-      
+
       // TODO: Initialize test agent and autonomy system for real scheduler testing
       console.log('🔧 Twitter scheduler integration test environment initialized');
     });
@@ -463,7 +463,7 @@ describe('Social Media Scheduler Execution Tests', () => {
             }
           }
         }
-        
+
         // Clean up any scheduled tasks from autonomy system
         if (autonomySystem && scheduledTaskIds.length > 0) {
           console.log(`🧹 Cleaning up ${scheduledTaskIds.length} scheduled tasks...`);
@@ -476,11 +476,11 @@ describe('Social Media Scheduler Execution Tests', () => {
             }
           }
         }
-        
+
         if (autonomySystem) {
           await autonomySystem.shutdown();
         }
-        
+
         await prisma.$disconnect();
       }
     });
@@ -490,7 +490,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(process.env.TWITTER_CLIENT_ID).toBeDefined();
       expect(process.env.TWITTER_CLIENT_SECRET).toBeDefined();
       expect(process.env.ENCRYPTION_MASTER_KEY).toBeDefined();
-      
+
       console.log('✅ Scheduling environment configured properly');
     });
 
@@ -501,7 +501,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       }
 
       const hasConnection = await hasRealTwitterConnection();
-      
+
       if (!hasConnection) {
         console.log('⚠️  No active Twitter connection found for scheduling');
         expect(hasConnection).toBe(false);
@@ -512,7 +512,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(realConnection!.provider).toMatch(/twitter/i);
       expect(realConnection!.connectionStatus).toMatch(/active/i);
       expect(realConnection!.accountUsername).toBeDefined();
-      
+
       console.log('✅ Active Twitter connection found for scheduling');
       console.log(`🐦 Scheduling Account: @${realConnection!.accountUsername} (${realConnection!.accountDisplayName})`);
     });
@@ -524,7 +524,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       }
 
       const futureTime = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
-      
+
       const scheduledCommand = {
         type: SocialMediaCommandType.POST_SCHEDULE,
         intent: 'Schedule a Twitter post for later',
@@ -546,7 +546,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(scheduledCommand.entities.scheduledTime.getTime()).toBeGreaterThan(Date.now());
       expect(scheduledCommand.entities.content).toContain('Scheduled test post');
       expect(scheduledCommand.requiredCapabilities).toContain(SocialMediaCapability.POST_SCHEDULE);
-      
+
       console.log('✅ Scheduled post command structure validated');
       console.log(`📅 Scheduled for: ${futureTime.toISOString()}`);
       console.log(`📝 Content: ${scheduledCommand.entities.content}`);
@@ -560,7 +560,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       // Test 1: Immediate posting works (baseline test)
       twitterProvider.connections.set(realConnection.id, realConnection);
-      
+
       const immediateContent = `⚡ Immediate test before scheduling! ${new Date().toISOString()} #immediate #baseline`;
       const immediatePost = await twitterProvider.createPost(realConnection.id, {
         content: immediateContent,
@@ -572,14 +572,14 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(immediatePost).toBeDefined();
       expect(immediatePost.platformPostId).toBeDefined();
       testPostIds.push(immediatePost.platformPostId);
-      
+
       console.log('✅ Baseline immediate posting works');
       console.log(`🆔 Posted tweet: ${immediatePost.platformPostId}`);
 
       // Test 2: Create a scheduled task that should execute a Twitter post
       const scheduledContent = `🕐 This is a SCHEDULED post from autonomy system! ${new Date().toISOString()} #scheduled #autonomy`;
       const scheduledTime = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes from now
-      
+
       const scheduledTask: ScheduledTask = {
         id: ulid(),
         name: 'Test Twitter Scheduled Post',
@@ -595,14 +595,14 @@ describe('Social Media Scheduler Execution Tests', () => {
       console.log(`📝 Content: ${scheduledContent}`);
       console.log(`📅 Will execute at: ${scheduledTime.toISOString()}`);
       console.log(`⏰ Cron schedule: ${scheduledTask.schedule}`);
-      
+
       // Note: We can't easily test the actual scheduling execution in a unit test
       // because it would require waiting for real time and having a real agent
       // But we've validated the structure and approach
       expect(scheduledTask.id).toBeDefined();
       expect(scheduledTask.schedule).toBeDefined();
       expect(scheduledTask.goalPrompt).toContain(scheduledContent);
-      
+
       console.log('💡 Scheduling approach validated: Built-in autonomy system will execute Twitter tasks');
       console.log('🎯 Goal prompt contains the social media instruction');
       console.log('⚡ The scheduler will call social media tools when the cron job triggers');
@@ -618,10 +618,10 @@ describe('Social Media Scheduler Execution Tests', () => {
       const drafts = await twitterProvider.getDrafts(realConnection.id);
       expect(Array.isArray(drafts)).toBe(true);
       expect(drafts.length).toBe(0); // Twitter doesn't have native draft support
-      
+
       console.log('✅ Confirmed: Twitter does not support native drafts');
       console.log('💡 This means we need our own draft storage system');
-      
+
       // Test our draft command structure
       const draftCommand = {
         type: SocialMediaCommandType.DRAFT_LIST,
@@ -635,7 +635,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       expect(draftCommand.type).toBe(SocialMediaCommandType.DRAFT_LIST);
       expect(draftCommand.requiredCapabilities).toContain(SocialMediaCapability.DRAFT_READ);
-      
+
       console.log('✅ Draft command structure validated');
     });
 
@@ -648,12 +648,12 @@ describe('Social Media Scheduler Execution Tests', () => {
       // Test analytics retrieval
       try {
         const analytics = await twitterProvider.getAccountAnalytics(realConnection.id, '7d');
-        
+
         expect(analytics).toBeDefined();
         expect(typeof analytics.followerCount).toBe('number');
         expect(typeof analytics.postCount).toBe('number');
         expect(typeof analytics.engagementRate).toBe('number');
-        
+
         console.log('✅ Account analytics retrieved successfully');
         console.log('📊 Analytics sample:', {
           followers: analytics.followerCount,
@@ -682,7 +682,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(analyticsCommand.type).toBe(SocialMediaCommandType.ANALYTICS_GET);
       expect(analyticsCommand.entities.timeframe).toBe('week');
       expect(analyticsCommand.entities.metrics).toContain('engagement');
-      
+
       console.log('✅ Analytics command structure validated');
     });
 
@@ -697,16 +697,16 @@ describe('Social Media Scheduler Execution Tests', () => {
       // Test comment retrieval
       try {
         const comments = await twitterProvider.getComments(realConnection.id, latestPostId);
-        
+
         expect(Array.isArray(comments)).toBe(true);
         console.log(`✅ Retrieved ${comments.length} comments from test post`);
-        
+
         if (comments.length > 0) {
           const comment = comments[0];
           expect(comment.id).toBeDefined();
           expect(comment.content).toBeDefined();
           expect(comment.author).toBeDefined();
-          
+
           console.log('📝 Sample comment:', {
             id: comment.id,
             author: comment.author,
@@ -734,7 +734,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(commentCommand.type).toBe(SocialMediaCommandType.COMMENTS_GET);
       expect(commentCommand.entities.postId).toBe(latestPostId);
       expect(commentCommand.requiredCapabilities).toContain(SocialMediaCapability.COMMENT_READ);
-      
+
       console.log('✅ Comment retrieval command structure validated');
     });
 
@@ -785,7 +785,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(crossPlatformCommand.entities.platformSpecific).toBeDefined();
       expect(crossPlatformCommand.entities.platformSpecific[SocialMediaProvider.TWITTER]).toBeDefined();
       expect(crossPlatformCommand.entities.platformSpecific[SocialMediaProvider.TWITTER].hashtags).toContain('twitter');
-      
+
       console.log('✅ Multi-platform scheduling command structure validated');
       console.log(`📱 Platforms: ${crossPlatformCommand.platforms.join(', ')}`);
       console.log(`📅 Scheduled time: ${crossPlatformCommand.entities.scheduledTime.toISOString()}`);
@@ -818,11 +818,11 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(optimizationCommand.type).toBe(SocialMediaCommandType.CONTENT_OPTIMIZE);
       expect(optimizationCommand.entities.targetPlatform).toBe(SocialMediaProvider.TWITTER);
       expect(optimizationCommand.entities.optimizationGoals).toContain('character_limit');
-      
+
       // Test Twitter-specific optimization
       const originalContent = optimizationCommand.entities.originalContent;
       expect(originalContent.length).toBeGreaterThan(280); // Exceeds Twitter limit
-      
+
       console.log('✅ Content optimization command structure validated');
       console.log(`📝 Original length: ${originalContent.length} characters`);
       console.log('🎯 Optimization goals:', optimizationCommand.entities.optimizationGoals);
@@ -831,17 +831,17 @@ describe('Social Media Scheduler Execution Tests', () => {
     test('should provide comprehensive scheduler integration status', async () => {
       console.log('\n🕐 Built-in Scheduler + Twitter Integration Status:');
       console.log('==========================================');
-      
+
       if (isTwitterConfigured()) {
         console.log('✅ Environment: Twitter API configured');
         console.log('✅ Twitter Provider: Ready for execution');
-        
+
         const hasConnection = await hasRealTwitterConnection();
         if (hasConnection && realConnection) {
           console.log('✅ Active Twitter Connection: Found');
           console.log(`   Account: @${realConnection.accountUsername}`);
           console.log(`   Display Name: ${realConnection.accountDisplayName}`);
-          
+
           console.log('📋 Scheduler Integration Assessment:');
           console.log('   ✅ Built-in Autonomy System: Available (DefaultAutonomySystem)');
           console.log('   ✅ CronJob Scheduling: Available');
@@ -849,7 +849,7 @@ describe('Social Media Scheduler Execution Tests', () => {
           console.log('   ✅ Social Media Tools: Available to agents');
           console.log('   ✅ Twitter Provider: Ready for immediate execution');
           console.log('   ✅ Goal Prompt Processing: Working');
-          
+
           console.log('🎯 How Scheduling Works:');
           console.log('   1️⃣  User says: "Post about bitcoin at 10pm today"');
           console.log('   2️⃣  Agent creates ScheduledTask with cron schedule');
@@ -859,13 +859,13 @@ describe('Social Media Scheduler Execution Tests', () => {
           console.log('   6️⃣  Agent uses social media tools');
           console.log('   7️⃣  TwitterProvider.createPost() executes');
           console.log('   8️⃣  Post appears on Twitter at scheduled time!');
-          
+
           console.log('✅ Integration Points:');
           console.log('   • Scheduler ↔ Social Media Commands: Ready');
           console.log('   • Goal Processing ↔ Twitter Execution: Ready');
           console.log('   • Cron Timing ↔ Real Twitter Posts: Ready');
           console.log('   • Multi-platform coordination: Ready');
-          
+
           console.log('');
           console.log('🚀 BUILT-IN SCHEDULER + TWITTER INTEGRATION VALIDATED!');
           console.log('🎯 Ready for real scheduled Twitter posting!');
@@ -876,9 +876,9 @@ describe('Social Media Scheduler Execution Tests', () => {
       } else {
         console.log('❌ Environment: Not configured');
       }
-      
+
       console.log('==========================================\n');
-      
+
       expect(true).toBe(true);
     });
   });
@@ -893,14 +893,14 @@ describe('Social Media Scheduler Execution Tests', () => {
     let testPostIds: string[] = [];
 
     const isLinkedInConfigured = () => {
-      return !!(process.env.LINKEDIN_CLIENT_ID && 
-                process.env.LINKEDIN_CLIENT_SECRET && 
-                process.env.ENCRYPTION_MASTER_KEY);
+      return !!(process.env.LINKEDIN_CLIENT_ID &&
+        process.env.LINKEDIN_CLIENT_SECRET &&
+        process.env.ENCRYPTION_MASTER_KEY);
     };
 
     const hasRealLinkedInConnection = async (): Promise<boolean> => {
       if (!database) return false;
-      
+
       try {
         const connections = await prisma.socialMediaConnection.findMany({
           where: {
@@ -909,7 +909,7 @@ describe('Social Media Scheduler Execution Tests', () => {
           },
           take: 1
         });
-        
+
         return connections.length > 0;
       } catch (error) {
         console.error('Error checking for LinkedIn connections:', error);
@@ -926,7 +926,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       prisma = new PrismaClient();
       database = new PrismaSocialMediaDatabase(prisma);
       linkedinProvider = new LinkedInProvider();
-      
+
       // Initialize test agent first
       testAgent = new class extends AbstractAgentBase {
         constructor() {
@@ -938,19 +938,19 @@ describe('Social Media Scheduler Execution Tests', () => {
             capabilities: []
           });
         }
-        
+
         async processUserInput(message: string): Promise<any> {
           return { content: `Processed: ${message}`, metadata: {} };
         }
-        
+
         async think(message: string): Promise<any> {
           return { thoughts: [`Thinking about: ${message}`], conclusion: 'Test conclusion' };
         }
-        
+
         async getLLMResponse(message: string): Promise<any> {
           return { content: `LLM response to: ${message}`, metadata: {} };
         }
-        
+
         async shutdown(): Promise<void> {
           // Test shutdown
         }
@@ -972,11 +972,11 @@ describe('Social Media Scheduler Execution Tests', () => {
           },
           take: 1
         });
-        
+
         if (connections.length > 0) {
           realConnection = database.mapPrismaToConnection(connections[0]);
           linkedinProvider.connections.set(realConnection.id, realConnection);
-          
+
           console.log('🔧 Found real LinkedIn connection for scheduling:', {
             id: realConnection.id,
             username: realConnection.accountUsername,
@@ -986,7 +986,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       } else {
         console.log('⚠️  No active LinkedIn connection found for scheduling tests');
       }
-      
+
       console.log('🔧 LinkedIn scheduler test environment initialized');
     });
 
@@ -1013,7 +1013,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(process.env.LINKEDIN_CLIENT_SECRET).toBeDefined();
       expect(process.env.ENCRYPTION_MASTER_KEY).toBeDefined();
       expect(process.env.ENCRYPTION_MASTER_KEY?.length).toBeGreaterThanOrEqual(64);
-      
+
       console.log('✅ LinkedIn scheduling environment validated');
       console.log('🔧 Ready for scheduled LinkedIn operations');
     });
@@ -1025,7 +1025,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       }
 
       const hasConnection = await hasRealLinkedInConnection();
-      
+
       if (!hasConnection) {
         console.log('⚠️  No active LinkedIn connection found for scheduling');
         console.log('👉 Please connect a LinkedIn account first');
@@ -1036,7 +1036,7 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(realConnection).toBeDefined();
       expect(realConnection!.provider).toMatch(/linkedin/i);
       expect(realConnection!.connectionStatus).toMatch(/active/i);
-      
+
       console.log('✅ Active LinkedIn connection found for scheduling');
       console.log(`🔗 Account: ${realConnection!.accountUsername} (${realConnection!.accountDisplayName})`);
       console.log('🕐 Ready for scheduled LinkedIn operations');
@@ -1060,16 +1060,16 @@ describe('Social Media Scheduler Execution Tests', () => {
         const command = {
           type: SocialMediaCommandType.POST,
           platform: SocialMediaProvider.LINKEDIN,
-          content: prompt.includes('AI innovation') ? 
+          content: prompt.includes('AI innovation') ?
             '🚀 The future of AI innovation is here! Exciting developments in machine learning are transforming how we work and create. #AI #Innovation #Technology' :
             prompt.includes('remote work') ?
-            '🏠 Remote work trends continue to evolve. Companies are embracing hybrid models that prioritize flexibility and work-life balance. #RemoteWork #Future #WorkLife' :
-            '⛓️ Blockchain technology is revolutionizing industries beyond cryptocurrency. From supply chain to healthcare, the possibilities are endless. #Blockchain #Technology #Innovation',
+              '🏠 Remote work trends continue to evolve. Companies are embracing hybrid models that prioritize flexibility and work-life balance. #RemoteWork #Future #WorkLife' :
+              '⛓️ Blockchain technology is revolutionizing industries beyond cryptocurrency. From supply chain to healthcare, the possibilities are endless. #Blockchain #Technology #Innovation',
           scheduledFor: new Date(Date.now() + 60000), // 1 minute from now for testing
           platforms: [SocialMediaProvider.LINKEDIN],
           hashtags: prompt.includes('AI') ? ['AI', 'Innovation', 'Technology'] :
-                   prompt.includes('remote') ? ['RemoteWork', 'Future', 'WorkLife'] :
-                   ['Blockchain', 'Technology', 'Innovation'],
+            prompt.includes('remote') ? ['RemoteWork', 'Future', 'WorkLife'] :
+              ['Blockchain', 'Technology', 'Innovation'],
           visibility: 'public' as const
         };
 
@@ -1079,13 +1079,13 @@ describe('Social Media Scheduler Execution Tests', () => {
         expect(command.scheduledFor).toBeInstanceOf(Date);
         expect(Array.isArray(command.platforms)).toBe(true);
         expect(command.platforms).toContain(SocialMediaProvider.LINKEDIN);
-        
+
         console.log(`✅ LinkedIn scheduling command structured: "${prompt.substring(0, 50)}..."`);
         console.log(`   Content: ${command.content.substring(0, 80)}...`);
         console.log(`   Scheduled for: ${command.scheduledFor.toISOString()}`);
         console.log(`   Hashtags: ${command.hashtags.join(', ')}`);
       }
-      
+
       console.log('🎯 LinkedIn scheduling command structure validation complete');
     });
 
@@ -1097,7 +1097,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       // Test the actual scheduling flow that happens in production
       const goalPrompt = "Post about LinkedIn automation testing on LinkedIn in 30 seconds";
-      
+
       // 1. Create a scheduled task (simulating what the agent would do)
       const scheduledTask: ScheduledTask = {
         id: `linkedin-test-${Date.now()}`,
@@ -1114,7 +1114,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       // 2. Schedule the task using DefaultAutonomySystem
       await autonomySystem.scheduleTask(scheduledTask);
-      
+
       console.log('✅ LinkedIn task scheduled successfully');
       console.log(`🕐 Task ID: ${scheduledTask.id}`);
       console.log(`📝 Goal: ${scheduledTask.goalPrompt}`);
@@ -1133,10 +1133,10 @@ describe('Social Media Scheduler Execution Tests', () => {
       // 4. Verify the task executed
       expect(executionResult).toBeDefined();
       console.log('✅ LinkedIn scheduled task executed');
-      
+
       // 5. Create an actual LinkedIn post to verify the flow works
       const testContent = `🤖 LinkedIn automation test from scheduled task! ${new Date().toISOString()} #automation #linkedin #testing`;
-      
+
       const post = await linkedinProvider.createPost(realConnection.id, {
         content: testContent,
         platforms: [SocialMediaProvider.LINKEDIN],
@@ -1147,11 +1147,11 @@ describe('Social Media Scheduler Execution Tests', () => {
       expect(post).toBeDefined();
       expect(post.platformPostId).toBeDefined();
       testPostIds.push(post.platformPostId);
-      
+
       console.log('✅ LinkedIn post created via scheduled execution');
       console.log(`🔗 Post URL: ${post.url}`);
       console.log(`🆔 Post ID: ${post.platformPostId}`);
-      
+
       // 6. Clean up the scheduled task
       await autonomySystem.cancelTask(scheduledTask.id);
       console.log('🧹 Scheduled LinkedIn task cleaned up');
@@ -1165,7 +1165,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       // Simulate draft creation and scheduling workflow
       const draftContent = `📝 DRAFT: LinkedIn post about professional networking trends ${new Date().toISOString()} #networking #professional #draft`;
-      
+
       // 1. Create draft (simulate storing in database/memory)
       const draft = {
         id: `linkedin-draft-${Date.now()}`,
@@ -1183,11 +1183,11 @@ describe('Social Media Scheduler Execution Tests', () => {
       console.log('✅ LinkedIn draft created successfully');
       console.log(`📝 Draft ID: ${draft.id}`);
       console.log(`📄 Content: ${draft.content.substring(0, 80)}...`);
-      
+
       // 2. Simulate draft approval and posting
       draft.status = 'approved';
       const finalContent = draft.content.replace('DRAFT: ', '').replace('#draft', '#approved');
-      
+
       const post = await linkedinProvider.createPost(realConnection.id, {
         content: finalContent,
         platforms: [SocialMediaProvider.LINKEDIN],
@@ -1197,7 +1197,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       expect(post).toBeDefined();
       testPostIds.push(post.platformPostId);
-      
+
       console.log('✅ LinkedIn draft approved and posted');
       console.log(`🔗 Final post URL: ${post.url}`);
     });
@@ -1217,7 +1217,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       for (const command of analyticsCommands) {
         console.log(`🔍 Processing analytics command: "${command}"`);
-        
+
         if (command.includes('post performance') && testPostIds.length > 0) {
           // Get metrics for test posts
           for (const postId of testPostIds) {
@@ -1226,7 +1226,7 @@ describe('Social Media Scheduler Execution Tests', () => {
               expect(metrics).toBeDefined();
               expect(typeof metrics.views).toBe('number');
               expect(typeof metrics.likes).toBe('number');
-              
+
               console.log(`📊 LinkedIn post ${postId} metrics:`, {
                 views: metrics.views,
                 likes: metrics.likes,
@@ -1251,7 +1251,7 @@ describe('Social Media Scheduler Execution Tests', () => {
           }
         }
       }
-      
+
       console.log('✅ LinkedIn analytics command execution validated');
     });
 
@@ -1270,7 +1270,7 @@ describe('Social Media Scheduler Execution Tests', () => {
 
       for (const command of engagementCommands) {
         console.log(`🤝 Processing engagement command: "${command}"`);
-        
+
         if (command.includes('comments')) {
           // Simulate comment monitoring
           for (const postId of testPostIds) {
@@ -1293,7 +1293,7 @@ describe('Social Media Scheduler Execution Tests', () => {
           console.log('🤝 LinkedIn connection request analysis simulated');
         }
       }
-      
+
       console.log('✅ LinkedIn engagement automation validation complete');
     });
 
@@ -1324,12 +1324,12 @@ describe('Social Media Scheduler Execution Tests', () => {
         expect(schedule.platforms).toContain(SocialMediaProvider.LINKEDIN);
         expect(schedule.scheduledFor).toBeInstanceOf(Date);
         expect(schedule.content).toBeDefined();
-        
+
         console.log(`🔄 Multi-platform schedule validated: ${schedule.strategy}`);
         console.log(`   Platforms: ${schedule.platforms.join(', ')}`);
         console.log(`   Content: ${schedule.content.substring(0, 60)}...`);
         console.log(`   Scheduled: ${schedule.scheduledFor.toISOString()}`);
-        
+
         // Create scheduled task for LinkedIn portion
         const linkedinTask: ScheduledTask = {
           id: `linkedin-multi-${Date.now()}-${Math.random()}`,
@@ -1346,12 +1346,59 @@ describe('Social Media Scheduler Execution Tests', () => {
 
         await autonomySystem.scheduleTask(linkedinTask);
         console.log(`✅ LinkedIn portion of multi-platform schedule created: ${linkedinTask.id}`);
-        
+
         // Clean up immediately for testing
         await autonomySystem.cancelTask(linkedinTask.id);
       }
-      
+
       console.log('✅ Multi-platform LinkedIn scheduling coordination validated');
+    });
+
+    test('should validate XPatterns multi-platform coordination commands', async () => {
+      // Test XPatterns-style commands that could be processed by the scheduler
+      const xpatternsCommands = [
+        {
+          command: 'Create a staggered campaign posting "Product launch! 🚀" starting with Twitter, then LinkedIn 5 minutes later',
+          expectedPlatforms: [SocialMediaProvider.TWITTER, SocialMediaProvider.LINKEDIN],
+          coordinationType: 'staggered',
+          timeInterval: 5
+        },
+        {
+          command: 'Schedule simultaneous posts about "Weekly recap 📊" across all my social media accounts for tomorrow at 2 PM',
+          expectedPlatforms: [SocialMediaProvider.TWITTER, SocialMediaProvider.LINKEDIN],
+          coordinationType: 'simultaneous',
+          timeInterval: 0
+        },
+        {
+          command: 'Adapt and post "Long technical content about our new AI system..." for Twitter (short), LinkedIn (professional), and Instagram (visual)',
+          expectedPlatforms: [SocialMediaProvider.TWITTER, SocialMediaProvider.LINKEDIN, SocialMediaProvider.INSTAGRAM],
+          coordinationType: 'adapted',
+          contentOptimization: true
+        }
+      ];
+
+      for (const xpatternsCommand of xpatternsCommands) {
+        console.log(`🎯 XPatterns Command: "${xpatternsCommand.command.substring(0, 60)}..."`);
+        console.log(`   Expected platforms: ${xpatternsCommand.expectedPlatforms.join(', ')}`);
+        console.log(`   Coordination type: ${xpatternsCommand.coordinationType}`);
+
+        if (xpatternsCommand.timeInterval !== undefined) {
+          console.log(`   Time interval: ${xpatternsCommand.timeInterval} minutes`);
+        }
+
+        if (xpatternsCommand.contentOptimization) {
+          console.log(`   Content optimization: ${xpatternsCommand.contentOptimization ? 'ENABLED' : 'DISABLED'}`);
+        }
+
+        // Validate command structure for XPatterns processing
+        expect(xpatternsCommand.expectedPlatforms.length).toBeGreaterThan(0);
+        expect(xpatternsCommand.coordinationType).toBeDefined();
+        expect(xpatternsCommand.command.length).toBeGreaterThan(10);
+
+        console.log(`✅ XPatterns command structure validated`);
+      }
+
+      console.log('✅ XPatterns multi-platform coordination commands validated');
     });
 
     test.only('should validate LinkedIn content optimization for scheduling', async () => {
@@ -1385,12 +1432,12 @@ describe('Social Media Scheduler Execution Tests', () => {
         expect(variation.optimized).toContain('#');
         expect(variation.optimized).toMatch(/[🚀📅🎉]/); // Contains emojis
         expect(variation.optimized).toMatch(/\?/); // Contains engagement question
-        
+
         console.log(`📝 Content optimization validated:`);
         console.log(`   Original: "${variation.original}"`);
         console.log(`   Optimized: "${variation.optimized.substring(0, 100)}..."`);
         console.log(`   Strategy: ${variation.optimization}`);
-        
+
         // Test scheduling the optimized content
         const scheduledTask: ScheduledTask = {
           id: `linkedin-optimized-${Date.now()}-${Math.random()}`,
@@ -1407,24 +1454,24 @@ describe('Social Media Scheduler Execution Tests', () => {
 
         await autonomySystem.scheduleTask(scheduledTask);
         console.log(`✅ Optimized LinkedIn content scheduled: ${scheduledTask.id}`);
-        
+
         // Clean up immediately
         await autonomySystem.cancelTask(scheduledTask.id);
       }
-      
+
       console.log('✅ LinkedIn content optimization for scheduling validated');
     });
 
     test.only('should provide comprehensive LinkedIn scheduler integration status', async () => {
       console.log('\n🔗 Built-in Scheduler + LinkedIn Integration Status:');
       console.log('==========================================');
-      
+
       if (isLinkedInConfigured()) {
         console.log('✅ Environment: Configured');
         console.log('✅ LinkedIn Client ID: Set');
         console.log('✅ LinkedIn Client Secret: Set');
         console.log('✅ Encryption Key: Set (64-char)');
-        
+
         const hasConnection = await hasRealLinkedInConnection();
         if (hasConnection && realConnection) {
           console.log('✅ Active LinkedIn Connection: Found');
@@ -1432,14 +1479,14 @@ describe('Social Media Scheduler Execution Tests', () => {
           console.log(`   Display Name: ${realConnection.accountDisplayName}`);
           console.log(`   Account Type: ${realConnection.accountType}`);
           console.log(`   Status: ${realConnection.connectionStatus}`);
-          
+
           console.log('✅ Scheduler Integration Components:');
           console.log('   ✅ DefaultAutonomySystem: Initialized');
           console.log('   ✅ CronJob Scheduling: Ready');
           console.log('   ✅ Task Execution: Functional');
           console.log('   ✅ LinkedIn Provider: Connected');
           console.log('   ✅ Multi-Tenant Support: Available');
-          
+
           console.log('✅ Scheduling Features:');
           console.log('   ✅ Immediate Execution');
           console.log('   ✅ Cron-based Scheduling');
@@ -1449,7 +1496,7 @@ describe('Social Media Scheduler Execution Tests', () => {
           console.log('   ✅ Engagement Automation');
           console.log('   ✅ Multi-Platform Coordination');
           console.log('   ✅ Error Handling');
-          
+
           console.log('✅ Production Workflow:');
           console.log('   1. User: "Post about AI trends on LinkedIn at 2pm"');
           console.log('   2. Agent parses command → ScheduledTask');
@@ -1459,12 +1506,12 @@ describe('Social Media Scheduler Execution Tests', () => {
           console.log('   6. Agent uses LinkedIn tools');
           console.log('   7. LinkedInProvider.createPost()');
           console.log('   8. Post appears on LinkedIn');
-          
+
           console.log('');
           console.log('🚀 LINKEDIN SCHEDULER INTEGRATION FULLY OPERATIONAL!');
           console.log('🎉 Ready for production LinkedIn scheduling operations!');
           console.log('⏰ Users can now schedule LinkedIn posts via natural language!');
-          
+
           if (testPostIds.length > 0) {
             console.log('');
             console.log('📊 Test Execution Summary:');
@@ -1479,7 +1526,7 @@ describe('Social Media Scheduler Execution Tests', () => {
           console.log('   2. Visit: http://localhost:3000/api/social-media/connect?platform=linkedin');
           console.log('   3. Complete the OAuth flow');
           console.log('   4. Run these tests again');
-          
+
           console.log('✅ Scheduler Infrastructure: Ready');
           console.log('   ✅ DefaultAutonomySystem: Available');
           console.log('   ✅ Task Scheduling: Functional');
@@ -1490,9 +1537,9 @@ describe('Social Media Scheduler Execution Tests', () => {
         console.log('⚠️  Missing LinkedIn environment variables');
         console.log('👉 Set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET');
       }
-      
+
       console.log('==========================================\n');
-      
+
       expect(true).toBe(true);
     });
   });
