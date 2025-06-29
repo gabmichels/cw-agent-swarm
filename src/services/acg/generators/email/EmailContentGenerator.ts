@@ -265,7 +265,8 @@ export class EmailContentGenerator implements ILLMContentGenerator {
   }
 
   /**
-   * Ensure email body has proper greeting
+   * Ensure email body has proper greeting and format
+   * ENHANCED: More aggressive approach with comprehensive sanity checking
    */
   private ensureEmailGreeting(content: string, context: GenerationContext): string {
     const entities = context.extractedEntities || {};
@@ -277,36 +278,108 @@ export class EmailContentGenerator implements ILLMContentGenerator {
     const recipientEmail = Array.isArray(recipients) ? recipients[0] : recipients;
     const recipientName = this.extractNameFromEmail(recipientEmail) || 'there';
 
-    // Get expected greeting
+    // Get expected greeting and closing
     const greetingStyle = this.getGreetingStyle(tone, recipientName);
     const expectedGreeting = greetingStyle.greeting;
 
-    // Check if content already starts with a proper greeting
-    const lines = content.split('\n');
-    const firstLine = lines[0]?.trim();
+    // Extract sender information for closing
+    const senderFirstName = String(entities.senderFirstName || 'Gabriel');
+    const senderLastName = String(entities.senderLastName || 'Michels');
+    const fullSenderName = `${senderFirstName} ${senderLastName}`;
+    const closingStyle = this.getClosingStyle(tone, fullSenderName);
+    const expectedClosing = closingStyle.closing;
 
-    // Common greeting patterns to check for
+    // COMPREHENSIVE EMAIL FORMAT SANITY CHECK
+    console.log('🔍 Email format sanity check:', {
+      recipientEmail: recipientEmail,
+      recipientName: recipientName,
+      tone: tone,
+      expectedGreeting: expectedGreeting,
+      expectedClosing: expectedClosing,
+      contentLength: content.length,
+      contentPreview: content.substring(0, 150) + '...'
+    });
+
+    // Split content into lines for analysis
+    const lines = content.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    const firstLine = lines[0] || '';
+    const lastLines = lines.slice(-3); // Check last 3 lines for closing
+
+    // Enhanced greeting patterns
     const greetingPatterns = [
       /^(Dear|Hello|Hi|Hey)\s+/i,
-      /^(Good morning|Good afternoon|Good evening)/i
+      /^(Good morning|Good afternoon|Good evening)/i,
+      /^(Greetings|Salutations)/i,
+      /^(Dear\s+[^,]+,)/i,
+      /^(Hello\s+[^,]+,)/i,
+      /^(Hi\s+[^,]+,)/i,
+      /^(Hey\s+[^,]+,)/i
     ];
 
-    const hasGreeting = greetingPatterns.some(pattern => pattern.test(firstLine || ''));
+    // Closing patterns
+    const closingPatterns = [
+      /^(Best regards|Kind regards|Sincerely|Thank you|Cheers|Warm regards)/i,
+      /^(Respectfully yours|Yours truly|Best wishes)/i
+    ];
 
-    // If no greeting found, prepend the expected greeting
+    const hasGreeting = greetingPatterns.some(pattern => pattern.test(firstLine));
+    const hasClosing = lastLines.some(line => closingPatterns.some(pattern => pattern.test(line)));
+
+    console.log('📊 Format analysis:', {
+      firstLine: firstLine,
+      hasGreeting: hasGreeting,
+      lastLines: lastLines,
+      hasClosing: hasClosing,
+      willAddGreeting: !hasGreeting,
+      willAddClosing: !hasClosing
+    });
+
+    // AGGRESSIVE APPROACH: Always ensure proper format
+    let formattedContent = content;
+
+    // 1. Ensure greeting is present
     if (!hasGreeting) {
-      // Log the addition of greeting (using console.log since logger is not available in this context)
-      console.log('Adding missing greeting to email body', {
-        expectedGreeting,
-        firstLine,
-        tone
-      });
-
-      // Add greeting with proper spacing
-      content = `${expectedGreeting}\n\n${content}`;
+      console.log('✅ ADDING MISSING GREETING:', expectedGreeting);
+      formattedContent = `${expectedGreeting}\n\n${formattedContent}`;
+    } else {
+      console.log('✅ Greeting already present:', firstLine);
     }
 
-    return content;
+    // 2. Ensure closing is present
+    if (!hasClosing) {
+      console.log('✅ ADDING MISSING CLOSING:', expectedClosing);
+      // Add some space before closing if content doesn't end with double newline
+      if (!formattedContent.endsWith('\n\n')) {
+        formattedContent += '\n\n';
+      }
+      formattedContent += expectedClosing;
+    } else {
+      console.log('✅ Closing already present');
+    }
+
+    // 3. Final sanity check - ensure we have both greeting and closing
+    const finalLines = formattedContent.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    const finalFirstLine = finalLines[0] || '';
+    const finalLastLines = finalLines.slice(-3);
+
+    const finalHasGreeting = greetingPatterns.some(pattern => pattern.test(finalFirstLine));
+    const finalHasClosing = finalLastLines.some(line => closingPatterns.some(pattern => pattern.test(line)));
+
+    console.log('🎯 FINAL EMAIL FORMAT CHECK:', {
+      hasGreeting: finalHasGreeting,
+      hasClosing: finalHasClosing,
+      firstLine: finalFirstLine,
+      totalLines: finalLines.length,
+      isWellFormatted: finalHasGreeting && finalHasClosing
+    });
+
+    // EMERGENCY FALLBACK: If still missing greeting, force add it
+    if (!finalHasGreeting) {
+      console.log('🚨 EMERGENCY: Still missing greeting after processing! Force adding...');
+      formattedContent = `${expectedGreeting}\n\n${formattedContent}`;
+    }
+
+    return formattedContent;
   }
 
   async canGenerate(contentType: ContentType, context: GenerationContext): Promise<boolean> {
