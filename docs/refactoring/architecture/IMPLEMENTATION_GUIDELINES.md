@@ -33,7 +33,101 @@ This document provides detailed guidelines for implementing the architecture ref
 - **PURE FUNCTIONS**: Create pure functions without side effects
 - **ERROR HANDLING**: Use proper error handling with custom error types
 
-### 4. ID Generation Strategy (UUID vs ULID)
+### 4. File Naming Conventions
+
+**CONTEXT-AWARE NAMING**: Different file types serve different purposes and should follow appropriate conventions for their context
+
+**Class and Service Files**: Use PascalCase for files that primarily export classes or services
+- **Good**: `DefaultAgent.ts`, `UserService.ts`, `DatabaseProvider.ts`, `AgentManager.ts`
+- **Purpose**: Clear correspondence between file names and class names
+
+**Next.js App Router Files**: Follow Next.js conventions (lowercase)
+- **Pages**: `page.tsx` (Next.js requirement)
+- **Layouts**: `layout.tsx` (Next.js requirement)  
+- **API Routes**: `route.ts` (Next.js requirement)
+- **Loading/Error**: `loading.tsx`, `error.tsx` (Next.js requirement)
+- **Not Found**: `not-found.tsx` (Next.js requirement)
+
+**Module Index Files**: Use lowercase `index.ts`
+- **Purpose**: Standard module entry point convention
+- **Examples**: `src/agents/shared/index.ts`, `src/lib/database/index.ts`
+
+**Utility and Script Files**: Use kebab-case for standalone utilities and scripts
+- **Root Scripts**: `bootstrap-logger.js`, `bootstrap-on-startup.js` (executable scripts)
+- **Utility Functions**: `id-conversion.ts`, `request-utils.ts`, `vector-utils.ts`
+- **Purpose**: Distinguishes utilities from classes/services
+
+**Test Files**: PascalCase base name + Test suffix
+- **Unit Tests**: `UserServiceTest.ts`, `AgentManagerTest.ts`
+- **Integration Tests**: `DefaultAgentIntegrationTest.ts`
+- **Purpose**: Clear test identification while matching tested class
+
+**Interface Files**: PascalCase base name + Interface suffix  
+- **Examples**: `DatabaseProviderInterface.ts`, `AgentManagerInterface.ts`
+- **Purpose**: Clear interface identification
+
+**Type Definition Files**: PascalCase base name + Types suffix
+- **Examples**: `AgentTypes.ts`, `WorkflowTypes.ts`, `FoundationTypes.ts`
+- **Purpose**: Clear type definition identification
+
+**Component Files (React)**: PascalCase for React components
+- **Examples**: `ChatBubble.tsx`, `AgentCard.tsx`, `UserProfile.tsx`
+- **Purpose**: Matches React component naming convention
+
+**Configuration Files**: kebab-case or standard names
+- **Examples**: `next.config.js`, `tsconfig.json`, `package.json`
+- **Purpose**: Follow ecosystem standards
+
+### File Naming Decision Tree
+
+```
+Is it a Next.js special file? → Use Next.js convention (page.tsx, layout.tsx, route.ts)
+    ↓
+Is it an index.ts? → Use lowercase index.ts
+    ↓
+Is it a root executable script? → Use kebab-case (bootstrap-logger.js)
+    ↓  
+Is it a React component? → Use PascalCase (ChatBubble.tsx)
+    ↓
+Is it a class/service? → Use PascalCase (UserService.ts)
+    ↓
+Is it a test file? → Use PascalCase + Test (UserServiceTest.ts)
+    ↓
+Is it an interface? → Use PascalCase + Interface (UserServiceInterface.ts)
+    ↓
+Is it types? → Use PascalCase + Types (UserTypes.ts)
+    ↓
+Is it a utility/helper? → Use kebab-case (request-utils.ts, id-conversion.ts)
+```
+
+### Migration Strategy - Refined
+
+**High Priority (PascalCase)**:
+- Class files: `bootstrapAgents.ts` → `BootstrapAgents.ts`
+- Service files: `databaseAgentRegistration.ts` → `DatabaseAgentRegistration.ts`  
+- Test files: `agent-log-test.ts` → `AgentLogTest.ts`
+- Interface files: `AgentBase.interface.ts` → `AgentBaseInterface.ts`
+- Type files: `foundation-types.ts` → `FoundationTypes.ts`
+
+**Keep As-Is (Follow Conventions)**:
+- Next.js files: `page.tsx`, `layout.tsx`, `route.ts` (framework requirement)
+- Index files: `index.ts` (module convention)
+- Root scripts: `bootstrap-logger.js` (executable script convention)
+- Config files: `next.config.js`, `tsconfig.json` (ecosystem standard)
+
+**Utility Files (kebab-case)**:
+- Pure utilities: `request-utils.ts`, `id-conversion.ts`, `vector-utils.ts`
+- Helper functions: `metadata-helpers.ts`, `filter-builder.ts`
+
+### Benefits of Context-Aware Naming
+
+1. **Framework Compliance**: Respects Next.js, React, and Node.js conventions
+2. **Developer Intuition**: Files named according to their purpose and content
+3. **Tool Compatibility**: Works with framework tooling and IDE expectations
+4. **Consistency Within Context**: Similar file types follow the same pattern
+5. **Ecosystem Alignment**: Matches industry standards for each file type
+
+### 5. ID Generation Strategy (UUID vs ULID)
 
 **Database Layer (Prisma Schema)**: Always use `@default(uuid())` for primary keys
 - Prisma generates standard UUIDs for database storage
