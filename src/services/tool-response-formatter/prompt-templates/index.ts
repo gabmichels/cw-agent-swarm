@@ -153,26 +153,26 @@ TOOL CONTEXT:
 - Present results in a way that feels rewarding and productive
 - Maintain encouraging and supportive tone throughout`,
 
-      successTemplate: `Tool operation completed successfully! Include:
-- Clear summary of what was accomplished
-- Practical value and benefits achieved
-- Relevant details about the results
-- Suggested next steps or follow-up actions
-- Encouraging and supportive tone`,
+      successTemplate: `Task completed! Respond in your friendly, casual style and persona.
+- Share what was accomplished in your natural, approachable way
+- Vary your language - avoid repetitive phrases like "Great job!" or "All done!"
+- Make the achievement feel rewarding and satisfying
+- Match your relaxed, encouraging personality
+- Suggest fun next steps or cool opportunities if relevant`,
 
-      errorTemplate: `Tool operation encountered an issue. Provide:
-- Clear explanation of what happened in accessible terms
-- Suggested solutions or alternative approaches
-- Reassurance and supportive guidance
-- Practical next steps for resolution
-- Encouraging tone focused on problem-solving`,
+      errorTemplate: `Hit a snag! Respond in your friendly, casual style and persona.
+- Explain what happened in a friendly, accessible way
+- Provide easy fixes and alternative approaches
+- Maintain your relaxed, supportive personality
+- Avoid template responses - be authentically helpful
+- Keep an upbeat attitude while solving the issue`,
 
-      partialSuccessTemplate: `Tool operation partially completed. Explain:
-- What was successfully accomplished
-- Value delivered and benefits achieved
-- Outstanding items and what's needed to complete
-- Clear next steps for full completion
-- Supportive and encouraging tone`,
+      partialSuccessTemplate: `Making progress! Respond in your friendly, casual style and persona.
+- Celebrate what got accomplished in your natural way
+- Explain what's still needed in a friendly, clear manner
+- Maintain your encouraging, relaxed personality
+- Provide easy next steps to finish up
+- Be authentically supportive about the progress made`,
 
       enabled: true,
       priority: 1
@@ -197,26 +197,26 @@ TOOL CONTEXT:
 - Suggest strategic next steps and optimization opportunities
 - Present results as business achievements and operational success`,
 
-      successTemplate: `Operation completed successfully:
-- Business outcome and operational impact achieved
-- Key results and performance metrics delivered
-- Strategic value and productivity improvements realized
-- Recommended next steps for continued business success
-- Professional confirmation of business objectives met`,
+      successTemplate: `Business operation successful. Respond in your professional style and persona.
+- Focus on business outcomes and operational impact achieved
+- Vary your language - avoid repetitive corporate phrases
+- Emphasize actionable results and strategic value delivered
+- Match your professional communication style
+- Provide strategic insights and next steps as appropriate`,
 
-      errorTemplate: `Operation failed:
-- Business impact assessment and operational considerations
-- Root cause analysis and resolution approach
-- Alternative strategies and business continuity measures
-- Professional recommendations for issue resolution
-- Strategic guidance for operational recovery`,
+      errorTemplate: `Business operation failed. Respond professionally in your authentic style.
+- Assess business impact and operational considerations clearly
+- Provide strategic analysis and resolution approach
+- Maintain your professional persona while being solution-focused
+- Offer alternative strategies and business continuity measures
+- Guide toward operational recovery with confidence`,
 
-      partialSuccessTemplate: `Operation partially completed:
-- Business value delivered and operational progress achieved
-- Outstanding requirements and completion timeline
-- Strategic recommendations for full business objective achievement
-- Professional assessment of progress and business impact
-- Next steps for complete operational success`,
+      partialSuccessTemplate: `Business operation partially completed. Respond professionally in your style.
+- Highlight business value delivered and operational progress achieved
+- Clearly outline outstanding requirements and completion timeline
+- Maintain your professional communication style
+- Provide strategic recommendations for achieving full objectives
+- Balance professional assessment with encouraging progress acknowledgment`,
 
       enabled: true,
       priority: 1
@@ -241,26 +241,26 @@ TOOL CONTEXT:
 - Provide technical insights and system optimization recommendations
 - Present results with technical accuracy and performance data`,
 
-      successTemplate: `Technical operation completed:
-- System execution analysis and performance metrics
-- Technical specifications and operational parameters achieved
-- System reliability assessment and performance validation
-- Technical insights and optimization recommendations
-- Detailed technical confirmation of operation success`,
+      successTemplate: `Technical operation successful. Respond in your technical style and persona.
+- Provide system execution analysis and relevant performance metrics
+- Vary your technical language - avoid repetitive technical phrases
+- Focus on accuracy, technical details, and system reliability
+- Match your technical communication style and expertise level
+- Include technical insights and optimization recommendations as appropriate`,
 
-      errorTemplate: `Technical operation failed:
-- System failure analysis and technical impact assessment
-- Root cause identification and technical resolution requirements
-- Alternative technical approaches and system recovery strategies
-- Technical troubleshooting recommendations and system optimization
-- Engineering solutions for technical reliability and system performance`,
+      errorTemplate: `Technical operation failed. Respond technically in your authentic style.
+- Analyze system failure and technical impact clearly
+- Provide root cause identification and technical resolution requirements
+- Maintain your technical expertise while being solution-focused
+- Offer alternative technical approaches and system recovery strategies
+- Guide toward technical resolution with professional confidence`,
 
-      partialSuccessTemplate: `Technical operation partially completed:
-- Successfully executed system components and technical achievements
-- Outstanding technical requirements and system optimization opportunities
-- Partial performance metrics and technical analysis results
-- Technical considerations for complete system operation
-- Engineering next steps for full technical implementation`,
+      partialSuccessTemplate: `Technical operation partially completed. Respond in your technical style.
+- Document successfully executed system components and technical achievements
+- Clearly outline outstanding technical requirements and system optimization needs
+- Maintain your technical communication style and precision
+- Provide engineering insights for complete system operation
+- Balance technical assessment with realistic progress evaluation`,
 
       enabled: true,
       priority: 1
@@ -285,26 +285,26 @@ TOOL CONTEXT:
 - Suggest easy next steps and helpful optimizations
 - Present results in a way that feels satisfying and encouraging`,
 
-      successTemplate: `Great job! Your task is all done! 🎉 Include:
-- Celebration of what was accomplished
-- User-friendly explanation of the results and benefits
-- Cool next steps or awesome opportunities
-- Encouraging and positive tone throughout
-- Fun and supportive assessment of the achievement`,
+      successTemplate: `Task completed! Respond in your friendly, casual style and persona.
+- Share what was accomplished in your natural, approachable way
+- Vary your language - avoid repetitive phrases like "Great job!" or "All done!"
+- Make the achievement feel rewarding and satisfying
+- Match your relaxed, encouraging personality
+- Suggest fun next steps or cool opportunities if relevant`,
 
-      errorTemplate: `Oops, hit a little snag! 😅 Provide:
-- Friendly explanation of what happened
-- Easy fixes and alternative approaches
-- Reassuring guidance and support
-- Upbeat attitude about solving the issue
-- Encouraging tone focused on getting things working`,
+      errorTemplate: `Hit a snag! Respond in your friendly, casual style and persona.
+- Explain what happened in a friendly, accessible way
+- Provide easy fixes and alternative approaches
+- Maintain your relaxed, supportive personality
+- Avoid template responses - be authentically helpful
+- Keep an upbeat attitude while solving the issue`,
 
-      partialSuccessTemplate: `Nice progress! We're getting there! 💪 Explain:
-- Celebration of what got accomplished
-- Friendly explanation of what's still needed
-- Easy next steps to finish up
-- Encouraging and supportive tone
-- Positive assessment of progress and achievements`,
+      partialSuccessTemplate: `Making progress! Respond in your friendly, casual style and persona.
+- Celebrate what got accomplished in your natural way
+- Explain what's still needed in a friendly, clear manner
+- Maintain your encouraging, relaxed personality
+- Provide easy next steps to finish up
+- Be authentically supportive about the progress made`,
 
       enabled: true,
       priority: 1

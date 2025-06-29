@@ -1,7 +1,13 @@
 /**
  * DefaultAgent.ts - Refactored Agent Implementation
  * 
- * This is the refactored version that delegates to specialized components:
+ * ⚠️ IMPORTANT FOR AI ASSISTANTS: Before modifying this file, READ:
+ * docs/refactoring/default-agent-v3/default-agent-v3.md
+ * 
+ * This file is currently ~3,783 lines and is scheduled for architectural refactoring
+ * to reduce it to ~1,000 lines using Command/Strategy patterns, Service Layer, and Plugin Architecture.
+ * 
+ * Current Architecture (Delegated Components):
  * - AgentInitializer: Handles component initialization and dependency injection
  * - AgentLifecycleManager: Manages agent lifecycle (start/stop/pause/resume)
  * - AgentCommunicationHandler: Handles message processing and routing
@@ -10,6 +16,14 @@
  * - OutputProcessingCoordinator: Handles output formatting and delivery
  * - ThinkingProcessor: Handles reasoning and decision-making
  * - AgentConfigValidator: Validates configuration
+ * 
+ * REFACTORING RULES:
+ * 1. Follow @IMPLEMENTATION_GUIDELINES.md principles
+ * 2. Apply @arch-refactor-guidelines and @modular-code rules
+ * 3. No method should exceed 100 lines of code
+ * 4. Maintain all existing functionality and tests
+ * 5. Use gradual, incremental refactoring approach
+ * 6. All changes must be backward compatible
  */
 
 import { createLogger } from '@/lib/logging/winston-logger';
@@ -79,9 +93,22 @@ import {
 import { EnhancedWorkspaceAgentIntegration } from '../../services/workspace/integration/EnhancedWorkspaceAgentIntegration';
 import { WorkspaceAgentIntegration } from '../../services/workspace/integration/WorkspaceAgentIntegration';
 
+// Import ACG services - Phase 7 Integration
+import { IContentGenerationService } from '../../services/acg/interfaces/IContentGenerationService';
+import { WorkspaceACGIntegration } from '../../services/acg/integration/WorkspaceACGIntegration';
+import { DefaultContentGenerationService } from '../../services/acg/core/DefaultContentGenerationService';
+import { EmailContentGenerator } from '../../services/acg/generators/email/EmailContentGenerator';
+import { DocumentContentGenerator } from '../../services/acg/generators/document/DocumentContentGenerator';
+import { ContentType } from '../../services/acg/types/ContentGenerationTypes';
+import { WorkspaceNLPProcessor } from '../../services/workspace/integration/WorkspaceNLPProcessor';
+
 // Import visualization components
 import { ThinkingVisualizer } from '../../services/thinking/visualization/ThinkingVisualizer';
 import { AgentVisualizationTracker } from '../../services/visualization/AgentVisualizationTracker';
+
+// Import workspace tool executor bridge
+import { WorkspaceToolExecutorBridge } from '../../services/thinking/tools/WorkspaceToolExecutorBridge';
+import { UnifiedToolBridge } from '../../services/tools/UnifiedToolBridge';
 import {
   AgentVisualizationContext,
   DEFAULT_VISUALIZATION_CONFIG,
@@ -207,6 +234,20 @@ interface DefaultAgentConfig {
   // Visualization configuration
   visualizationConfig?: Partial<VisualizationConfig>;
 
+  // ACG Configuration - Phase 7 Integration
+  enableACG?: boolean;
+  acgConfig?: {
+    enableAutoGeneration?: boolean;
+    requireConfirmation?: boolean;
+    maxGenerationTimeMs?: number;
+    fallbackOnError?: boolean;
+    enabledGenerators?: string[]; // ContentType array as strings
+    cacheEnabled?: boolean;
+    cacheTTL?: number;
+    maxRetries?: number;
+    batchSize?: number;
+  };
+
 }
 
 // Simple agent memory entity for compatibility
@@ -271,6 +312,10 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private workspaceIntegration: WorkspaceAgentIntegration | null = null;
   private enhancedWorkspaceIntegration: EnhancedWorkspaceAgentIntegration | null = null;
 
+  // ACG Services - Phase 7 Integration
+  private contentGenerationService: IContentGenerationService | null = null;
+  private workspaceACGIntegration: WorkspaceACGIntegration | null = null;
+
   // Error management services
   private errorManagementService: DefaultErrorManagementService | null = null;
   private errorClassificationEngine: DefaultErrorClassificationEngine | null = null;
@@ -282,6 +327,10 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
   private visualizer: ThinkingVisualizer | null = null;
   private visualizationTracker: AgentVisualizationTracker | null = null;
   private visualizationConfig: VisualizationConfig = DEFAULT_VISUALIZATION_CONFIG;
+
+  // Workspace tool executor bridge for thinking system integration
+  private workspaceToolExecutorBridge: WorkspaceToolExecutorBridge | null = null;
+  private unifiedToolBridge: UnifiedToolBridge | null = null;
 
   /**
    * Create a new refactored DefaultAgent
@@ -349,11 +398,130 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
       config: config
     });
 
-    // Initialize workspace integration
-    this.workspaceIntegration = new WorkspaceAgentIntegration();
+    // Initialize ACG services if enabled - Phase 7 Integration
+    if (config.enableACG) {
+      this.logger.info('ACG enabled - initializing content generation services', {
+        agentId: agentId,
+        acgConfig: config.acgConfig
+      });
+
+      try {
+        // Create a simple LLM service adapter for content generators
+        const llmService = {
+          generateText: async (prompt: string, options?: any) => {
+            // Use the existing LLM response method
+            const response = await this.getLLMResponse(prompt, options);
+            return response.content;
+          },
+          generateResponse: async (prompt: string, options?: any) => {
+            // Use the existing LLM response method
+            const response = await this.getLLMResponse(prompt, options);
+            return {
+              content: response.content,
+              usage: { totalTokens: 0, promptTokens: 0, completionTokens: 0 },
+              model: process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14'
+            };
+          },
+          isAvailable: async () => {
+            // Always return true since we have access to the agent's LLM
+            return true;
+          },
+          getModel: () => process.env.OPENAI_MODEL_NAME || 'gpt-4.1-2025-04-14'
+        };
+
+        // Initialize content generation service
+        const emailGenerator = new EmailContentGenerator();
+        const documentGenerator = new DocumentContentGenerator(llmService as any);
+
+        // Create a simple cache implementation
+        const cache = {
+          data: new Map(),
+          async get(key: string) { return this.data.get(key) || null; },
+          async set(key: string, content: any, ttl?: number) { this.data.set(key, content); },
+          async has(key: string) { return this.data.has(key); },
+          async delete(key: string) { return this.data.delete(key); },
+          generateKey: (context: any) => JSON.stringify(context),
+          async clearByType(contentType: any) { this.data.clear(); },
+          async clear() { this.data.clear(); }
+        };
+
+        this.contentGenerationService = new DefaultContentGenerationService({
+          generators: [emailGenerator, documentGenerator],
+          cache: cache,
+          logger: this.logger,
+          config: {
+            maxConcurrentRequests: 10,
+            defaultTimeoutMs: config.acgConfig?.maxGenerationTimeMs || 30000,
+            maxRetries: config.acgConfig?.maxRetries || 3,
+            cachingEnabled: config.acgConfig?.cacheEnabled ?? true,
+            validationEnabled: true,
+            metricsEnabled: true,
+            fallbackEnabled: true,
+            batchSize: config.acgConfig?.batchSize || 10,
+            cleanupIntervalMs: 300000, // 5 minutes
+            requestHistoryLimit: 1000
+          }
+        });
+
+        // Note: contentGenerationService.initialize() will be called in the main initialize() method
+
+        // Initialize ACG-enhanced workspace integration
+        this.workspaceACGIntegration = new WorkspaceACGIntegration(
+          new WorkspaceNLPProcessor(),
+          this.contentGenerationService,
+          {
+            enableAutoGeneration: config.acgConfig?.enableAutoGeneration ?? true,
+            requireConfirmation: config.acgConfig?.requireConfirmation ?? false,
+            maxGenerationTimeMs: config.acgConfig?.maxGenerationTimeMs || 30000,
+            fallbackOnError: config.acgConfig?.fallbackOnError ?? true
+          }
+        );
+
+        // CRITICAL FIX: ACG integration is NOT a replacement for workspace integration!
+        // ACG enhances commands, then passes them to the regular workspace integration
+        this.workspaceIntegration = new WorkspaceAgentIntegration();
+
+        this.logger.info('✅ ACG services initialized successfully', {
+          agentId: agentId,
+          generatorCount: 2,
+          acgEnabled: true,
+          hasWorkspaceIntegration: !!this.workspaceIntegration,
+          hasACGIntegration: !!this.workspaceACGIntegration
+        });
+      } catch (error) {
+        this.logger.error('❌ Failed to initialize ACG services', {
+          agentId: agentId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+
+        // Fallback to standard workspace integration
+        this.workspaceIntegration = new WorkspaceAgentIntegration();
+        this.contentGenerationService = null;
+        this.workspaceACGIntegration = null;
+      }
+    } else {
+      // Standard workspace integration when ACG is disabled
+      this.workspaceIntegration = new WorkspaceAgentIntegration();
+      this.contentGenerationService = null;
+      this.workspaceACGIntegration = null;
+
+      this.logger.debug('ACG disabled - using standard workspace integration', {
+        agentId: agentId
+      });
+    }
 
     // Initialize enhanced workspace integration (will be set up during initialization)
     this.enhancedWorkspaceIntegration = null;
+
+    // Initialize workspace tool executor bridge
+    this.workspaceToolExecutorBridge = new WorkspaceToolExecutorBridge({
+      enableDebugLogging: true,
+      maxExecutionTimeMs: 30000,
+      validateParameters: true
+    });
+
+    // Initialize unified tool bridge to fix tool discovery mess
+    this.unifiedToolBridge = new UnifiedToolBridge();
   }
 
   // getId() and getAgentId() inherited from AbstractAgentBase
@@ -598,7 +766,108 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         }
       }
 
-      // Step 7: Initialize error management system
+      // Step 7: Initialize ACG services if enabled - Phase 7 Integration
+      console.log('🔍 ACG INITIALIZATION CHECK', {
+        enableACG: this.agentConfig.enableACG,
+        hasContentGenerationService: !!this.contentGenerationService,
+        contentGenerationServiceType: this.contentGenerationService?.constructor?.name,
+        willInitialize: !!(this.agentConfig.enableACG && this.contentGenerationService)
+      });
+
+      if (this.agentConfig.enableACG && this.contentGenerationService) {
+        try {
+          this.logger.info('Initializing ACG services...', {
+            agentId: this.agentId,
+            hasContentGenerationService: !!this.contentGenerationService
+          });
+
+          // CRITICAL: Initialize the content generation service to set up generators with dependencies
+          if ('initialize' in this.contentGenerationService && typeof (this.contentGenerationService as any).initialize === 'function') {
+            await (this.contentGenerationService as any).initialize();
+          } else {
+            this.logger.warn('Content generation service does not have initialize method', {
+              serviceType: this.contentGenerationService.constructor.name
+            });
+          }
+
+          this.logger.debug('ACG services are ready for use', {
+            agentId: this.agentId,
+            serviceType: this.contentGenerationService?.constructor.name
+          });
+
+          this.logger.system("✅ ACG services initialized successfully", {
+            agentId: this.agentId,
+            acgEnabled: true
+          });
+        } catch (acgError) {
+          this.logger.error("❌ Failed to initialize ACG services during agent initialization", {
+            agentId: this.agentId,
+            error: acgError instanceof Error ? acgError.message : String(acgError),
+            stack: acgError instanceof Error ? acgError.stack : undefined
+          });
+
+          // Fallback to standard workspace integration
+          this.workspaceIntegration = new WorkspaceAgentIntegration();
+          this.contentGenerationService = null;
+          this.workspaceACGIntegration = null;
+        }
+      }
+
+      // Step 8: Connect unified tool systems (FIXES TOOL DISCOVERY MESS)
+      if (this.unifiedToolBridge) {
+        try {
+          this.logger.info('🔧 Connecting unified tool systems to fix tool discovery mess', {
+            agentId: this.agentId
+          });
+
+          // Import the singleton tool service from the thinking system
+          const { toolService } = await import('../../services/thinking/tools');
+
+          if (toolService) {
+            // Connect all tool systems through unified bridge
+            await this.unifiedToolBridge.connectAllSystems(this, toolService);
+            this.logger.system("✅ UNIFIED TOOL SYSTEMS CONNECTED - Tool discovery mess fixed!", {
+              agentId: this.agentId,
+              toolServiceType: toolService.constructor.name
+            });
+          } else {
+            this.logger.warn("Could not access thinking system's tool service for unified connection", {
+              agentId: this.agentId
+            });
+          }
+        } catch (error) {
+          this.logger.error("❌ Failed to connect unified tool systems", {
+            agentId: this.agentId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
+      // Step 8b: Legacy workspace tool executor bridge (fallback)
+      if (this.workspaceToolExecutorBridge) {
+        try {
+          this.logger.info('Registering legacy workspace tool executors (fallback)', {
+            agentId: this.agentId
+          });
+
+          // Import the singleton tool service from the thinking system
+          const { toolService } = await import('../../services/thinking/tools');
+
+          if (toolService) {
+            await this.workspaceToolExecutorBridge.registerWorkspaceExecutors(this, toolService);
+            this.logger.system("✅ Legacy workspace tool executors registered (fallback)", {
+              agentId: this.agentId
+            });
+          }
+        } catch (error) {
+          this.logger.error("❌ Failed to register legacy workspace tool executors", {
+            agentId: this.agentId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
+      // Step 9: Initialize error management system
       if (this.agentConfig.enableErrorManagement !== false) { // Default to enabled
         await this.initializeErrorManagement();
         this.logger.system("Error management system initialized");
@@ -606,7 +875,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         this.logger.system("Error management system disabled by configuration");
       }
 
-      // Step 8: Mark as initialized
+      // Step 10: Mark as initialized
       this.initialized = true;
       this.logger.system("Agent initialization completed successfully", {
         agentId: this.agentId,
@@ -1392,10 +1661,117 @@ Please provide a helpful, contextual response based on this analysis and memory 
         });
 
         try {
-          const workspaceResult = await this.workspaceIntegration.processWorkspaceInput(
-            this.agentId,
-            message
-          );
+          // Use ACG-enhanced processing if available
+          let workspaceResult;
+          if (this.workspaceACGIntegration) {
+            this.logger.debug('Using ACG-enhanced workspace processing', {
+              agentId: this.agentId,
+              hasACG: true
+            });
+
+            const acgEnhancedCommand = await this.workspaceACGIntegration.parseCommandWithACG(
+              message,
+              options?.userId,
+              this.agentId
+            );
+
+            if (acgEnhancedCommand) {
+              this.logger.info('✨ ACG enhanced workspace command', {
+                commandType: acgEnhancedCommand.type,
+                contentGenerated: acgEnhancedCommand.contentGenerated,
+                generatedContent: acgEnhancedCommand.generatedContent ? Object.keys(acgEnhancedCommand.generatedContent) : [],
+                requiresConfirmation: acgEnhancedCommand.requiresConfirmation
+              });
+
+              // CRITICAL FIX: Actually execute the ACG-enhanced command!
+              this.logger.info('🔧 Executing ACG-enhanced workspace command', {
+                agentId: this.agentId,
+                commandType: acgEnhancedCommand.type,
+                hasGeneratedContent: !!acgEnhancedCommand.contentGenerated
+              });
+
+              try {
+                // CRITICAL FIX: Use the ACG-enhanced command directly to avoid re-parsing
+                // The issue was that processWorkspaceInput() re-parses the message and
+                // chrono-node detects time references in generated content which triggers scheduling
+
+                this.logger.debug('Using ACG-enhanced command directly to bypass re-parsing', {
+                  agentId: this.agentId,
+                  commandType: acgEnhancedCommand.type,
+                  hasGeneratedContent: !!acgEnhancedCommand.contentGenerated,
+                  generatedContentTypes: acgEnhancedCommand.generatedContent ? Object.keys(acgEnhancedCommand.generatedContent) : [],
+                  hasScheduledTime: !!acgEnhancedCommand.scheduledTime
+                });
+
+                // Execute the command through workspace integration using the PRE-PARSED command
+                // This bypasses the problematic re-parsing that was causing false scheduling detection
+                const executionResult = await this.workspaceIntegration.processWorkspaceCommand(
+                  this.agentId,
+                  acgEnhancedCommand, // Use the ACG-enhanced command directly
+                  undefined // Let it auto-select connection
+                );
+
+                this.logger.info('✅ ACG-enhanced command executed successfully', {
+                  agentId: this.agentId,
+                  commandType: acgEnhancedCommand.type,
+                  executionSuccess: executionResult.success,
+                  hasData: !!executionResult.data,
+                  contentGenerated: acgEnhancedCommand.contentGenerated
+                });
+
+                // Combine ACG metadata with execution result
+                workspaceResult = {
+                  success: executionResult.success,
+                  data: {
+                    command: acgEnhancedCommand,
+                    contentGenerated: acgEnhancedCommand.contentGenerated,
+                    generatedContent: acgEnhancedCommand.generatedContent,
+                    requiresConfirmation: acgEnhancedCommand.requiresConfirmation,
+                    executionResult: executionResult.data,
+                    actuallyExecuted: true // Flag to confirm execution happened
+                  },
+                  error: executionResult.error,
+                  scheduled: executionResult.scheduled,
+                  taskId: executionResult.taskId
+                };
+              } catch (executionError) {
+                this.logger.error('❌ ACG-enhanced command execution failed', {
+                  agentId: this.agentId,
+                  commandType: acgEnhancedCommand.type,
+                  error: executionError instanceof Error ? executionError.message : String(executionError)
+                });
+
+                workspaceResult = {
+                  success: false,
+                  data: {
+                    command: acgEnhancedCommand,
+                    contentGenerated: acgEnhancedCommand.contentGenerated,
+                    generatedContent: acgEnhancedCommand.generatedContent,
+                    requiresConfirmation: acgEnhancedCommand.requiresConfirmation,
+                    actuallyExecuted: false
+                  },
+                  error: `ACG command execution failed: ${executionError instanceof Error ? executionError.message : String(executionError)}`
+                };
+              }
+            } else {
+              // No workspace command detected
+              workspaceResult = {
+                success: false,
+                error: 'No workspace command detected'
+              };
+            }
+          } else {
+            // Standard workspace processing
+            this.logger.debug('Using standard workspace processing', {
+              agentId: this.agentId,
+              hasACG: false
+            });
+
+            workspaceResult = await this.workspaceIntegration.processWorkspaceInput(
+              this.agentId,
+              message
+            );
+          }
 
           this.logger.info('🔍 Workspace processing result received', {
             success: workspaceResult.success,
@@ -2604,6 +2980,15 @@ Please provide a helpful, contextual response based on this analysis and memory 
    */
   private async getAvailableToolNames(): Promise<string[]> {
     try {
+      const allToolNames: string[] = [];
+
+      this.logger.info('🔧 DEBUG: Starting getAvailableToolNames', {
+        hasWorkspaceIntegration: !!this.workspaceIntegration,
+        hasWorkspaceACGIntegration: !!this.workspaceACGIntegration,
+        agentId: this.agentId
+      });
+
+      // Step 1: Get tools from ToolManager
       const toolManager = this.getManager<ToolManager>(ManagerType.TOOL);
       if (toolManager) {
         try {
@@ -2611,44 +2996,137 @@ Please provide a helpful, contextual response based on this analysis and memory 
           const tools = await toolManager.getTools();
           if (Array.isArray(tools) && tools.length > 0) {
             const toolNames = tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
+            allToolNames.push(...toolNames);
             this.logger.debug('Retrieved tools from ToolManager', {
               toolCount: tools.length,
               toolNames
             });
-            return toolNames;
           }
         } catch (error) {
           this.logger.warn('ToolManager.getTools() failed, trying fallback methods', {
             error: error instanceof Error ? error.message : String(error)
           });
-        }
 
-        // Try alternative methods if getTools fails
-        if (typeof (toolManager as any).getAllTools === 'function') {
-          try {
-            const tools = await (toolManager as any).getAllTools();
-            if (Array.isArray(tools)) {
-              return tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
+          // Try alternative methods if getTools fails
+          if (typeof (toolManager as any).getAllTools === 'function') {
+            try {
+              const tools = await (toolManager as any).getAllTools();
+              if (Array.isArray(tools)) {
+                const toolNames = tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
+                allToolNames.push(...toolNames);
+              }
+            } catch (error) {
+              this.logger.warn('ToolManager.getAllTools() failed', {
+                error: error instanceof Error ? error.message : String(error)
+              });
             }
-          } catch (error) {
-            this.logger.warn('ToolManager.getAllTools() failed', {
-              error: error instanceof Error ? error.message : String(error)
-            });
           }
         }
       }
 
-      // Fallback: check for registered tools in this agent (synchronous method as last resort)
-      const registeredTools = this.getRegisteredTools();
-      if (Array.isArray(registeredTools)) {
-        return registeredTools.map((tool: any) =>
-          typeof tool === 'string' ? tool : tool.name || tool.id || 'unknown_tool'
-        );
+      // Step 2: Get tools from WorkspaceAgentIntegration (CRITICAL for email tools)
+      if (this.workspaceIntegration || this.workspaceACGIntegration) {
+        try {
+          const workspaceIntegration = this.workspaceACGIntegration || this.workspaceIntegration;
+
+          // Check if the workspace integration has getAvailableTools method
+          if (typeof (workspaceIntegration as any).getAvailableTools === 'function') {
+            const workspaceTools = await (workspaceIntegration as any).getAvailableTools(this.agentId);
+            if (Array.isArray(workspaceTools)) {
+              const workspaceToolNames = workspaceTools.map((tool: any) =>
+                tool.name || tool.id || 'unknown_workspace_tool'
+              );
+              allToolNames.push(...workspaceToolNames);
+              this.logger.info('✅ Retrieved workspace tools successfully', {
+                toolCount: workspaceTools.length,
+                toolNames: workspaceToolNames,
+                integration: this.workspaceACGIntegration ? 'ACG' : 'Standard'
+              });
+            }
+          }
+
+          // Also check if there's a workspaceTools property with getAvailableTools
+          if ((workspaceIntegration as any).workspaceTools) {
+            const workspaceTools = (workspaceIntegration as any).workspaceTools;
+            if (typeof workspaceTools.getAvailableTools === 'function') {
+              const tools = await workspaceTools.getAvailableTools(this.agentId);
+              if (Array.isArray(tools)) {
+                const workspaceToolNames = tools.map((tool: any) =>
+                  tool.name || tool.id || 'unknown_workspace_tool'
+                );
+                allToolNames.push(...workspaceToolNames);
+                this.logger.info('✅ Retrieved workspace tools from workspaceTools property', {
+                  toolCount: tools.length,
+                  toolNames: workspaceToolNames,
+                  integration: this.workspaceACGIntegration ? 'ACG' : 'Standard'
+                });
+              }
+            }
+          }
+
+          // FALLBACK: If no tools found yet, manually add common workspace tools if we have valid connections
+          if (allToolNames.length === 0) {
+            this.logger.warn('No workspace tools found via methods, adding fallback workspace tools');
+            // Add basic workspace tools that should be available if workspace is integrated
+            const fallbackWorkspaceTools = [
+              'send_email',
+              'smart_send_email',
+              'read_email',
+              'find_important_emails',
+              'read_calendar',
+              'schedule_event',
+              'find_availability'
+            ];
+            allToolNames.push(...fallbackWorkspaceTools);
+            this.logger.info('✅ Added fallback workspace tools', {
+              toolCount: fallbackWorkspaceTools.length,
+              toolNames: fallbackWorkspaceTools
+            });
+          }
+        } catch (error) {
+          this.logger.warn('Failed to get workspace tools', {
+            error: error instanceof Error ? error.message : String(error)
+          });
+
+          // Even if there's an error, add basic workspace tools as fallback
+          const fallbackWorkspaceTools = [
+            'send_email',
+            'smart_send_email',
+            'read_email'
+          ];
+          allToolNames.push(...fallbackWorkspaceTools);
+          this.logger.info('✅ Added error fallback workspace tools', {
+            toolCount: fallbackWorkspaceTools.length,
+            toolNames: fallbackWorkspaceTools
+          });
+        }
       }
 
-      // If we still don't have an array, return the fallback
-      this.logger.warn('No tools available from any source, using fallback tools');
-      return ['send_message', 'general_llm_capabilities'];
+      // Step 3: Fallback to registered tools if no tools found yet
+      if (allToolNames.length === 0) {
+        const registeredTools = this.getRegisteredTools();
+        if (Array.isArray(registeredTools)) {
+          const registeredToolNames = registeredTools.map((tool: any) =>
+            typeof tool === 'string' ? tool : tool.name || tool.id || 'unknown_tool'
+          );
+          allToolNames.push(...registeredToolNames);
+        }
+      }
+
+      // Step 4: Add basic capabilities if we still have no tools
+      if (allToolNames.length === 0) {
+        this.logger.warn('No tools available from any source, using fallback tools');
+        allToolNames.push('send_message', 'general_llm_capabilities');
+      }
+
+      // Remove duplicates and return
+      const uniqueToolNames = [...new Set(allToolNames)];
+      this.logger.debug('Final available tool names', {
+        totalCount: uniqueToolNames.length,
+        toolNames: uniqueToolNames
+      });
+
+      return uniqueToolNames;
     } catch (error) {
       this.logger.warn('Failed to get available tool names:', {
         error: error instanceof Error ? error.message : String(error)
@@ -3547,18 +4025,39 @@ Task scheduled successfully (ID: ${safeTaskId})`;
       const { createMessagingLLMService } = await import('../../services/messaging/llm-adapter');
       const { LLMPersonaFormatter } = await import('../../services/tool-response-formatter/LLMPersonaFormatter');
 
-      // Create a configuration service
+      // Create a persona-aware configuration service
+      const persona = this.agentConfig.persona;
+      const communicationStyle = persona?.communicationStyle || 'professional and helpful';
+      const responseStyle = this.determineResponseStyleFromPersona(persona);
+      const customInstructions = this.buildPersonaAwareInstructions(persona);
+
       const configService = {
-        async getConfig(agentId: string) {
+        async getConfig(agentId: string): Promise<{
+          enableLLMFormatting: boolean;
+          maxResponseLength: number;
+          includeEmojis: boolean;
+          includeNextSteps: boolean;
+          includeMetrics: boolean;
+          responseStyle: 'conversational' | 'business' | 'technical' | 'casual';
+          enableCaching: boolean;
+          cacheTTLSeconds: number;
+          personaAware: boolean;
+          communicationStyle: string;
+          customInstructions: string;
+        }> {
           return {
             enableLLMFormatting: true,
             maxResponseLength: 500,
-            includeEmojis: true,
+            includeEmojis: persona?.preferences?.includeEmojis !== 'false',
             includeNextSteps: true,
             includeMetrics: false,
-            responseStyle: 'conversational' as const,
+            responseStyle: responseStyle,
             enableCaching: true,
-            cacheTTLSeconds: 3600
+            cacheTTLSeconds: 3600,
+            // NEW: Persona-aware response guidelines
+            personaAware: true,
+            communicationStyle: communicationStyle,
+            customInstructions: customInstructions
           };
         }
       };
@@ -3614,5 +4113,52 @@ Task scheduled successfully (ID: ${safeTaskId})`;
       });
       throw error;
     }
+  }
+
+  /**
+   * Determine response style from agent persona
+   */
+  private determineResponseStyleFromPersona(persona?: PersonaInfo): 'conversational' | 'business' | 'technical' | 'casual' {
+    if (!persona) return 'conversational';
+
+    const style = persona.communicationStyle?.toLowerCase() || '';
+    const personality = persona.personality?.toLowerCase() || '';
+
+    // Analyze communication style and personality to determine appropriate response style
+    if (style.includes('casual') || style.includes('relaxed') || style.includes('friendly')) {
+      return 'casual';
+    } else if (style.includes('technical') || style.includes('precise') || style.includes('analytical')) {
+      return 'technical';
+    } else if (style.includes('business') || style.includes('professional') || style.includes('formal')) {
+      return 'business';
+    } else {
+      return 'conversational';
+    }
+  }
+
+  /**
+   * Build persona-aware instructions for natural responses
+   */
+  private buildPersonaAwareInstructions(persona?: PersonaInfo): string {
+    if (!persona) {
+      return `Respond naturally and vary your language. For success: summarize what was achieved. For errors: explain what went wrong and how to fix it. For partial success: explain progress made and what's still needed.`;
+    }
+
+    const background = persona.background || 'helpful assistant';
+    const personality = persona.personality || 'professional and supportive';
+    const communicationStyle = persona.communicationStyle || 'clear and helpful';
+
+    return `You are ${background}. Your personality is ${personality}. Your communication style is ${communicationStyle}.
+
+RESPONSE GUIDELINES:
+- Respond in character, matching your personality and communication style
+- Vary your language and avoid repetitive phrases like "Great news" or "Tool operation completed"
+- Be authentic to your persona while being genuinely helpful
+
+FOR SUCCESS: Summarize what was accomplished in your natural voice, highlighting the value delivered
+FOR ERRORS: Explain what went wrong with empathy and provide clear guidance on resolution
+FOR PARTIAL SUCCESS: Acknowledge progress made, explain what's outstanding, and provide next steps
+
+Keep responses natural, varied, and true to your character.`;
   }
 }

@@ -1,6 +1,18 @@
 import { ThinkingState } from '../types';
 import { ChatOpenAI } from '@langchain/openai';
 import { z } from 'zod';
+import {
+  EMAIL_TOOL_NAMES,
+  CALENDAR_TOOL_NAMES,
+  SPREADSHEET_TOOL_NAMES,
+  FILE_TOOL_NAMES,
+  CONNECTION_TOOL_NAMES,
+  CORE_TOOL_NAMES,
+  CORE_TOOL_NAME_LIST,
+  REQUEST_TYPES,
+  ALL_WORKSPACE_TOOL_NAME_LIST,
+  type RequestType
+} from '../../../../constants/tool-names';
 
 // Enhanced schema to include tool availability analysis
 const requestTypeSchema = z.object({
@@ -19,131 +31,258 @@ const requestTypeSchema = z.object({
 });
 
 /**
- * Dynamically discover available tools from the agent
+ * Discover available tools for the agent
  */
 async function discoverAgentTools(state: ThinkingState): Promise<string[]> {
+  const baseTools = [...CORE_TOOL_NAME_LIST];
+
   try {
-    // 🎯 PRIMARY: Try to get tools from the agent instance if available
-    if (state.metadata?.agent && typeof state.metadata.agent === 'object') {
-      const agent = state.metadata.agent;
-      console.log('🔧 Found agent instance in metadata, discovering tools...');
-      
-      // Try to get tools from the agent's tool manager
-      if (typeof agent.getManager === 'function') {
-        try {
-          const toolManager = agent.getManager('tools');
-          if (toolManager && typeof (toolManager as any).getAllTools === 'function') {
-            const tools = await (toolManager as any).getAllTools();
-            const toolNames = tools.map((tool: any) => tool.name || tool.id || 'unknown_tool');
-            console.log(`🎯 Discovered ${toolNames.length} tools from agent tool manager:`, toolNames);
-            return toolNames;
+    // Get agent context from state
+    const agentContext = (state as any).agentContext;
+    if (!agentContext?.agent) {
+      console.log('🔧 No agent context available, using fallback tools');
+      return [...baseTools, ...ALL_WORKSPACE_TOOL_NAME_LIST];
+    }
+
+    const agent = agentContext.agent;
+
+    // Try to get available tool names from the agent
+    if (typeof agent.getAvailableToolNames === 'function') {
+      try {
+        const agentTools = await agent.getAvailableToolNames();
+        if (Array.isArray(agentTools) && agentTools.length > 0) {
+          console.log(`🔧 Retrieved ${agentTools.length} tools from agent.getAvailableToolNames()`);
+          return [...baseTools, ...agentTools];
+        }
+      } catch (error) {
+        console.warn('Failed to get tools from agent.getAvailableToolNames():', error);
+      }
+    }
+
+    // Try to get workspace tools
+    if (agent.workspaceIntegration || agent.workspaceACGIntegration) {
+      try {
+        const workspaceIntegration = agent.workspaceACGIntegration || agent.workspaceIntegration;
+
+        if (typeof workspaceIntegration.getAvailableTools === 'function') {
+          const workspaceTools = await workspaceIntegration.getAvailableTools(agent.agentId || agent.id);
+          if (Array.isArray(workspaceTools)) {
+            const toolNames = workspaceTools.map((tool: any) => tool.name || tool.id);
+            console.log(`🔧 Retrieved ${toolNames.length} workspace tools`);
+            return [...baseTools, ...toolNames];
           }
-        } catch (toolError) {
-          console.warn('Failed to get tools from agent tool manager:', toolError);
         }
-      }
-      
-      // Try getAvailableToolNames method if exists
-      if (typeof (agent as any).getAvailableToolNames === 'function') {
-        try {
-          const toolNames = await (agent as any).getAvailableToolNames();
-          console.log(`🎯 Discovered ${toolNames.length} tools from agent.getAvailableToolNames():`, toolNames);
-          return toolNames;
-        } catch (toolError) {
-          console.warn('Failed to get tools from agent.getAvailableToolNames():', toolError);
-        }
-      }
-      
-      // Try getRegisteredTools method if exists
-      if (typeof (agent as any).getRegisteredTools === 'function') {
-        try {
-          const tools = (agent as any).getRegisteredTools();
-          const toolNames = tools.map((tool: any) => typeof tool === 'string' ? tool : tool.name || tool.id || 'unknown_tool');
-          console.log(`🎯 Discovered ${toolNames.length} tools from agent.getRegisteredTools():`, toolNames);
-          return toolNames;
-        } catch (toolError) {
-          console.warn('Failed to get tools from agent.getRegisteredTools():', toolError);
-        }
+      } catch (error) {
+        console.warn('Failed to get workspace tools:', error);
       }
     }
-    
-    // Try to get tools from agent context if available
-    if (state.agentPersona?.capabilities) {
-      console.log('🔧 Using tools from state.agentPersona.capabilities:', state.agentPersona.capabilities);
-      return state.agentPersona.capabilities;
-    }
-    
-    // Try to get from thinking context
-    if (state.contextUsed?.tools) {
-      const toolNames = state.contextUsed.tools.map((tool: any) => typeof tool === 'string' ? tool : tool.name || 'unknown_tool');
-      console.log('🔧 Using tools from state.contextUsed.tools:', toolNames);
-      return toolNames;
-    }
-    
-    // Fallback: return common tools (this maintains backward compatibility)
-    console.warn('🔧 No agent tools found, using fallback tools');
-    return [
-      'general_llm_capabilities',
-      'text_processing',
-      'analysis',
-      'reasoning',
-      'send_message' // Add send_message as available tool
-    ];
+
+    // Fallback: return all known workspace tools
+    console.log('🔧 Using fallback: all known workspace tools');
+    return [...baseTools, ...ALL_WORKSPACE_TOOL_NAME_LIST];
+
   } catch (error) {
-    console.warn('Failed to discover agent tools:', error);
-    return ['general_llm_capabilities', 'send_message']; // Safe fallback
+    console.error('Error discovering agent tools:', error);
+    return [...baseTools, ...ALL_WORKSPACE_TOOL_NAME_LIST];
   }
 }
 
 /**
- * Build dynamic tool context based on agent's actual capabilities
+ * Deterministic tool requirement analysis based on request intent and content
  */
-async function buildDynamicToolContext(availableTools: string[]): Promise<string> {
-  const toolCategories = {
-    coda: availableTools.filter(tool => tool.toLowerCase().includes('coda')),
-    web: availableTools.filter(tool => tool.toLowerCase().includes('web') || tool.toLowerCase().includes('search')),
-    social: availableTools.filter(tool => tool.toLowerCase().includes('twitter') || tool.toLowerCase().includes('instagram') || tool.toLowerCase().includes('social')),
-    data: availableTools.filter(tool => tool.toLowerCase().includes('data') || tool.toLowerCase().includes('market') || tool.toLowerCase().includes('crypto')),
-    llm: availableTools.filter(tool => tool.toLowerCase().includes('llm') || tool.toLowerCase().includes('text') || tool.toLowerCase().includes('analysis'))
+function analyzeToolRequirements(input: string, intent: string, availableTools: string[]): {
+  requiredTools: string[];
+  missingTools: string[];
+  delegationSuggested: boolean;
+  reasoning: string;
+} {
+  const inputLower = input.toLowerCase();
+  const intentLower = intent.toLowerCase();
+  const requiredTools: string[] = [];
+
+  // Email-related requests
+  if (inputLower.includes('email') || inputLower.includes('send') && inputLower.includes('@') ||
+    intentLower.includes('email') || intentLower.includes('send_email')) {
+
+    // Determine specific email tools needed
+    if (inputLower.includes('send') || inputLower.includes('compose')) {
+      if (availableTools.includes(EMAIL_TOOL_NAMES.SMART_SEND_EMAIL)) {
+        requiredTools.push(EMAIL_TOOL_NAMES.SMART_SEND_EMAIL);
+      } else if (availableTools.includes(EMAIL_TOOL_NAMES.SEND_EMAIL)) {
+        requiredTools.push(EMAIL_TOOL_NAMES.SEND_EMAIL);
+      }
+    }
+
+    if (inputLower.includes('read') || inputLower.includes('find') || inputLower.includes('search')) {
+      if (availableTools.includes(EMAIL_TOOL_NAMES.READ_SPECIFIC_EMAIL)) {
+        requiredTools.push(EMAIL_TOOL_NAMES.READ_SPECIFIC_EMAIL);
+      }
+      if (availableTools.includes(EMAIL_TOOL_NAMES.SEARCH_EMAILS)) {
+        requiredTools.push(EMAIL_TOOL_NAMES.SEARCH_EMAILS);
+      }
+    }
+
+    if (inputLower.includes('reply')) {
+      if (availableTools.includes(EMAIL_TOOL_NAMES.REPLY_TO_EMAIL)) {
+        requiredTools.push(EMAIL_TOOL_NAMES.REPLY_TO_EMAIL);
+      }
+    }
+  }
+
+  // Calendar-related requests
+  if (inputLower.includes('calendar') || inputLower.includes('schedule') || inputLower.includes('meeting') ||
+    inputLower.includes('appointment') || intentLower.includes('calendar')) {
+
+    if (inputLower.includes('schedule') || inputLower.includes('create') || inputLower.includes('book')) {
+      if (availableTools.includes(CALENDAR_TOOL_NAMES.SCHEDULE_EVENT)) {
+        requiredTools.push(CALENDAR_TOOL_NAMES.SCHEDULE_EVENT);
+      }
+    }
+
+    if (inputLower.includes('read') || inputLower.includes('check') || inputLower.includes('view')) {
+      if (availableTools.includes(CALENDAR_TOOL_NAMES.READ_CALENDAR)) {
+        requiredTools.push(CALENDAR_TOOL_NAMES.READ_CALENDAR);
+      }
+    }
+
+    if (inputLower.includes('availability') || inputLower.includes('free time') || inputLower.includes('available')) {
+      if (availableTools.includes(CALENDAR_TOOL_NAMES.FIND_AVAILABILITY)) {
+        requiredTools.push(CALENDAR_TOOL_NAMES.FIND_AVAILABILITY);
+      }
+    }
+  }
+
+  // Spreadsheet-related requests
+  if (inputLower.includes('spreadsheet') || inputLower.includes('excel') || inputLower.includes('sheet') ||
+    inputLower.includes('data') && (inputLower.includes('analyze') || inputLower.includes('create'))) {
+
+    if (inputLower.includes('create') || inputLower.includes('new')) {
+      if (availableTools.includes(SPREADSHEET_TOOL_NAMES.CREATE_SPREADSHEET)) {
+        requiredTools.push(SPREADSHEET_TOOL_NAMES.CREATE_SPREADSHEET);
+      }
+    }
+
+    if (inputLower.includes('read') || inputLower.includes('view') || inputLower.includes('analyze')) {
+      if (availableTools.includes(SPREADSHEET_TOOL_NAMES.READ_SPREADSHEET)) {
+        requiredTools.push(SPREADSHEET_TOOL_NAMES.READ_SPREADSHEET);
+      }
+      if (availableTools.includes(SPREADSHEET_TOOL_NAMES.ANALYZE_SPREADSHEET_DATA)) {
+        requiredTools.push(SPREADSHEET_TOOL_NAMES.ANALYZE_SPREADSHEET_DATA);
+      }
+    }
+
+    if (inputLower.includes('update') || inputLower.includes('edit') || inputLower.includes('modify')) {
+      if (availableTools.includes(SPREADSHEET_TOOL_NAMES.UPDATE_SPREADSHEET)) {
+        requiredTools.push(SPREADSHEET_TOOL_NAMES.UPDATE_SPREADSHEET);
+      }
+    }
+  }
+
+  // File-related requests
+  if (inputLower.includes('file') || inputLower.includes('document') || inputLower.includes('drive') ||
+    inputLower.includes('upload') || inputLower.includes('download')) {
+
+    if (inputLower.includes('search') || inputLower.includes('find')) {
+      if (availableTools.includes(FILE_TOOL_NAMES.SEARCH_FILES)) {
+        requiredTools.push(FILE_TOOL_NAMES.SEARCH_FILES);
+      }
+    }
+
+    if (inputLower.includes('create') || inputLower.includes('new')) {
+      if (availableTools.includes(FILE_TOOL_NAMES.CREATE_FILE)) {
+        requiredTools.push(FILE_TOOL_NAMES.CREATE_FILE);
+      }
+    }
+
+    if (inputLower.includes('share') || inputLower.includes('permission')) {
+      if (availableTools.includes(FILE_TOOL_NAMES.SHARE_FILE)) {
+        requiredTools.push(FILE_TOOL_NAMES.SHARE_FILE);
+      }
+    }
+  }
+
+  // Calculate missing tools
+  const missingTools = requiredTools.filter(tool => !availableTools.includes(tool));
+
+  // Suggest delegation if critical tools are missing
+  const delegationSuggested = missingTools.length > 0 && requiredTools.length > 0;
+
+  // Generate reasoning
+  let reasoning = `Tool analysis: Required ${requiredTools.length} tools, ${missingTools.length} missing. `;
+  if (requiredTools.length === 0) {
+    reasoning += 'No specific tools required for this request.';
+  } else if (missingTools.length === 0) {
+    reasoning += 'All required tools available.';
+  } else {
+    reasoning += `Missing: ${missingTools.join(', ')}.`;
+  }
+
+  return {
+    requiredTools,
+    missingTools,
+    delegationSuggested,
+    reasoning
   };
-  
-  let context = `Available Tools for This Agent:\n`;
-  
-  if (toolCategories.coda.length > 0) {
-    context += `1. CODA TOOLS: ${toolCategories.coda.join(', ')}\n`;
+}
+
+/**
+ * Deterministic request type classification
+ */
+function classifyRequestType(input: string, intent: string, toolAnalysis: ReturnType<typeof analyzeToolRequirements>): {
+  type: RequestType;
+  confidence: number;
+  reasoning: string;
+} {
+  const inputLower = input.toLowerCase();
+
+  // Check for scheduling indicators
+  const schedulingKeywords = [
+    'in ', 'minutes', 'hours', 'tomorrow', 'next week', 'schedule', 'remind me',
+    'send later', 'deliver automatically', 'at ', 'pm', 'am'
+  ];
+
+  const hasSchedulingIndicators = schedulingKeywords.some(keyword => inputLower.includes(keyword));
+
+  if (hasSchedulingIndicators) {
+    return {
+      type: REQUEST_TYPES.SCHEDULED_TASK,
+      confidence: 0.9,
+      reasoning: 'Request contains time-based scheduling indicators'
+    };
   }
-  
-  if (toolCategories.web.length > 0) {
-    context += `2. WEB TOOLS: ${toolCategories.web.join(', ')}\n`;
+
+  // Check if external tools are required
+  if (toolAnalysis.requiredTools.length > 0) {
+    return {
+      type: REQUEST_TYPES.EXTERNAL_TOOL_TASK,
+      confidence: 0.9,
+      reasoning: `Request requires external tools: ${toolAnalysis.requiredTools.join(', ')}`
+    };
   }
-  
-  if (toolCategories.social.length > 0) {
-    context += `3. SOCIAL MEDIA TOOLS: ${toolCategories.social.join(', ')}\n`;
+
+  // Check for external data requirements
+  const externalDataKeywords = ['current', 'latest', 'real-time', 'today', 'now', 'recent'];
+  const hasExternalDataRequest = externalDataKeywords.some(keyword => inputLower.includes(keyword));
+
+  if (hasExternalDataRequest) {
+    return {
+      type: REQUEST_TYPES.EXTERNAL_TOOL_TASK,
+      confidence: 0.7,
+      reasoning: 'Request may require real-time or current data'
+    };
   }
-  
-  if (toolCategories.data.length > 0) {
-    context += `4. DATA TOOLS: ${toolCategories.data.join(', ')}\n`;
-  }
-  
-  if (toolCategories.llm.length > 0) {
-    context += `5. LLM CAPABILITIES: ${toolCategories.llm.join(', ')}\n`;
-  }
-  
-  // Add context about missing common tools
-  const commonTools = ['coda_create_document', 'web_search', 'twitter_search', 'market_data'];
-  const missingCommon = commonTools.filter(tool => !availableTools.some(available => available.includes(tool.split('_')[0])));
-  
-  if (missingCommon.length > 0) {
-    context += `\nNOTE: This agent does NOT have access to: ${missingCommon.join(', ')}\n`;
-    context += `Consider delegation for tasks requiring these tools.\n`;
-  }
-  
-  return context;
+
+  // Default to pure LLM task
+  return {
+    type: REQUEST_TYPES.PURE_LLM_TASK,
+    confidence: 0.8,
+    reasoning: 'Request can be fulfilled with LLM knowledge and reasoning alone'
+  };
 }
 
 /**
  * Node for classifying request type to enable smart routing
- * Now with dynamic tool discovery and delegation awareness
+ * Now with deterministic analysis instead of LLM guessing
  */
 export async function classifyRequestTypeNode(state: ThinkingState): Promise<ThinkingState> {
   try {
@@ -152,7 +291,7 @@ export async function classifyRequestTypeNode(state: ThinkingState): Promise<Thi
       return {
         ...state,
         requestType: {
-          type: 'PURE_LLM_TASK',
+          type: REQUEST_TYPES.PURE_LLM_TASK,
           confidence: 0.5,
           reasoning: 'Missing input or intent, defaulting to pure LLM task',
           requiredTools: [],
@@ -163,118 +302,40 @@ export async function classifyRequestTypeNode(state: ThinkingState): Promise<Thi
       };
     }
 
-    // 🎯 KEY: Dynamic tool discovery
-    const availableTools = await discoverAgentTools(state);
-    console.log(`🔧 Discovered ${availableTools.length} available tools for agent:`, availableTools);
-
-    // Create an LLM instance (use cheap model for classification)
-    const model = new ChatOpenAI({
-      modelName: 'gpt-3.5-turbo',
-      temperature: 0.1,
-      maxTokens: 600, // Increased for richer analysis
+    // 🎯 Dynamic tool discovery with enhanced agent context
+    console.log('🔍 CLASSIFYING REQUEST TYPE:', {
+      input: state.input.substring(0, 100),
+      intent: state.intent?.name,
+      entities: state.entities?.length || 0,
+      hasAgent: !!(state.metadata?.agent)
     });
 
-    // 🚀 Build dynamic tool context
-    const dynamicToolContext = await buildDynamicToolContext(availableTools);
+    // Create agent context for tool discovery
+    const agentContext = state.metadata?.agent ? {
+      agent: state.metadata.agent
+    } : undefined;
 
-    // Enhanced system message with delegation awareness
-    const systemMessage = `You are an expert at classifying user requests and analyzing tool requirements.
+    // Add agent context to state for tool discovery
+    const stateWithContext = agentContext ? {
+      ...state,
+      agentContext
+    } : state;
 
-Analyze the user's request and classify it into one of three categories:
+    const availableTools = await discoverAgentTools(stateWithContext);
+    console.log(`🔧 Discovered ${availableTools.length} available tools for agent:`, availableTools);
 
-1. **PURE_LLM_TASK**: Can be fulfilled using LLM knowledge and reasoning alone
-2. **EXTERNAL_TOOL_TASK**: Requires external tools, APIs, or real-time data  
-3. **SCHEDULED_TASK**: Should be scheduled for future execution
+    // 🏗️ DETERMINISTIC ANALYSIS - No more LLM guessing
+    const toolAnalysis = analyzeToolRequirements(state.input, state.intent.name, availableTools);
+    const classification = classifyRequestType(state.input, state.intent.name, toolAnalysis);
 
-CRITICAL SCHEDULING DETECTION:
-- If the request contains time expressions like "in X minutes", "in X hours", "tomorrow", "next week", "schedule", "remind me", "send later", etc. → SCHEDULED_TASK
-- If the request asks to "schedule a message", "send a message in X time", "deliver automatically" → SCHEDULED_TASK  
-- If the request mentions specific timing for execution → SCHEDULED_TASK
-
-EXAMPLES OF SCHEDULED_TASK:
-- "Please schedule a message to be sent in 2 minutes"
-- "Send me a reminder in 1 hour"
-- "Schedule a tweet for tomorrow"
-- "Deliver this message automatically in 30 minutes"
-
-IMPORTANT: Pay attention to the available tools for this specific agent. If the user requests functionality that requires tools this agent doesn't have, suggest delegation.
-
-For tool analysis:
-- List ALL tools that would be needed for the request
-- Compare against available tools
-- Identify any missing tools
-- Suggest delegation if critical tools are missing
-
-Consider delegation when:
-- User requests Coda documents but agent has no Coda tools
-- User wants real-time data but agent has no web/API tools  
-- User needs social media data but agent has no social tools
-
-Please respond with a valid JSON object in this exact format:
-{
-  "type": "PURE_LLM_TASK" or "EXTERNAL_TOOL_TASK" or "SCHEDULED_TASK",
-  "confidence": number between 0 and 1,
-  "reasoning": "Explanation including tool availability analysis",
-  "requiredTools": ["array", "of", "needed", "tools"],
-  "availableTools": ["array", "of", "available", "tools"], 
-  "missingTools": ["array", "of", "missing", "tools"],
-  "delegationSuggested": true or false,
-  "suggestedSchedule": {
-    "timeExpression": "string like 1h, 1d, weekly (optional)",
-    "recurring": true or false (optional), 
-    "intervalExpression": "string like 1h, 1d, weekly (optional)"
-  }
-}`;
-
-    const userMessage = `User Request: ${state.input}
-
-Detected Intent: ${state.intent.name}
-Intent Confidence: ${state.intent.confidence}
-
-${dynamicToolContext}
-
-Please classify this request, analyze tool requirements, and determine if delegation is needed.`;
-
-    // Call the model
-    const fullPrompt = `${systemMessage}\n${userMessage}`;
-    const response = await model.invoke(fullPrompt);
-
-    // Parse response
-    const content = typeof response.content === 'string' ? response.content : String(response.content);
-    
-    let parsedOutput;
-    try {
-      parsedOutput = JSON.parse(content);
-    } catch (jsonError) {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          parsedOutput = JSON.parse(jsonMatch[0]);
-        } catch (extractError) {
-          throw new Error(`Failed to parse JSON response: ${content}`);
-        }
-      } else {
-        throw new Error(`No JSON found in response: ${content}`);
-      }
-    }
-
-    // Validate and enhance the output
-    const validatedOutput = requestTypeSchema.parse(parsedOutput);
-
-    // 🎯 Enhanced request type with delegation info
     const requestType = {
-      type: validatedOutput.type,
-      confidence: validatedOutput.confidence,
-      reasoning: validatedOutput.reasoning,
-      requiredTools: validatedOutput.requiredTools || [],
-      availableTools: validatedOutput.availableTools || availableTools,
-      missingTools: validatedOutput.missingTools || [],
-      delegationSuggested: validatedOutput.delegationSuggested || false,
-      suggestedSchedule: validatedOutput.suggestedSchedule ? {
-        timeExpression: validatedOutput.suggestedSchedule.timeExpression,
-        recurring: validatedOutput.suggestedSchedule.recurring,
-        intervalExpression: validatedOutput.suggestedSchedule.intervalExpression
-      } : undefined
+      type: classification.type,
+      confidence: classification.confidence,
+      reasoning: `${classification.reasoning}. ${toolAnalysis.reasoning}`,
+      requiredTools: toolAnalysis.requiredTools,
+      availableTools: availableTools,
+      missingTools: toolAnalysis.missingTools,
+      delegationSuggested: toolAnalysis.delegationSuggested
     };
 
     console.log(`🧠 Enhanced Classification: ${requestType.type} (confidence: ${requestType.confidence.toFixed(2)})`);
@@ -287,20 +348,11 @@ Please classify this request, analyze tool requirements, and determine if delega
     const classificationReasoning = [
       `Request Type: ${requestType.type} (confidence: ${requestType.confidence.toFixed(2)})`,
       `Reasoning: ${requestType.reasoning}`,
-      `Agent has ${requestType.availableTools.length} available tools`
+      `Agent has ${requestType.availableTools.length} available tools`,
+      `Required tools: ${requestType.requiredTools.join(', ') || 'none'}`,
+      `Missing tools: ${requestType.missingTools.join(', ') || 'none'}`,
+      `Delegation suggested: ${requestType.delegationSuggested}`
     ];
-
-    if (requestType.requiredTools.length > 0) {
-      classificationReasoning.push(`Required tools: ${requestType.requiredTools.join(', ')}`);
-    }
-
-    if (requestType.missingTools.length > 0) {
-      classificationReasoning.push(`⚠️ Missing tools: ${requestType.missingTools.join(', ')}`);
-    }
-
-    if (requestType.delegationSuggested) {
-      classificationReasoning.push(`🤝 Delegation recommended due to missing capabilities`);
-    }
 
     return {
       ...state,
@@ -310,22 +362,22 @@ Please classify this request, analyze tool requirements, and determine if delega
 
   } catch (error) {
     console.error('Error in enhanced classifyRequestTypeNode:', error);
-    
+
     // Enhanced fallback with tool info
-    const availableTools = await discoverAgentTools(state).catch(() => ['general_llm_capabilities']);
-    
+    const availableTools = await discoverAgentTools(state).catch(() => [CORE_TOOL_NAMES.GENERAL_LLM_CAPABILITIES]);
+
     return {
       ...state,
       requestType: {
-        type: 'PURE_LLM_TASK',
+        type: REQUEST_TYPES.PURE_LLM_TASK,
         confidence: 0.3,
-        reasoning: `Enhanced classification failed: ${error instanceof Error ? error.message : String(error)}. Defaulting to pure LLM task.`,
+        reasoning: `Classification failed: ${error instanceof Error ? error.message : String(error)}. Defaulting to pure LLM task.`,
         requiredTools: [],
         availableTools,
         missingTools: [],
         delegationSuggested: false
       },
-      reasoning: [...(state.reasoning || []), `Error in enhanced classification: ${error instanceof Error ? error.message : String(error)}`]
+      reasoning: [...(state.reasoning || []), `Error in classification: ${error instanceof Error ? error.message : String(error)}`]
     };
   }
 } 

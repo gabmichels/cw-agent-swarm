@@ -1,5 +1,5 @@
 import { useRouter } from 'next/navigation';
-import React, { ReactNode, useEffect, useState } from 'react';
+import React, { ReactNode, useEffect, useState, useRef, useCallback } from 'react';
 import { AgentService } from '../../services/AgentService';
 import Header from '../Header';
 import Sidebar from '../Sidebar';
@@ -31,12 +31,56 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const [isDeptDropdownOpen, setIsDeptDropdownOpen] = useState(false);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   
+  // Sidebar resize state
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [isResizing, setIsResizing] = useState(false);
+  
   // User context - for now using same pattern as other pages
   const userId = "test-user";
   const organizationId = undefined; // Can be added later when org context is available
   
   // Agent ID-to-name mapping
   const [agentIdMap, setAgentIdMap] = useState<Record<string, string>>({});
+
+  // Handle resize functionality
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    setIsResizing(true);
+    e.preventDefault();
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return;
+    
+    const newWidth = e.clientX;
+    if (newWidth >= 200 && newWidth <= 600) { // Min and max width constraints
+      setSidebarWidth(newWidth);
+    }
+  }, [isResizing]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, handleMouseMove, handleMouseUp]);
   
   // Load available agents from registry
   useEffect(() => {
@@ -190,21 +234,32 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar - conditionally show based on state */}
-        <div 
-          className={`bg-gray-800 border-r border-gray-700 flex flex-col transition-all duration-300 
-            ${isSidebarOpen ? 'w-64' : 'w-0'} 
-            ${isFullscreen ? 'hidden' : 'block'}`}
-        >
-          {isSidebarOpen && (
-            <Sidebar
-              isSidebarOpen={isSidebarOpen}
-              isSidebarPinned={isSidebarPinned}
-              selectedAgent={selectedAgent}
-              toggleSidebarPin={toggleSidebarPin}
-              setSelectedAgent={setSelectedAgent}
-            />
-          )}
-        </div>
+        {isSidebarOpen && !isFullscreen && (
+          <div className="relative flex">
+            <div 
+              className="bg-gray-800 border-r border-gray-700 flex flex-col transition-all duration-300"
+              style={{ width: `${sidebarWidth}px` }}
+            >
+              <Sidebar
+                isSidebarOpen={isSidebarOpen}
+                isSidebarPinned={isSidebarPinned}
+                selectedAgent={selectedAgent}
+                toggleSidebarPin={toggleSidebarPin}
+                setSelectedAgent={setSelectedAgent}
+              />
+            </div>
+            
+            {/* Resize handle */}
+            <div
+              className={`w-1 bg-gray-700 hover:bg-gray-600 cursor-col-resize flex items-center justify-center group transition-colors ${
+                isResizing ? 'bg-blue-500' : ''
+              }`}
+              onMouseDown={handleMouseDown}
+            >
+              <div className="w-1 h-8 bg-gray-500 group-hover:bg-gray-300 opacity-0 group-hover:opacity-100 transition-opacity rounded-full"></div>
+            </div>
+          </div>
+        )}
 
         {/* Content container */}
         <div className={`flex-1 flex flex-col ${isFullscreen ? 'w-full' : ''}`}>

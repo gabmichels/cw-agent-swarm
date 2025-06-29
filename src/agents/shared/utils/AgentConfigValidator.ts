@@ -1052,6 +1052,84 @@ export class AgentConfigValidator {
           required: false,
           default: false,
           description: 'Enable LLM-based tool response formatting'
+        },
+        // ACG Configuration - Phase 7 Integration
+        enableACG: {
+          type: 'boolean',
+          required: false,
+          default: false,
+          description: 'Enable Agent Content Generation (ACG) system'
+        },
+        acgConfig: {
+          type: 'object',
+          required: false,
+          properties: {
+            enableAutoGeneration: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Enable automatic content generation'
+            },
+            requireConfirmation: {
+              type: 'boolean',
+              required: false,
+              default: false,
+              description: 'Require user confirmation before generating content'
+            },
+            maxGenerationTimeMs: {
+              type: 'number',
+              required: false,
+              minimum: 1000,
+              maximum: 300000,
+              default: 30000,
+              description: 'Maximum time allowed for content generation in milliseconds'
+            },
+            fallbackOnError: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Fallback to standard processing when ACG fails'
+            },
+            enabledGenerators: {
+              type: 'array',
+              required: false,
+              items: {
+                type: 'string'
+              },
+              description: 'List of enabled content generator types'
+            },
+            cacheEnabled: {
+              type: 'boolean',
+              required: false,
+              default: true,
+              description: 'Enable content generation caching'
+            },
+            cacheTTL: {
+              type: 'number',
+              required: false,
+              minimum: 60,
+              maximum: 86400,
+              default: 3600,
+              description: 'Cache time-to-live in seconds'
+            },
+            maxRetries: {
+              type: 'number',
+              required: false,
+              minimum: 0,
+              maximum: 10,
+              default: 3,
+              description: 'Maximum number of generation retries'
+            },
+            batchSize: {
+              type: 'number',
+              required: false,
+              minimum: 1,
+              maximum: 100,
+              default: 10,
+              description: 'Batch size for concurrent generation requests'
+            }
+          },
+          description: 'Agent Content Generation configuration'
         }
       }
     });

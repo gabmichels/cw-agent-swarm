@@ -93,6 +93,65 @@ export class WorkspaceAgentIntegration {
   }
 
   /**
+   * Process a pre-parsed workspace command directly (for ACG integration)
+   */
+  async processWorkspaceCommand(
+    agentId: string,
+    command: WorkspaceCommand,
+    connectionId?: string
+  ): Promise<WorkspaceIntegrationResult> {
+    try {
+      logger.debug('Processing pre-parsed workspace command', {
+        agentId,
+        commandType: command.type,
+        confidence: command.confidence,
+        hasScheduledTime: !!command.scheduledTime
+      });
+
+      logger.info(`Processing workspace command for agent ${agentId}`, {
+        commandType: command.type,
+        confidence: command.confidence
+      });
+
+      // If no connection ID provided, handle based on command type
+      if (!connectionId) {
+        // Always get a default connection for permission validation
+        const defaultConnectionId = await this.getDefaultConnectionId(agentId);
+        if (!defaultConnectionId) {
+          return {
+            success: false,
+            error: 'No workspace connection available'
+          };
+        }
+
+        // For email commands with sender preferences, we'll validate with default but execute with smart selection
+        if (command.type === WorkspaceCommandType.SEND_EMAIL && command.entities.senderPreference) {
+          // Use default connection for validation, but mark for smart selection during execution
+          connectionId = defaultConnectionId;
+          (command as any).useSmartSelection = true; // Flag for later use
+        } else {
+          // For other commands, use the default connection
+          connectionId = defaultConnectionId;
+        }
+      }
+
+      // Check if this is a scheduled command
+      if (command.scheduledTime) {
+        return await this.scheduleWorkspaceCommand(agentId, command, connectionId);
+      }
+
+      // Execute immediately
+      return await this.executeWorkspaceCommand(agentId, command, connectionId);
+    } catch (error) {
+      logger.error(`Error processing workspace command for agent ${agentId}:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
    * Process a user input for workspace commands
    */
   async processWorkspaceInput(
@@ -108,7 +167,7 @@ export class WorkspaceAgentIntegration {
       });
 
       // Parse the input for workspace commands
-      const command = parseWorkspaceCommand(input);
+      const command = await parseWorkspaceCommand(input);
 
       logger.debug('Workspace command parsing result', {
         agentId,
@@ -623,6 +682,18 @@ export class WorkspaceAgentIntegration {
   removeAgentIntegration(agentId: string): void {
     this.integratedAgents.delete(agentId);
     logger.info(`Removed workspace integration for agent ${agentId}`);
+  }
+
+  /**
+   * Get available workspace tools for an agent
+   */
+  async getAvailableTools(agentId: string): Promise<any[]> {
+    try {
+      return await this.workspaceTools.getAvailableTools(agentId);
+    } catch (error) {
+      logger.error('Failed to get available workspace tools:', error);
+      return [];
+    }
   }
 }
 

@@ -97,6 +97,19 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
     // CRITICAL: Enable LLM-based tool response formatting
     enableLLMFormatting: true,
 
+    // CRITICAL: Enable ACG (Agent Content Generation) for intelligent email/document content
+    enableACG: true,
+    acgConfig: {
+      enableAutoGeneration: true,
+      requireConfirmation: false,
+      maxGenerationTimeMs: 30000,
+      fallbackOnError: true,
+      cacheEnabled: true,
+      cacheTTL: 3600,
+      maxRetries: 3,
+      batchSize: 10
+    },
+
     // CRITICAL: Enable all required managers explicitly
     enableMemoryManager: true,
     enablePlanningManager: true,

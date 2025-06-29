@@ -3,5 +3,5 @@ description:
 globs: 
 alwaysApply: true
 ---
-Always validate Prisma schema before query execution. Use `prisma generate` only after schema changes. Prefer constructor injection for Prisma clients.
+Always validate Prisma schema before query execution. Use `prisma generate` only after schema changes. Prefer constructor injection for Prisma clients. And running any form of migration command will trigger deletion of all data. Pls avoid or backup the existing data.
 

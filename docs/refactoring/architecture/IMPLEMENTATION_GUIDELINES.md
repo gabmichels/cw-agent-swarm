@@ -26,6 +26,7 @@ This document provides detailed guidelines for implementing the architecture ref
 
 - **ULID/UUID FOR IDS**: Use ULID (Universally Unique Lexicographically Sortable Identifier) for all identifiers
 - **STRICT TYPE SAFETY**: Never use 'any' type in TypeScript; create proper interfaces for all data structures
+- **NO STRING LITERALS**: Replace magic strings with enums or constants; centralize shared constants
 - **DEPENDENCY INJECTION**: Use constructor injection for all dependencies
 - **INTERFACE-FIRST DESIGN**: Define interfaces before implementing classes
 - **IMMUTABLE DATA**: Use immutable data patterns whenever possible
@@ -70,6 +71,145 @@ class ErrorService {
     });
     return trackingId; // Return ULID for application use
   }
+}
+```
+
+### 9. String Literals and Constants Management
+
+**ELIMINATE MAGIC STRINGS**: Never use string literals directly in code logic; always use enums or constants
+
+**Local Constants**: For values used only within a single file or class
+```typescript
+// Local constants for single-file usage
+const LOCAL_CONFIG = {
+  MAX_RETRY_ATTEMPTS: 3,
+  DEFAULT_TIMEOUT: 5000,
+  CACHE_PREFIX: 'user_session'
+} as const;
+
+// Local enum for single-file usage
+enum LocalStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  COMPLETED = 'completed',
+  FAILED = 'failed'
+}
+```
+
+**Centralized Constants**: For values shared across multiple files, use centralized constant files in `src/constants/`
+```typescript
+// src/constants/agent.ts
+export const AGENT_TYPES = {
+  RESEARCH: 'research',
+  COMMUNICATION: 'communication',
+  ANALYSIS: 'analysis',
+  WORKFLOW: 'workflow'
+} as const;
+
+export const AGENT_STATUS = {
+  ACTIVE: 'active',
+  INACTIVE: 'inactive',
+  SUSPENDED: 'suspended',
+  ARCHIVED: 'archived'
+} as const;
+
+export type AgentType = typeof AGENT_TYPES[keyof typeof AGENT_TYPES];
+export type AgentStatus = typeof AGENT_STATUS[keyof typeof AGENT_STATUS];
+```
+
+**Enums for Related Values**: Use enums for logically grouped constants with type safety
+```typescript
+// src/constants/workflow.ts
+export enum WorkflowExecutionStatus {
+  QUEUED = 'queued',
+  RUNNING = 'running',
+  PAUSED = 'paused',
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled'
+}
+
+export enum WorkflowPriority {
+  LOW = 1,
+  NORMAL = 2,
+  HIGH = 3,
+  CRITICAL = 4
+}
+```
+
+**API Constants**: Centralize API-related constants
+```typescript
+// src/constants/api.ts
+export const API_ROUTES = {
+  AGENTS: '/api/agents',
+  WORKFLOWS: '/api/workflows',
+  MEMORY: '/api/memory',
+  KNOWLEDGE_GRAPH: '/api/knowledge-graph'
+} as const;
+
+export const HTTP_STATUS = {
+  OK: 200,
+  CREATED: 201,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  INTERNAL_SERVER_ERROR: 500
+} as const;
+```
+
+**Database Constants**: Centralize database-related strings
+```typescript
+// src/constants/database.ts
+export const COLLECTION_NAMES = {
+  AGENTS: 'agents',
+  MEMORIES: 'memories',
+  KNOWLEDGE_NODES: 'knowledge_nodes',
+  RELATIONSHIPS: 'relationships'
+} as const;
+
+export const INDEX_NAMES = {
+  AGENT_TYPE: 'idx_agent_type',
+  MEMORY_TIMESTAMP: 'idx_memory_timestamp',
+  KNOWLEDGE_VECTOR: 'idx_knowledge_vector'
+} as const;
+```
+
+**Usage Examples**:
+```typescript
+// BAD: Magic strings
+if (agent.type === 'research') {
+  // logic
+}
+
+// GOOD: Using constants
+import { AGENT_TYPES } from '@/constants/agent';
+
+if (agent.type === AGENT_TYPES.RESEARCH) {
+  // logic
+}
+
+// BAD: Magic strings in API calls
+const response = await fetch('/api/agents');
+
+// GOOD: Using centralized constants
+import { API_ROUTES } from '@/constants/api';
+
+const response = await fetch(API_ROUTES.AGENTS);
+```
+
+**Validation with Constants**:
+```typescript
+// Type-safe validation using constants
+import { AGENT_STATUS, AgentStatus } from '@/constants/agent';
+
+function isValidAgentStatus(status: string): status is AgentStatus {
+  return Object.values(AGENT_STATUS).includes(status as AgentStatus);
+}
+
+// Usage in validation
+if (!isValidAgentStatus(inputStatus)) {
+  throw new ValidationError(`Invalid agent status: ${inputStatus}`);
 }
 ```
 

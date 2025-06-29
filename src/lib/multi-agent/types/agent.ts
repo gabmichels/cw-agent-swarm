@@ -67,6 +67,7 @@ export interface AgentProfile {
   metadata: AgentMetadata;
   createdAt: Date;
   updatedAt: Date;
+  lastActivity?: Date; // Last activity timestamp from chat sessions
   chatId?: string; // Optional chat ID for direct navigation
 }
 

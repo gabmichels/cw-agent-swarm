@@ -205,7 +205,7 @@ export class WorkspaceAgentTools {
     if (connection.provider === WorkspaceProvider.ZOHO) {
       const { WorkspaceService } = await import('../WorkspaceService');
       const workspaceService = new WorkspaceService();
-      const providerInstance = workspaceService.getProviderInstance(connection.provider);
+      const providerInstance = await workspaceService.getProviderInstance(connection.provider);
       return CapabilityFactory.createEmailCapabilities(connection.provider, connection.id, providerInstance);
     }
 
@@ -225,7 +225,7 @@ export class WorkspaceAgentTools {
     if (connection.provider === WorkspaceProvider.ZOHO) {
       const { WorkspaceService } = await import('../WorkspaceService');
       const workspaceService = new WorkspaceService();
-      const providerInstance = workspaceService.getProviderInstance(connection.provider);
+      const providerInstance = await workspaceService.getProviderInstance(connection.provider);
       return CapabilityFactory.createCalendarCapabilities(connection.provider, connection.id, providerInstance);
     }
 
@@ -245,7 +245,7 @@ export class WorkspaceAgentTools {
     if (connection.provider === WorkspaceProvider.ZOHO) {
       const { WorkspaceService } = await import('../WorkspaceService');
       const workspaceService = new WorkspaceService();
-      const providerInstance = workspaceService.getProviderInstance(connection.provider);
+      const providerInstance = await workspaceService.getProviderInstance(connection.provider);
       return CapabilityFactory.createSheetsCapabilities(connection.provider, connection.id, providerInstance);
     }
 
@@ -265,7 +265,7 @@ export class WorkspaceAgentTools {
     if (connection.provider === WorkspaceProvider.ZOHO) {
       const { WorkspaceService } = await import('../WorkspaceService');
       const workspaceService = new WorkspaceService();
-      const providerInstance = workspaceService.getProviderInstance(connection.provider);
+      const providerInstance = await workspaceService.getProviderInstance(connection.provider);
       return CapabilityFactory.createDriveCapabilities(connection.provider, connection.id, providerInstance);
     }
 
@@ -605,7 +605,7 @@ export class WorkspaceAgentTools {
 
         if (!senderPreference && params.originalMessage) {
           // Parse the original message for workspace command including sender preference
-          const workspaceCommand = this.nlpProcessor.parseCommand(params.originalMessage);
+          const workspaceCommand = await this.nlpProcessor.parseCommand(params.originalMessage);
           if (workspaceCommand?.entities?.senderPreference) {
             senderPreference = workspaceCommand.entities.senderPreference;
           }

@@ -15,6 +15,7 @@ import { ulid } from 'ulid';
 import {
   SocialMediaProvider,
   SocialMediaCapability,
+  SocialMediaConnectionStatus,
   ISocialMediaDatabase,
   SocialMediaConnection
 } from '../database/ISocialMediaDatabase';
@@ -267,7 +268,7 @@ export class XPatternsService implements IXPatternsService {
 
       for (const permission of permissions) {
         const connection = await this.database.getConnection(permission.connectionId);
-        if (connection && connection.connectionStatus === 'ACTIVE') {
+        if (connection && connection.connectionStatus === SocialMediaConnectionStatus.ACTIVE) {
           availablePlatforms.add(connection.provider);
         }
       }
@@ -315,7 +316,7 @@ export class XPatternsService implements IXPatternsService {
 
       for (const permission of permissions) {
         const connection = await this.database.getConnection(permission.connectionId);
-        if (connection && connection.connectionStatus === 'ACTIVE') {
+        if (connection && connection.connectionStatus === SocialMediaConnectionStatus.ACTIVE) {
           // Use the first active connection per platform
           if (!connections.has(connection.provider)) {
             connections.set(connection.provider, connection);
@@ -619,7 +620,7 @@ export class XPatternsService implements IXPatternsService {
 
     for (const permission of permissions) {
       const connection = await this.database.getConnection(permission.connectionId);
-      if (connection && connection.provider === platform && connection.connectionStatus === 'ACTIVE') {
+      if (connection && connection.provider === platform && connection.connectionStatus === SocialMediaConnectionStatus.ACTIVE) {
         connections.push(connection);
       }
     }

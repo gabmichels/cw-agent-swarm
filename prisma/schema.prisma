@@ -1089,3 +1089,141 @@ model ErrorNotificationLog {
   @@index([createdAt])
 }
 
+// ===== Agent Content Generation (ACG) Models =====
+
+model ContentGenerationRequest {
+  id String @id @default(uuid())
+  requestId String @unique // ULID for business tracking
+  agentId String
+  toolId String
+  contentType String // EMAIL_SUBJECT, EMAIL_BODY, etc.
+  status String // PENDING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
+  context String // JSON string for generation context
+  result String? // JSON string for generated content
+  priority Int @default(5)
+  deadline DateTime?
+  generatorUsed String?
+  processingTimeMs Int?
+  confidence Float?
+  tokensUsed Int?
+  cacheHit Boolean @default(false)
+  retryCount Int @default(0)
+  errorMessage String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completedAt DateTime?
+
+  @@index([agentId])
+  @@index([toolId])
+  @@index([contentType])
+  @@index([status])
+  @@index([createdAt])
+  @@index([priority])
+  @@map("content_generation_requests")
+}
+
+model ContentTemplate {
+  id String @id @default(uuid())
+  templateId String @unique // ULID for business tracking
+  name String
+  description String?
+  contentType String // EMAIL_SUBJECT, EMAIL_BODY, etc.
+  platform String? // GMAIL, OUTLOOK, TWITTER, etc.
+  template String // JSON string for template definition
+  variables String // JSON string for template variables
+  metadata String // JSON string for template metadata
+  version String @default("1.0.0")
+  isActive Boolean @default(true)
+  createdBy String
+  tags String? // Comma-separated tags
+  usageCount Int @default(0)
+  successRate Float @default(0.0)
+  averageRating Float @default(0.0)
+  lastUsed DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([contentType])
+  @@index([platform])
+  @@index([isActive])
+  @@index([createdBy])
+  @@index([usageCount])
+  @@map("content_templates")
+}
+
+model ContentGenerationMetrics {
+  id String @id @default(uuid())
+  metricId String @unique // ULID for business tracking
+  generatorId String
+  contentType String
+  requestCount Int @default(0)
+  successCount Int @default(0)
+  failureCount Int @default(0)
+  averageLatencyMs Float @default(0.0)
+  averageConfidence Float @default(0.0)
+  cacheHitCount Int @default(0)
+  cacheMissCount Int @default(0)
+  totalTokensUsed Int @default(0)
+  date DateTime // Date for daily metrics
+  hour Int? // Hour for hourly metrics (0-23)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([generatorId])
+  @@index([contentType])
+  @@index([date])
+  @@index([hour])
+  @@unique([generatorId, contentType, date, hour])
+  @@map("content_generation_metrics")
+}
+
+model ContentValidationResult {
+  id String @id @default(uuid())
+  validationId String @unique // ULID for business tracking
+  requestId String // Links to ContentGenerationRequest.requestId
+  contentType String
+  isValid Boolean
+  score Float
+  issues String // JSON string for validation issues
+  suggestions String // JSON string for suggestions
+  platformCompliance String // JSON string for platform compliance
+  validatedAt DateTime @default(now())
+  validatorUsed String
+  processingTimeMs Int?
+
+  @@index([requestId])
+  @@index([contentType])
+  @@index([isValid])
+  @@index([score])
+  @@index([validatedAt])
+  @@map("content_validation_results")
+}
+
+model ContentGeneratorRegistry {
+  id String @id @default(uuid())
+  generatorId String @unique // Generator identifier
+  name String
+  version String
+  supportedTypes String // JSON array of ContentType
+  capabilities String // JSON array of GenerationCapability
+  priority Int @default(5)
+  enabled Boolean @default(true)
+  configuration String // JSON string for generator config
+  healthStatus String @default("healthy") // healthy, degraded, unhealthy
+  lastHealthCheck DateTime?
+  totalRequests Int @default(0)
+  successfulRequests Int @default(0)
+  failedRequests Int @default(0)
+  averageLatencyMs Float @default(0.0)
+  lastUsed DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([generatorId])
+  @@index([enabled])
+  @@index([priority])
+  @@index([healthStatus])
+  @@index([lastUsed])
+  @@map("content_generator_registry")
+}
+

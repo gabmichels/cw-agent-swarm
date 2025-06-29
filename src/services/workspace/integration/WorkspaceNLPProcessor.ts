@@ -70,11 +70,11 @@ export class WorkspaceNLPProcessor {
   /**
    * Parse a natural language command into a structured workspace command
    */
-  parseCommand(text: string): WorkspaceCommand | null {
+  async parseCommand(text: string): Promise<WorkspaceCommand | null> {
     const normalizedText = text.toLowerCase().trim();
 
-    // Extract scheduled time first
-    const scheduledTime = this.extractScheduledTime(text);
+    // Extract scheduled time first (now async)
+    const scheduledTime = await this.extractScheduledTime(text);
 
     // Determine command type
     const commandType = this.determineCommandType(normalizedText);
@@ -449,18 +449,172 @@ export class WorkspaceNLPProcessor {
   }
 
   /**
-   * Extract scheduled time from text
+   * Extract scheduled time from text using LLM-based intent detection
+   * ENHANCED: Use cheap LLM to avoid false time detection from context phrases
    */
-  private extractScheduledTime(text: string): Date | undefined {
+  private async extractScheduledTime(text: string): Promise<Date | undefined> {
     try {
+      // Use LLM to both detect intent AND extract the actual time
+      const schedulingResult = await this.detectSchedulingIntentAndTimeWithLLM(text);
+
+      if (!schedulingResult.hasIntent) {
+        logger.debug('No scheduling intent detected by LLM, skipping time parsing', {
+          textPreview: text.substring(0, 100) + '...'
+        });
+        return undefined;
+      }
+
+      // If LLM detected scheduling intent, use its extracted time
+      if (schedulingResult.extractedTime) {
+        // Optional: Cross-validate with chrono-node for additional confidence
+        const chronoValidation = this.validateTimeWithChrono(text, schedulingResult.extractedTime);
+
+        logger.debug('Using LLM-extracted time for scheduling', {
+          originalText: text,
+          llmExtractedTime: schedulingResult.extractedTime.toISOString(),
+          confidence: schedulingResult.confidence,
+          chronoValidation: chronoValidation
+        });
+        return schedulingResult.extractedTime;
+      }
+
+      // Fallback: if LLM says there's intent but couldn't extract time, try chrono-node as backup
+      logger.debug('LLM detected scheduling intent but no time extracted, trying chrono-node fallback');
       const parsed = parse(text);
       if (parsed.length > 0) {
-        return parsed[0].start.date();
+        const chronoTime = parsed[0].start.date();
+        logger.debug('Chrono-node fallback time extraction', {
+          originalText: text,
+          chronoTime: chronoTime.toISOString(),
+          llmConfirmedIntent: true
+        });
+        return chronoTime;
       }
+
+      logger.warn('LLM detected scheduling intent but no time could be extracted', {
+        text: text.substring(0, 100) + '...'
+      });
+      return undefined;
+
     } catch (error) {
       logger.debug('Failed to parse time from text:', error);
+      return undefined;
     }
-    return undefined;
+  }
+
+  /**
+   * Use cheap LLM to detect scheduling intent AND extract the actual time
+   */
+  private async detectSchedulingIntentAndTimeWithLLM(text: string): Promise<{
+    hasIntent: boolean;
+    extractedTime?: Date;
+    confidence: number;
+    reasoning?: string;
+  }> {
+    try {
+      const { OpenAI } = await import('openai');
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+
+      const currentTime = new Date().toISOString();
+      const prompt = `Analyze this user request for scheduling intent and extract the specific time if present.
+
+Current time: ${currentTime}
+
+User request: "${text}"
+
+Task: Determine if the user wants to SCHEDULE something for a specific future time, and if so, extract that time.
+
+Examples of SCHEDULING intent with time extraction:
+- "Send this email tomorrow at 3pm" → Intent: YES, Time: [tomorrow at 3pm]
+- "Schedule this for next Monday" → Intent: YES, Time: [next Monday]
+- "Remind me to call John in 2 hours" → Intent: YES, Time: [2 hours from now]
+- "Set up a meeting for Friday at 2pm" → Intent: YES, Time: [this Friday at 2pm]
+
+Examples of NO scheduling intent (time references are context only):
+- "Send an email about our discussion from yesterday" → Intent: NO
+- "Email him the document from last week" → Intent: NO  
+- "Reply to the message I got this morning" → Intent: NO
+- "Send the report we worked on yesterday" → Intent: NO
+
+Respond in JSON format:
+{
+  "hasIntent": true/false,
+  "extractedTime": "ISO datetime string or null",
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation"
+}`;
+
+      const response = await openai.chat.completions.create({
+        model: process.env.CHEAP_LLM_MODEL || 'gpt-4o-mini', // Cheap model
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 150,
+        temperature: 0,
+        response_format: { type: "json_object" }
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('No response from LLM');
+      }
+
+      const result = JSON.parse(content);
+
+      // Parse the extracted time if provided
+      let extractedTime: Date | undefined;
+      if (result.extractedTime && result.extractedTime !== null) {
+        try {
+          extractedTime = new Date(result.extractedTime);
+          // Validate the date is reasonable (not in the past by more than 1 minute, not more than 1 year in future)
+          const now = new Date();
+          const oneMinuteAgo = new Date(now.getTime() - 60000);
+          const oneYearFromNow = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+
+          if (extractedTime < oneMinuteAgo || extractedTime > oneYearFromNow) {
+            logger.warn('LLM extracted time is outside reasonable range', {
+              extractedTime: extractedTime.toISOString(),
+              text: text.substring(0, 100) + '...'
+            });
+            extractedTime = undefined;
+          }
+        } catch (parseError) {
+          logger.warn('Failed to parse LLM extracted time', {
+            extractedTime: result.extractedTime,
+            error: parseError instanceof Error ? parseError.message : String(parseError)
+          });
+          extractedTime = undefined;
+        }
+      }
+
+      const finalResult = {
+        hasIntent: Boolean(result.hasIntent),
+        extractedTime,
+        confidence: Math.max(0, Math.min(1, Number(result.confidence) || 0.5)),
+        reasoning: result.reasoning || 'No reasoning provided'
+      };
+
+      logger.debug('LLM scheduling intent and time extraction', {
+        text: text.substring(0, 100) + '...',
+        hasIntent: finalResult.hasIntent,
+        extractedTime: finalResult.extractedTime?.toISOString(),
+        confidence: finalResult.confidence,
+        reasoning: finalResult.reasoning
+      });
+
+      return finalResult;
+
+    } catch (error) {
+      logger.warn('LLM scheduling intent and time extraction failed, defaulting to no intent', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // Fail safe: if LLM fails, assume no scheduling intent to avoid false scheduling
+      return {
+        hasIntent: false,
+        confidence: 0,
+        reasoning: 'LLM extraction failed'
+      };
+    }
   }
 
   /**
@@ -1162,14 +1316,63 @@ export class WorkspaceNLPProcessor {
     ];
     return patterns.some(pattern => pattern.test(text));
   }
+
+  /**
+   * Validate LLM-extracted time against chrono-node for additional confidence
+   */
+  private validateTimeWithChrono(text: string, llmExtractedTime: Date): {
+    matches: boolean;
+    chronoTime?: Date;
+    timeDifferenceMinutes?: number;
+    confidence: 'high' | 'medium' | 'low';
+  } {
+    try {
+      const parsed = parse(text);
+      if (parsed.length === 0) {
+        return { matches: false, confidence: 'low' };
+      }
+
+      const chronoTime = parsed[0].start.date();
+      const timeDifferenceMs = Math.abs(llmExtractedTime.getTime() - chronoTime.getTime());
+      const timeDifferenceMinutes = timeDifferenceMs / (1000 * 60);
+
+      // Consider times "matching" if they're within reasonable tolerance
+      let matches = false;
+      let confidence: 'high' | 'medium' | 'low' = 'low';
+
+      if (timeDifferenceMinutes <= 1) {
+        // Within 1 minute - exact match
+        matches = true;
+        confidence = 'high';
+      } else if (timeDifferenceMinutes <= 60) {
+        // Within 1 hour - good match (could be rounding differences)
+        matches = true;
+        confidence = 'medium';
+      } else if (timeDifferenceMinutes <= 1440) {
+        // Within 1 day - possible match (could be timezone or day boundary issues)
+        matches = true;
+        confidence = 'low';
+      }
+
+      return {
+        matches,
+        chronoTime,
+        timeDifferenceMinutes,
+        confidence
+      };
+    } catch (error) {
+      return { matches: false, confidence: 'low' };
+    }
+  }
 }
 
 // Export singleton instance
 export const workspaceNLPProcessor = new WorkspaceNLPProcessor();
 
 /**
- * Helper function to parse workspace commands
+ * Convenience function for parsing workspace commands
  */
-export function parseWorkspaceCommand(text: string): WorkspaceCommand | null {
-  return workspaceNLPProcessor.parseCommand(text);
+export async function parseWorkspaceCommand(text: string): Promise<WorkspaceCommand | null> {
+  const processor = new WorkspaceNLPProcessor();
+  return await processor.parseCommand(text);
 } 

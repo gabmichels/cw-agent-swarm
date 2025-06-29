@@ -6,23 +6,23 @@
 
 // Export schemas
 export { agentSchema } from '../../schema/agent';
-export type { 
-  AgentMemoryEntity, 
-  AgentStatus, 
-  AgentCapability, 
-  AgentParameters, 
-  AgentTool, 
-  AgentMetadata 
+export type {
+  AgentMemoryEntity,
+  AgentStatus,
+  AgentCapability,
+  AgentParameters,
+  AgentTool,
+  AgentMetadata
 } from '../../schema/agent';
 
 export { chatSchema } from '../../schema/chat';
-export type { 
-  ChatMemoryEntity, 
-  ChatParticipant, 
-  ChatParticipantRole, 
-  ChatPermission, 
-  ChatStatus, 
-  ChatSettings, 
+export type {
+  ChatMemoryEntity,
+  ChatParticipant,
+  ChatParticipantRole,
+  ChatPermission,
+  ChatStatus,
+  ChatSettings,
   ChatMetadata
 } from '../../schema/chat';
 
@@ -42,9 +42,9 @@ export type { Message, ConversationOptions } from './conversation-manager';
 
 // Export enhanced memory service
 export { EnhancedMemoryService } from './enhanced-memory-service';
-export type { 
-  EnhancedMemoryPoint, 
-  EnhancedMemoryServiceOptions 
+export type {
+  EnhancedMemoryPoint,
+  EnhancedMemoryServiceOptions
 } from './enhanced-memory-service';
 
 // Export migration helpers
@@ -64,17 +64,18 @@ export type { StructuredId } from '../../../../utils/ulid';
  * @param memoryService The memory service to use
  * @returns A new agent memory service
  */
-export async function createAgentMemoryService(memoryService: any) {
+export async function createAgentMemoryService(services: any) {
   const { DefaultAgentMemoryService } = require('./agent-service');
-  
-  // Check if memoryService has a memoryClient property
-  const memoryClient = memoryService?.memoryClient;
-  
+
+  // Check if services has a client property (from getMemoryServices())
+  const memoryClient = services?.client;
+
   if (!memoryClient) {
-    console.error("No memory client available in the provided memoryService");
+    console.error("No memory client available in the provided services object");
+    console.error("Services object keys:", Object.keys(services || {}));
     throw new Error("Memory client is required to create agent memory service");
   }
-  
+
   // Create new service with memory client
   return new DefaultAgentMemoryService(memoryClient);
 }
@@ -117,8 +118,8 @@ export function createConversationManager(repository: any) {
  * @returns A new enhanced memory service
  */
 export function createEnhancedMemoryService(
-  memoryClient: any, 
-  embeddingClient: any, 
+  memoryClient: any,
+  embeddingClient: any,
   options?: any
 ) {
   const { EnhancedMemoryService } = require('./enhanced-memory-service');

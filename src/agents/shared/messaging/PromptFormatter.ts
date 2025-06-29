@@ -18,16 +18,16 @@ export interface ScoredMemory {
 export interface PersonaInfo {
   /** Background information about the persona */
   background?: string;
-  
+
   /** Personality traits and characteristics */
   personality?: string;
-  
+
   /** Communication style preferences */
   communicationStyle?: string;
-  
+
   /** Knowledge areas and domains */
   expertise?: string[];
-  
+
   /** Additional preferences or settings */
   preferences?: Record<string, string>;
 }
@@ -40,7 +40,7 @@ export interface AgentContext {
     capabilities?: string[];
   };
   contextUsed?: {
-    tools?: Array<string | { name: string; [key: string]: any }>;
+    tools?: Array<string | { name: string;[key: string]: any }>;
   };
   availableTools?: string[];
 }
@@ -51,19 +51,19 @@ export interface AgentContext {
 export interface SystemPromptOptions {
   /** Base system prompt (instructions) */
   basePrompt: string;
-  
+
   /** Persona information to include */
   persona?: PersonaInfo;
-  
+
   /** Whether to include agent capabilities */
   includeCapabilities?: boolean;
-  
+
   /** Agent context for dynamic tool discovery */
   agentContext?: AgentContext;
-  
+
   /** Additional context relevant to the conversation */
   additionalContext?: string[];
-  
+
   /** Custom formatting template */
   template?: string;
 }
@@ -74,60 +74,110 @@ export interface SystemPromptOptions {
 export interface InputPromptOptions {
   /** The user input to process */
   input: string;
-  
+
   /** Conversation history context */
   conversationHistory?: Array<{ role: 'human' | 'assistant' | 'system', content: string }>;
-  
+
   /** Max tokens to consider from history */
   maxHistoryTokens?: number;
-  
+
   /** Max messages to include in history */
   maxHistoryMessages?: number;
-  
+
   /** Whether to include relevant memories */
   includeRelevantMemories?: boolean;
-  
+
   /** Relevant memories to include */
   relevantMemories?: ScoredMemory[];
-  
+
   /** Additional context for this specific input */
   inputContext?: Record<string, unknown>;
 }
 
 /**
  * Dynamically discover available tools from the agent context
- * (Matches the pattern from classifyRequestTypeNode.ts)
+ * (Enhanced version matching classifyRequestTypeNode.ts with workspace tools)
  */
 async function discoverAgentTools(agentContext?: AgentContext): Promise<string[]> {
   try {
     // Try to get tools from agent context if available
     if (agentContext?.agentPersona?.capabilities) {
+      console.log('🔧 PromptFormatter using tools from agentPersona.capabilities:', agentContext.agentPersona.capabilities);
       return agentContext.agentPersona.capabilities;
     }
-    
+
     // Try to get from explicit availableTools
     if (agentContext?.availableTools) {
+      console.log('🔧 PromptFormatter using tools from availableTools:', agentContext.availableTools);
       return agentContext.availableTools;
     }
-    
+
     // Try to get from thinking context
     if (agentContext?.contextUsed?.tools) {
-      return agentContext.contextUsed.tools.map((tool: any) => 
+      const toolNames = agentContext.contextUsed.tools.map((tool: any) =>
         typeof tool === 'string' ? tool : tool.name || 'unknown_tool'
       );
+      console.log('🔧 PromptFormatter using tools from contextUsed.tools:', toolNames);
+      return toolNames;
     }
-    
-    // Fallback: return common tools (this maintains backward compatibility)
-    return [
+
+    // ENHANCED FALLBACK: Include actual workspace tools that we know exist
+    console.warn('🔧 PromptFormatter: No agent tools found via methods, using comprehensive fallback tools');
+    const baseTools = [
       'general_llm_capabilities',
       'text_processing',
       'analysis',
       'reasoning',
-      'send_message' // Add send_message as available tool
+      'send_message'
     ];
+
+    // For PromptFormatter, we should always include workspace tools since this is used during response generation
+    // and the agent should know about all its capabilities
+    console.log('🔧 PromptFormatter: Adding actual workspace tools to fallback');
+
+    // Add the ACTUAL tool names that exist in the system
+    baseTools.push(
+      'send_email',
+      'smart_send_email',
+      'read_specific_email',
+      'find_important_emails',
+      'search_emails',
+      'analyze_emails',
+      'get_emails_needing_attention',
+      'get_email_action_items',
+      'get_email_trends',
+      'reply_to_email',
+      'forward_email',
+      'read_calendar',
+      'find_availability',
+      'summarize_day',
+      'find_events',
+      'schedule_event',
+      'edit_event',
+      'delete_event',
+      'read_spreadsheet',
+      'analyze_spreadsheet_data',
+      'create_spreadsheet',
+      'update_spreadsheet',
+      'search_files',
+      'get_file',
+      'create_file',
+      'share_file',
+      'email_sending_tool' // Legacy name that LLM might look for
+    );
+
+    return baseTools;
   } catch (error) {
     console.warn('Failed to discover agent tools in PromptFormatter:', error);
-    return ['general_llm_capabilities', 'send_message']; // Safe fallback
+
+    // Even in error case, include workspace tools 
+    return [
+      'general_llm_capabilities',
+      'send_message',
+      'send_email',
+      'smart_send_email',
+      'email_sending_tool'
+    ];
   }
 }
 
@@ -138,40 +188,40 @@ async function discoverAgentTools(agentContext?: AgentContext): Promise<string[]
 async function buildDynamicCapabilitiesContext(availableTools: string[]): Promise<string> {
   // Categorize tools by functionality
   const toolCategories = {
-    messaging: availableTools.filter(tool => 
-      tool.toLowerCase().includes('send_message') || 
-      tool.toLowerCase().includes('message') || 
+    messaging: availableTools.filter(tool =>
+      tool.toLowerCase().includes('send_message') ||
+      tool.toLowerCase().includes('message') ||
       tool.toLowerCase().includes('chat') ||
       tool.toLowerCase().includes('schedule')
     ),
     coda: availableTools.filter(tool => tool.toLowerCase().includes('coda')),
-    web: availableTools.filter(tool => 
-      tool.toLowerCase().includes('web') || 
+    web: availableTools.filter(tool =>
+      tool.toLowerCase().includes('web') ||
       tool.toLowerCase().includes('search') ||
       tool.toLowerCase().includes('browse')
     ),
-    social: availableTools.filter(tool => 
-      tool.toLowerCase().includes('twitter') || 
-      tool.toLowerCase().includes('instagram') || 
+    social: availableTools.filter(tool =>
+      tool.toLowerCase().includes('twitter') ||
+      tool.toLowerCase().includes('instagram') ||
       tool.toLowerCase().includes('social')
     ),
-    data: availableTools.filter(tool => 
-      tool.toLowerCase().includes('data') || 
-      tool.toLowerCase().includes('market') || 
+    data: availableTools.filter(tool =>
+      tool.toLowerCase().includes('data') ||
+      tool.toLowerCase().includes('market') ||
       tool.toLowerCase().includes('crypto') ||
       tool.toLowerCase().includes('api')
     ),
-    llm: availableTools.filter(tool => 
-      tool.toLowerCase().includes('llm') || 
-      tool.toLowerCase().includes('text') || 
+    llm: availableTools.filter(tool =>
+      tool.toLowerCase().includes('llm') ||
+      tool.toLowerCase().includes('text') ||
       tool.toLowerCase().includes('analysis') ||
       tool.toLowerCase().includes('reasoning')
     )
   };
-  
+
   let context = `## AVAILABLE CAPABILITIES\n`;
   context += `Based on your currently registered tools, you can:\n\n`;
-  
+
   // Messaging & Scheduling capabilities
   if (toolCategories.messaging.length > 0) {
     context += `### MESSAGE SCHEDULING & DELIVERY\n`;
@@ -181,7 +231,7 @@ async function buildDynamicCapabilitiesContext(availableTools: string[]): Promis
     context += `- Create and manage scheduled tasks for future execution\n`;
     context += `- Deliver automated reminders and notifications\n\n`;
   }
-  
+
   // Coda capabilities
   if (toolCategories.coda.length > 0) {
     context += `### DOCUMENT & DATA MANAGEMENT\n`;
@@ -190,7 +240,7 @@ async function buildDynamicCapabilitiesContext(availableTools: string[]): Promis
     context += `- Update tables and databases\n`;
     context += `- Manage structured data workflows\n\n`;
   }
-  
+
   // Web capabilities
   if (toolCategories.web.length > 0) {
     context += `### WEB & SEARCH CAPABILITIES\n`;
@@ -199,7 +249,7 @@ async function buildDynamicCapabilitiesContext(availableTools: string[]): Promis
     context += `- Browse websites and extract data\n`;
     context += `- Access current information and news\n\n`;
   }
-  
+
   // Social media capabilities
   if (toolCategories.social.length > 0) {
     context += `### SOCIAL MEDIA INTEGRATION\n`;
@@ -208,7 +258,7 @@ async function buildDynamicCapabilitiesContext(availableTools: string[]): Promis
     context += `- Post to social media platforms\n`;
     context += `- Monitor social media trends\n\n`;
   }
-  
+
   // Data & API capabilities
   if (toolCategories.data.length > 0) {
     context += `### DATA & API ACCESS\n`;
@@ -217,7 +267,7 @@ async function buildDynamicCapabilitiesContext(availableTools: string[]): Promis
     context += `- Fetch information from external APIs\n`;
     context += `- Process and analyze live data\n\n`;
   }
-  
+
   // Core LLM capabilities
   if (toolCategories.llm.length > 0) {
     context += `### CORE REASONING CAPABILITIES\n`;
@@ -226,14 +276,14 @@ async function buildDynamicCapabilitiesContext(availableTools: string[]): Promis
     context += `- Complex reasoning and problem-solving\n`;
     context += `- Context-aware conversation management\n\n`;
   }
-  
+
   // Add critical instruction for the LLM
   context += `**🎯 IMPORTANT OPERATIONAL NOTES**:\n`;
   context += `- When users request functionality covered by your available tools, you CAN fulfill these requests\n`;
   context += `- The system will automatically execute the appropriate tools on your behalf\n`;
   context += `- You should respond confidently about your capabilities listed above\n`;
   context += `- For scheduling requests, use natural language time expressions (e.g., "in 10 minutes", "tomorrow at 3pm")\n`;
-  
+
   // 🚨 CRITICAL: Add strong anti-hallucination instructions
   context += `\n**🚨 CRITICAL DATA ACCURACY REQUIREMENTS**:\n`;
   context += `- NEVER invent, fabricate, or guess ANY factual information (dates, numbers, names, addresses, prices, statistics, etc.)\n`;
@@ -244,18 +294,18 @@ async function buildDynamicCapabilitiesContext(availableTools: string[]): Promis
   context += `- When asked for specific facts, data, or verification, reference ONLY what appears in the memory context section\n`;
   context += `- Be precise about what you know vs. what you don't know - uncertainty is better than fabrication\n`;
   context += `- STOP: Before providing any factual claim, verify it exists in your context or well-established knowledge\n`;
-  
+
   // Identify missing common tools for transparency
   const commonTools = ['coda_create_document', 'web_search', 'twitter_search', 'send_message', 'market_data'];
-  const missingCommon = commonTools.filter(tool => 
+  const missingCommon = commonTools.filter(tool =>
     !availableTools.some(available => available.toLowerCase().includes(tool.split('_')[0]))
   );
-  
+
   if (missingCommon.length > 0) {
     context += `\n**⚠️ NOT AVAILABLE**: This agent does not have access to: ${missingCommon.join(', ')}\n`;
     context += `For requests requiring these capabilities, you should explain the limitation.\n`;
   }
-  
+
   return context;
 }
 
@@ -270,37 +320,37 @@ export class PromptFormatter {
    * @returns Formatted system prompt as string
    */
   static async formatSystemPrompt(options: SystemPromptOptions): Promise<string> {
-    const { 
-      basePrompt, 
-      persona, 
+    const {
+      basePrompt,
+      persona,
       includeCapabilities = false,
       agentContext,
       additionalContext = []
     } = options;
-    
+
     // Start with the base prompt
     let systemPrompt = basePrompt.trim();
-    
+
     // Add persona information if provided
     if (persona) {
       systemPrompt += '\n\n## PERSONA INFORMATION';
-      
+
       if (persona.background) {
         systemPrompt += `\n\n### BACKGROUND\n${persona.background}`;
       }
-      
+
       if (persona.personality) {
         systemPrompt += `\n\n### PERSONALITY\n${persona.personality}`;
       }
-      
+
       if (persona.communicationStyle) {
         systemPrompt += `\n\n### COMMUNICATION STYLE\n${persona.communicationStyle}`;
       }
-      
+
       if (persona.expertise && persona.expertise.length > 0) {
         systemPrompt += `\n\n### EXPERTISE\n${persona.expertise.join(', ')}`;
       }
-      
+
       if (persona.preferences && Object.keys(persona.preferences).length > 0) {
         systemPrompt += '\n\n### PREFERENCES';
         for (const [key, value] of Object.entries(persona.preferences)) {
@@ -308,18 +358,18 @@ export class PromptFormatter {
         }
       }
     }
-    
+
     // Add dynamic capabilities information if requested
     if (includeCapabilities) {
       // 🎯 Dynamic tool discovery (matches classifyRequestTypeNode pattern)
       const availableTools = await discoverAgentTools(agentContext);
       console.log(`🔧 PromptFormatter discovered ${availableTools.length} available tools:`, availableTools);
-      
+
       // Build dynamic capabilities context
       const capabilitiesContext = await buildDynamicCapabilitiesContext(availableTools);
       systemPrompt += '\n\n' + capabilitiesContext;
     }
-    
+
     // Add additional context if provided
     if (additionalContext.length > 0) {
       systemPrompt += '\n\n## ADDITIONAL CONTEXT';
@@ -327,7 +377,7 @@ export class PromptFormatter {
         systemPrompt += `\n\n${context}`;
       }
     }
-    
+
     return systemPrompt;
   }
 
@@ -337,36 +387,36 @@ export class PromptFormatter {
    */
   static formatSystemPromptSync(options: SystemPromptOptions): string {
     console.warn('PromptFormatter.formatSystemPrompt is now async. Consider updating your code.');
-    
-    const { 
-      basePrompt, 
-      persona, 
+
+    const {
+      basePrompt,
+      persona,
       includeCapabilities = false,
       additionalContext = []
     } = options;
-    
+
     let systemPrompt = basePrompt.trim();
-    
+
     // Add persona information if provided
     if (persona) {
       systemPrompt += '\n\n## PERSONA INFORMATION';
-      
+
       if (persona.background) {
         systemPrompt += `\n\n### BACKGROUND\n${persona.background}`;
       }
-      
+
       if (persona.personality) {
         systemPrompt += `\n\n### PERSONALITY\n${persona.personality}`;
       }
-      
+
       if (persona.communicationStyle) {
         systemPrompt += `\n\n### COMMUNICATION STYLE\n${persona.communicationStyle}`;
       }
-      
+
       if (persona.expertise && persona.expertise.length > 0) {
         systemPrompt += `\n\n### EXPERTISE\n${persona.expertise.join(', ')}`;
       }
-      
+
       if (persona.preferences && Object.keys(persona.preferences).length > 0) {
         systemPrompt += '\n\n### PREFERENCES';
         for (const [key, value] of Object.entries(persona.preferences)) {
@@ -374,7 +424,7 @@ export class PromptFormatter {
         }
       }
     }
-    
+
     // Add basic capabilities (fallback for sync version)
     if (includeCapabilities) {
       systemPrompt += '\n\n## AVAILABLE CAPABILITIES';
@@ -384,7 +434,7 @@ export class PromptFormatter {
       systemPrompt += '\n- Context-aware conversation';
       systemPrompt += '\n\n**Note**: For full dynamic capability detection, use the async version.';
     }
-    
+
     // Add additional context if provided
     if (additionalContext.length > 0) {
       systemPrompt += '\n\n## ADDITIONAL CONTEXT';
@@ -392,10 +442,10 @@ export class PromptFormatter {
         systemPrompt += `\n\n${context}`;
       }
     }
-    
+
     return systemPrompt;
   }
-  
+
   /**
    * Format relevant memories into a string for inclusion in a prompt
    * 
@@ -406,14 +456,14 @@ export class PromptFormatter {
     if (!memories || memories.length === 0) {
       return '';
     }
-    
+
     let result = '## RELEVANT MEMORIES\n\n';
-    
+
     // Group memories by relevance type
     const criticalMemories = memories.filter(m => m.relevanceType === 'critical');
     const highMemories = memories.filter(m => m.relevanceType === 'high');
     const mediumMemories = memories.filter(m => m.relevanceType === 'medium');
-    
+
     // Format critical memories first
     if (criticalMemories.length > 0) {
       result += '### CRITICAL INFORMATION\n';
@@ -422,7 +472,7 @@ export class PromptFormatter {
       });
       result += '\n';
     }
-    
+
     // Format high-relevance memories
     if (highMemories.length > 0) {
       result += '### HIGHLY RELEVANT\n';
@@ -431,7 +481,7 @@ export class PromptFormatter {
       });
       result += '\n';
     }
-    
+
     // Format medium-relevance memories
     if (mediumMemories.length > 0) {
       result += '### RELATED CONTEXT\n';
@@ -439,10 +489,10 @@ export class PromptFormatter {
         result += `- ${memory.content}\n`;
       });
     }
-    
+
     return result;
   }
-  
+
   /**
    * Create an array of messages for a LangChain chat model
    * 
@@ -451,29 +501,29 @@ export class PromptFormatter {
    * @returns Array of LangChain message objects
    */
   static createChatMessages(systemPrompt: string, options: InputPromptOptions): Array<SystemMessage | HumanMessage | AIMessage> {
-    const { 
-      input, 
+    const {
+      input,
       conversationHistory = [],
       maxHistoryMessages = 10,
       relevantMemories = []
     } = options;
-    
+
     // Start with the system message
     let enhancedSystemPrompt = systemPrompt;
-    
+
     // Add relevant memories if provided
     if (relevantMemories.length > 0) {
       const memoryText = this.formatRelevantMemories(relevantMemories);
       enhancedSystemPrompt += '\n\n' + memoryText;
     }
-    
+
     const messages: Array<SystemMessage | HumanMessage | AIMessage> = [
       new SystemMessage(enhancedSystemPrompt)
     ];
-    
+
     // Add conversation history, respecting the max history messages limit
     const limitedHistory = conversationHistory.slice(-maxHistoryMessages);
-    
+
     for (const message of limitedHistory) {
       if (message.role === 'human') {
         messages.push(new HumanMessage(message.content));
@@ -484,13 +534,13 @@ export class PromptFormatter {
         messages[0] = new SystemMessage(messages[0].content + '\n\n' + message.content);
       }
     }
-    
+
     // Add the current input message
     messages.push(new HumanMessage(input));
-    
+
     return messages;
   }
-  
+
   /**
    * Format a conversation history into a standardized format
    * 
@@ -498,12 +548,12 @@ export class PromptFormatter {
    * @returns Formatted conversation history
    */
   static formatConversationHistory(memories: Array<{
-    content: string; 
-    metadata: { type: string; [key: string]: any };
+    content: string;
+    metadata: { type: string;[key: string]: any };
   }>): Array<{ role: 'human' | 'assistant' | 'system', content: string }> {
     return memories.map(memory => {
       const type = memory.metadata.type as string;
-      
+
       if (type === 'user_input') {
         return { role: 'human', content: memory.content };
       } else if (type === 'agent_response') {

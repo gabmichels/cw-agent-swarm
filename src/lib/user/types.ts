@@ -11,22 +11,32 @@ export interface User {
    * Unique identifier for the user
    */
   id: string;
-  
+
   /**
    * Username for display and reference
    */
   username: string;
-  
+
   /**
    * Optional display name
    */
   displayName?: string;
-  
+
+  /**
+   * User's first name
+   */
+  firstName?: string;
+
+  /**
+   * User's last name
+   */
+  lastName?: string;
+
   /**
    * Optional email address
    */
   email?: string;
-  
+
   /**
    * When the user was created
    */
@@ -41,11 +51,13 @@ export interface User {
 export function createUser(props: Partial<User>): User {
   const id = props.id || createUserId().toString();
   const now = new Date();
-  
+
   return {
     id,
     username: props.username || 'anonymous',
     displayName: props.displayName,
+    firstName: props.firstName,
+    lastName: props.lastName,
     email: props.email,
     createdAt: props.createdAt || now,
   };
@@ -70,5 +82,8 @@ export function getCurrentUser(): User {
     id: 'user_gab',
     username: 'gab',
     displayName: 'Gab',
+    firstName: 'Gabriel',
+    lastName: 'Michels',
+    email: 'gab@crowd-wisdom.com',
   });
 } 

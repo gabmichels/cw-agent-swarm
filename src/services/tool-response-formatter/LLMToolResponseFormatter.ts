@@ -186,6 +186,35 @@ export class LLMToolResponseFormatter implements IToolResponseFormatter {
    */
   private async buildSystemPrompt(context: ToolResponseContext): Promise<string> {
     try {
+      // Check if we have custom persona-aware instructions
+      const customInstructions = (context.responseConfig as any).customInstructions;
+      const communicationStyle = (context.responseConfig as any).communicationStyle;
+
+      if (customInstructions) {
+        // Use persona-aware instructions instead of rigid templates
+        const basePrompt = `You are responding about a tool execution result. ${customInstructions}
+
+COMMUNICATION STYLE: ${communicationStyle || 'professional and helpful'}
+
+IMPORTANT: 
+- Be authentic to your persona and communication style
+- Avoid template-like responses or repetitive phrases
+- Focus on being genuinely helpful and informative
+- Adapt your response based on whether the execution was successful, partial, or failed`;
+
+        return await PromptFormatter.formatSystemPrompt({
+          basePrompt: basePrompt,
+          persona: context.agentPersona,
+          includeCapabilities: false,
+          additionalContext: [
+            `Tool Category: ${context.toolCategory}`,
+            `Response Style: ${context.responseConfig.responseStyle}`,
+            `User Intent: ${context.executionIntent}`
+          ]
+        });
+      }
+
+      // Fallback to template-based approach if no custom instructions
       const template = await this.promptTemplateService.getTemplate(
         context.toolCategory,
         context.responseConfig.responseStyle
@@ -237,29 +266,50 @@ export class LLMToolResponseFormatter implements IToolResponseFormatter {
       .map(msg => `${msg.sender}: ${msg.content}`)
       .join('\n');
 
+    // Determine the execution state
+    const executionState = toolResult.success
+      ? 'SUCCESS'
+      : (toolResult.data && Object.keys(toolResult.data).length > 0)
+        ? 'PARTIAL_SUCCESS'
+        : 'ERROR';
+
+    // Build context based on execution state
+    let stateGuidance = '';
+    switch (executionState) {
+      case 'SUCCESS':
+        stateGuidance = 'SUCCESSFUL EXECUTION: Summarize what was accomplished and the value delivered. Be natural and vary your language.';
+        break;
+      case 'PARTIAL_SUCCESS':
+        stateGuidance = 'PARTIAL SUCCESS: Explain what progress was made, what still needs to be done, and provide clear next steps.';
+        break;
+      case 'ERROR':
+        stateGuidance = 'EXECUTION ERROR: Explain what went wrong in clear terms and provide helpful guidance on how to resolve the issue.';
+        break;
+    }
+
+    // Check if persona-aware instructions are available
+    const customInstructions = (context.responseConfig as any).customInstructions;
+    const personaGuidance = customInstructions
+      ? `\nPERSONA GUIDANCE:\n${customInstructions}`
+      : '\nRespond naturally and authentically, varying your language and avoiding repetitive phrases.';
+
     return `ORIGINAL USER REQUEST: "${context.originalUserMessage}"
 
 TOOL EXECUTION RESULT:
 - Tool: ${toolResult.toolId}
-- Success: ${toolResult.success}
+- Status: ${executionState}
 - Execution Time: ${toolResult.metrics?.durationMs}ms
 ${toolResult.success ? `- Result: ${JSON.stringify(toolResult.data, null, 2)}` : ''}
-${!toolResult.success ? `- Error: ${toolResult.error?.message}` : ''}
+${!toolResult.success && toolResult.error ? `- Error: ${toolResult.error.message}` : ''}
 
 RECENT CONVERSATION:
 ${recentContext}
 
-RESPONSE REQUIREMENTS:
-- Match agent persona and communication style exactly
-- Be specific about what was accomplished
-- Include relevant details from the tool result
-- Suggest logical next steps if appropriate
-- Use ${context.responseConfig.responseStyle} tone
-${context.responseConfig.includeEmojis ? '- Include appropriate emojis' : '- No emojis'}
-${context.responseConfig.includeMetrics ? '- Include relevant performance metrics' : '- Focus on outcomes, not metrics'}
-- Keep response under ${context.responseConfig.maxResponseLength} characters
+${stateGuidance}${personaGuidance}
 
-Generate a conversational response that feels natural and helpful.`;
+${context.responseConfig.includeEmojis ? 'You may use appropriate emojis.' : 'Do not use emojis.'}
+${context.responseConfig.includeMetrics ? 'Include relevant performance metrics if helpful.' : 'Focus on outcomes rather than technical metrics.'}
+Keep response under ${context.responseConfig.maxResponseLength} characters.`;
   }
 
   /**
