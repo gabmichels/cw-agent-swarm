@@ -30,7 +30,7 @@ import {
   ToolValidationError
 } from '../errors/ToolFoundationErrors';
 import { createToolId, isValidToolId } from '../utils/ToolIdUtils';
-import { IStructuredLogger } from '../../../logging/structured-logger.interface';
+import { IStructuredLogger } from '../../../logging/interfaces/IStructuredLogger';
 
 /**
  * Concrete implementation of the unified tool registry
@@ -128,7 +128,8 @@ export class UnifiedToolRegistry implements IUnifiedToolRegistry {
 
       return {
         success: true,
-        toolId: definition.id
+        toolId: definition.id,
+        registeredAt: new Date()
       };
 
     } catch (error) {
@@ -140,13 +141,17 @@ export class UnifiedToolRegistry implements IUnifiedToolRegistry {
       if (error instanceof ToolRegistrationError) {
         return {
           success: false,
-          error: error.message
+          toolId: definition.id,
+          registeredAt: new Date(),
+          errors: [error.message]
         };
       }
 
       return {
         success: false,
-        error: `Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        toolId: definition.id,
+        registeredAt: new Date(),
+        errors: [`Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`]
       };
     }
   }

@@ -71,7 +71,18 @@ export enum ToolCategory {
   // Integration tools
   INTEGRATION = 'integration',
   API = 'api',
-  WEBHOOK = 'webhook'
+  WEBHOOK = 'webhook',
+
+  // New categories
+  COMMUNICATION = 'communication',
+  DATA_PROCESSING = 'data_processing',
+  FILE_MANAGEMENT = 'file_management',
+  SCHEDULING = 'scheduling',
+  CONTENT_CREATION = 'content_creation',
+  DEVELOPMENT = 'development',
+  TESTING = 'testing',
+  DEPLOYMENT = 'deployment',
+  SECURITY = 'security'
 }
 
 /**
@@ -155,7 +166,39 @@ export enum ToolCapability {
   // Integration capabilities
   API_CALL = 'api_call',
   WEBHOOK_HANDLE = 'webhook_handle',
-  DATA_SYNC = 'data_sync'
+  DATA_SYNC = 'data_sync',
+
+  // New capabilities
+  READ = 'read',
+  WRITE = 'write',
+  EXECUTE = 'execute',
+  SCHEDULE = 'schedule',
+  MONITOR = 'monitor',
+  INTEGRATE = 'integrate',
+  TRANSFORM = 'transform',
+  VALIDATE = 'validate',
+  BACKUP = 'backup',
+  RESTORE = 'restore',
+  ENCRYPT = 'encrypt',
+  DECRYPT = 'decrypt',
+  COMPRESS = 'compress',
+  DECOMPRESS = 'decompress',
+  FILTER = 'filter',
+  SORT = 'sort',
+  MERGE = 'merge',
+  SPLIT = 'split',
+  CONVERT = 'convert',
+  CONTENT_CREATION = 'content_creation',
+  SCHEDULING = 'scheduling',
+  ANALYTICS = 'analytics',
+  MEDIA_PROCESSING = 'media_processing',
+  WORKFLOW_MANAGEMENT = 'workflow_management',
+  MULTI_PLATFORM = 'multi_platform',
+  SOCIAL_MEDIA_INTEGRATION = 'social_media_integration',
+  CALENDAR_MANAGEMENT = 'calendar_management',
+  DATA_PROCESSING = 'data_processing',
+  FILE_MANAGEMENT = 'file_management',
+  WORKSPACE_INTEGRATION = 'workspace_integration'
 }
 
 /**
@@ -183,7 +226,12 @@ export enum ToolStatus {
   BETA = 'beta',
 
   // Unknown state
-  UNKNOWN = 'unknown'
+  UNKNOWN = 'unknown',
+
+  // New states
+  AVAILABLE = 'available',
+  NOT_FOUND = 'not_found',
+  PENDING = 'pending'
 }
 
 /**

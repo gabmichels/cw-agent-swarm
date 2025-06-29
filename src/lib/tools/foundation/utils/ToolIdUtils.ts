@@ -14,6 +14,13 @@ import { ulid } from 'ulid';
 import { ToolId } from '../types/FoundationTypes';
 
 /**
+ * Global type extension for migration map
+ */
+declare global {
+  var __toolIdMigrationMap: Map<string, ToolId> | undefined;
+}
+
+/**
  * ULID pattern for validation
  * ULID format: 01ARZ3NDEKTSV4RRFFQ69G5FAV (26 characters, Crockford's Base32)
  */

@@ -18,7 +18,8 @@ import {
   ExecutionContext,
   ToolResult,
   ToolId,
-  ValidationResult
+  ValidationResult,
+  UnifiedTool
 } from '../types/FoundationTypes';
 
 /**

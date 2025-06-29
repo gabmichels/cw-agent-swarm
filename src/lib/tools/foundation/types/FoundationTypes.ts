@@ -10,6 +10,9 @@
 import { ulid } from 'ulid';
 import { ToolCategory, ToolCapability, ToolStatus } from '../enums/ToolEnums';
 
+// Re-export enums for external use
+export { ToolCategory, ToolCapability, ToolStatus };
+
 /**
  * ULID-based tool identifier for business logic
  */
@@ -53,24 +56,30 @@ export interface ExecutionContext {
   readonly capabilities?: readonly ToolCapability[];
   readonly metadata?: Record<string, unknown>;
   readonly traceId?: string; // For request tracing
+  readonly maxExecutionTime?: number;
 }
 
 /**
  * Tool parameter schema for validation
  */
 export interface ToolParameterSchema {
-  readonly [paramName: string]: {
-    readonly type: 'string' | 'number' | 'boolean' | 'object' | 'array';
-    readonly required: boolean;
-    readonly description?: string;
-    readonly default?: unknown;
-    readonly validation?: {
-      readonly min?: number;
-      readonly max?: number;
-      readonly pattern?: string;
-      readonly enum?: readonly unknown[];
+  readonly type?: 'object';
+  readonly properties?: {
+    readonly [paramName: string]: {
+      readonly type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+      readonly description?: string;
+      readonly default?: unknown;
+      readonly minLength?: number;
+      readonly maxLength?: number;
+      readonly validation?: {
+        readonly min?: number;
+        readonly max?: number;
+        readonly pattern?: string;
+        readonly enum?: readonly unknown[];
+      };
     };
   };
+  readonly required?: readonly string[];
 }
 
 /**
@@ -91,7 +100,9 @@ export interface UnifiedToolDefinition {
   readonly description: string;
   readonly category: ToolCategory;
   readonly capabilities: readonly ToolCapability[];
-  readonly parameters: ToolParameterSchema;
+  readonly parameters?: ToolParameterSchema;
+  readonly permissions?: readonly string[];
+  readonly requiresWorkspace?: boolean;
   readonly executor: ToolExecutor;
   readonly metadata: {
     readonly version: string;
@@ -100,6 +111,7 @@ export interface UnifiedToolDefinition {
     readonly tags?: readonly string[];
     readonly documentation?: string;
     readonly examples?: readonly Record<string, unknown>[];
+    readonly timeout?: number;
   };
   readonly enabled: boolean;
   readonly status: ToolStatus;
@@ -116,6 +128,8 @@ export interface UnifiedTool extends UnifiedToolDefinition {
   readonly executionCount: number;
   readonly successRate: number;
   readonly averageExecutionTime: number;
+  readonly tags?: readonly string[];
+  readonly requiresWorkspace?: boolean;
 }
 
 /**
@@ -126,6 +140,7 @@ export interface ToolDiscoveryCriteria {
   readonly capabilities?: readonly ToolCapability[];
   readonly tags?: readonly string[];
   readonly enabled?: boolean;
+  readonly enabledOnly?: boolean;
   readonly status?: ToolStatus;
   readonly provider?: string;
   readonly limit?: number;
@@ -143,45 +158,41 @@ export interface SearchContext {
   readonly previousTools?: readonly ToolId[];
   readonly userPreferences?: Record<string, unknown>;
   readonly workflowContext?: string;
+  readonly intent?: string;
+  readonly maxResults?: number;
+  readonly preferredCategories?: readonly ToolCategory[];
 }
 
 /**
- * Tool health status information
+ * Tool similarity result for finding similar tools
  */
-export interface ToolHealthStatus {
-  readonly toolId: ToolId;
-  readonly status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
-  readonly lastHealthCheck: string;
-  readonly responseTime?: number;
-  readonly errorRate?: number;
-  readonly availability?: number;
-  readonly issues?: readonly string[];
+export interface ToolSimilarity {
+  readonly tool: UnifiedTool;
+  readonly similarityScore: number;
+  readonly matchingAttributes: readonly string[];
 }
 
 /**
- * Tool execution metrics
+ * Tool recommendation with confidence scoring
  */
-export interface ToolMetrics {
-  readonly toolId: ToolId;
-  readonly executionCount: number;
-  readonly successCount: number;
-  readonly failureCount: number;
-  readonly successRate: number;
-  readonly averageExecutionTime: number;
-  readonly minExecutionTime: number;
-  readonly maxExecutionTime: number;
-  readonly lastExecutedAt?: string;
-  readonly totalExecutionTime: number;
-  readonly errorTypes?: Record<string, number>;
+export interface ToolRecommendation {
+  readonly tool: UnifiedTool;
+  readonly recommendationScore: number;
+  readonly reasons: readonly string[];
+  readonly category: ToolCategory;
 }
+
+// Removed duplicate interface - using the one below
+
+// Removed duplicate interface - using the one below
 
 /**
  * Tool validation result
  */
 export interface ValidationResult {
-  readonly valid: boolean;
-  readonly errors?: readonly string[];
-  readonly warnings?: readonly string[];
+  readonly isValid: boolean;
+  readonly errors: readonly string[];
+  readonly warnings: readonly string[];
   readonly metadata?: Record<string, unknown>;
 }
 
@@ -190,8 +201,9 @@ export interface ValidationResult {
  */
 export interface ToolRegistrationResult {
   readonly success: boolean;
-  readonly toolId?: ToolId;
-  readonly error?: string;
+  readonly toolId: ToolId;
+  readonly registeredAt: Date;
+  readonly errors?: readonly string[];
   readonly warnings?: readonly string[];
 }
 
@@ -230,4 +242,117 @@ export interface ToolCapabilityMatrix {
     readonly providers: readonly string[];
     readonly complexity: 'low' | 'medium' | 'high';
   };
+}
+
+/**
+ * Tool Discovery Method
+ */
+export type ToolDiscoveryMethod = 'semantic' | 'keyword' | 'category' | 'capability' | 'hybrid';
+
+/**
+ * Tool Discovery Criteria - now extends Record<string, unknown> for error handling
+ */
+export interface ToolDiscoveryCriteria extends Record<string, unknown> {
+  readonly category?: ToolCategory;
+  readonly capabilities?: readonly ToolCapability[];
+  readonly tags?: readonly string[];
+  readonly includeDeprecated?: boolean;
+  readonly maxResults?: number;
+  readonly minRelevanceScore?: number;
+}
+
+/**
+ * Search Context - now extends Record<string, unknown> for error handling
+ */
+export interface SearchContext extends Record<string, unknown> {
+  readonly userId?: string;
+  readonly agentId?: string;
+  readonly workspaceId?: string;
+  readonly permissions?: readonly string[];
+  readonly preferences?: Record<string, unknown>;
+  readonly filters?: Record<string, unknown>;
+}
+
+/**
+ * Tool Health Status
+ */
+export interface ToolHealthStatus {
+  readonly toolId: ToolId;
+  readonly isHealthy: boolean;
+  readonly status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  readonly lastChecked: Date;
+  readonly lastHealthCheck: Date;
+  readonly errors?: readonly string[];
+  readonly warnings?: readonly string[];
+  readonly metrics?: {
+    readonly responseTime: number;
+    readonly successRate: number;
+    readonly errorRate: number;
+  };
+}
+
+/**
+ * Tool Metrics
+ */
+export interface ToolMetrics {
+  readonly toolId: ToolId;
+  readonly executionCount: number;
+  readonly successCount: number;
+  readonly errorCount: number;
+  readonly failureCount: number;
+  readonly averageExecutionTime: number;
+  readonly minExecutionTime: number;
+  readonly maxExecutionTime: number;
+  readonly totalExecutionTime: number;
+  readonly lastExecuted?: Date;
+  readonly errorRate: number;
+  readonly successRate: number;
+}
+
+/**
+ * Parameter Validation Error
+ */
+export interface ParameterValidationError {
+  readonly parameter: string;
+  readonly error: string;
+  readonly expectedType: string;
+  readonly actualType: string;
+  readonly value?: unknown;
+}
+
+/**
+ * Parameter Validation Warning
+ */
+export interface ParameterValidationWarning {
+  readonly parameter: string;
+  readonly warning: string;
+  readonly suggestion?: string;
+}
+
+/**
+ * Security Issue
+ */
+export interface SecurityIssue {
+  readonly issue: string;
+  readonly severity: 'low' | 'medium' | 'high' | 'critical';
+  readonly recommendation: string;
+}
+
+/**
+ * Performance Issue
+ */
+export interface PerformanceIssue {
+  readonly issue: string;
+  readonly impact: 'low' | 'medium' | 'high';
+  readonly recommendation: string;
+}
+
+/**
+ * Resource Requirements
+ */
+export interface ResourceRequirements {
+  readonly memory: number;
+  readonly cpu: number;
+  readonly network: boolean;
+  readonly storage: number;
 } 

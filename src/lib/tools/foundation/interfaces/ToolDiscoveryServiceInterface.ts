@@ -19,9 +19,12 @@ import {
   UnifiedTool,
   ToolDiscoveryCriteria,
   SearchContext,
-  ToolSearchResult
+  ToolSearchResult,
+  ToolSimilarity,
+  ToolRecommendation,
+  ToolDiscoveryMethod
 } from '../types/FoundationTypes';
-import { ToolCategory, ToolCapability, ToolDiscoveryMethod } from '../enums/ToolEnums';
+import { ToolCategory, ToolCapability } from '../enums/ToolEnums';
 
 /**
  * Interface for the tool discovery service
@@ -297,4 +300,35 @@ export interface IToolDiscoveryService {
     readonly searchSuccessRate: number;
     readonly issues: readonly string[];
   }>;
+
+  /**
+   * Discovers tools based on criteria
+   */
+  discoverTools(
+    criteria: ToolDiscoveryCriteria
+  ): Promise<readonly UnifiedTool[]>;
+
+  /**
+   * Gets tool recommendations based on context
+   */
+  getRecommendations(
+    context: SearchContext,
+    limit?: number
+  ): Promise<readonly ToolRecommendation[]>;
+
+  /**
+   * Gets tools by category
+   */
+  getToolsByCategory(
+    category: ToolCategory,
+    includeDeprecated?: boolean
+  ): Promise<readonly UnifiedTool[]>;
+
+  /**
+   * Gets tools by capability
+   */
+  getToolsByCapability(
+    capability: ToolCapability,
+    includeDeprecated?: boolean
+  ): Promise<readonly UnifiedTool[]>;
 } 

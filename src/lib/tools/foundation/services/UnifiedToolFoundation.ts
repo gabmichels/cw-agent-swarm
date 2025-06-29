@@ -32,17 +32,19 @@ import {
   ToolMetrics,
   ValidationResult,
   ToolSearchResult,
-  ToolExecutionStats
+  ToolExecutionStats,
+  ToolRegistrationResult
 } from '../types/FoundationTypes';
 import { ToolCategory, ToolCapability, ToolStatus } from '../enums/ToolEnums';
 import {
   ToolFoundationError,
   ToolNotFoundError,
   ToolExecutionError,
-  ToolValidationError
+  ToolValidationError,
+  ToolSystemError
 } from '../errors/ToolFoundationErrors';
 import { createToolId } from '../utils/ToolIdUtils';
-import { IStructuredLogger } from '../../../logging/structured-logger.interface';
+import { IStructuredLogger } from '../../../logging/interfaces/IStructuredLogger';
 
 /**
  * Main unified tool foundation implementation
@@ -76,10 +78,12 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
 
       // Validate tool definition first
       const validation = await this.validationService.validateToolDefinition(definition);
-      if (!validation.valid) {
+      if (!validation.isValid) {
         return {
           success: false,
-          error: `Tool definition validation failed: ${validation.errors.join(', ')}`
+          toolId: definition.id as ToolId,
+          registeredAt: new Date(),
+          errors: [`Tool definition validation failed: ${validation.errors.join(', ')}`]
         };
       }
 
@@ -105,7 +109,9 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
 
       return {
         success: false,
-        error: `Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        toolId: definition.id as ToolId,
+        registeredAt: new Date(),
+        errors: [`Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`]
       };
     }
   }
@@ -272,7 +278,7 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
       if (!tool) {
         // Get suggestions for better error message
         const allToolNames = await this.registry.getAllToolNames();
-        const suggestions = await this.discoveryService.findSimilarTools(identifier, 3);
+        const suggestions = await this.discoveryService.findSimilarTools(identifier, 'semantic', 3);
 
         throw new ToolNotFoundError(
           `Tool '${identifier}' not found in unified foundation`,
@@ -533,39 +539,46 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
 
   // ==================== Tool Validation ====================
 
-  async validateTool(tool: UnifiedTool, context: ExecutionContext): Promise<ValidationResult> {
+  async validateTool(definition: UnifiedToolDefinition): Promise<ValidationResult> {
     try {
       this.logger.debug('Validating tool through unified foundation', {
-        toolId: tool.id,
-        toolName: tool.name,
+        toolId: definition.id,
+        toolName: definition.name,
         foundationId: this.foundationId
       });
 
-      const result = await this.validationService.validateExecutionContext(context, tool);
+      // For now, just validate the tool definition structure
+      const isValid = !!(definition.id && definition.name && definition.description);
+      const errors: string[] = [];
+      const warnings: string[] = [];
+
+      if (!definition.id) errors.push('Tool ID is required');
+      if (!definition.name) errors.push('Tool name is required');
+      if (!definition.description) errors.push('Tool description is required');
 
       this.logger.debug('Tool validation completed through unified foundation', {
-        toolId: tool.id,
-        toolName: tool.name,
-        valid: result.valid,
+        toolId: definition.id,
+        toolName: definition.name,
+        isValid,
         foundationId: this.foundationId
       });
 
       return {
-        valid: result.valid,
-        errors: result.errors,
-        warnings: result.warnings
+        isValid,
+        errors,
+        warnings
       };
 
     } catch (error) {
       this.logger.error('Tool validation failed through unified foundation', {
-        toolId: tool.id,
-        toolName: tool.name,
+        toolId: definition.id,
+        toolName: definition.name,
         foundationId: this.foundationId,
         error: error instanceof Error ? error.message : 'Unknown error'
       });
 
       return {
-        valid: false,
+        isValid: false,
         errors: [`Validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`],
         warnings: []
       };
@@ -583,7 +596,11 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
         foundationId: this.foundationId
       });
 
-      const result = await this.validationService.validateParameters(params, tool.parameters, tool.name);
+      const result = await this.validationService.validateParameters(
+        params,
+        tool.parameters || { type: 'object', properties: {}, required: [] },
+        tool.name
+      );
 
       this.logger.debug('Parameter validation completed through unified foundation', {
         toolId: tool.id,
@@ -593,9 +610,9 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
       });
 
       return {
-        valid: result.valid,
-        errors: result.errors,
-        warnings: result.warnings
+        isValid: result.valid,
+        errors: result.errors.map((e: any) => typeof e === 'string' ? e : e.error || JSON.stringify(e)),
+        warnings: result.warnings.map((w: any) => typeof w === 'string' ? w : w.warning || JSON.stringify(w))
       };
 
     } catch (error) {
@@ -607,7 +624,7 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
       });
 
       return {
-        valid: false,
+        isValid: false,
         errors: [`Parameter validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`],
         warnings: []
       };
@@ -621,10 +638,12 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
       const tool = await this.findTool(identifier);
       if (!tool) {
         return {
-          healthy: false,
-          status: ToolStatus.NOT_FOUND,
-          issues: [`Tool '${identifier}' not found`],
-          lastChecked: new Date().toISOString()
+          toolId: identifier as ToolId,
+          isHealthy: false,
+          status: 'unknown',
+          lastChecked: new Date(),
+          lastHealthCheck: new Date(),
+          errors: [`Tool '${identifier}' not found`]
         };
       }
 
@@ -656,15 +675,16 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
       }
 
       return {
-        healthy,
-        status: tool.status,
-        issues,
-        lastChecked: new Date().toISOString(),
-        executionStats: {
-          executionCount: stats.executionCount,
+        toolId: tool.id,
+        isHealthy: healthy,
+        status: healthy ? 'healthy' : 'unhealthy',
+        lastChecked: new Date(),
+        lastHealthCheck: new Date(),
+        errors: issues,
+        metrics: {
+          responseTime: stats.averageExecutionTime,
           successRate: stats.successRate,
-          averageExecutionTime: stats.averageExecutionTime,
-          lastExecutedAt: stats.lastExecutedAt
+          errorRate: 1 - stats.successRate
         }
       };
 
@@ -676,10 +696,12 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
       });
 
       return {
-        healthy: false,
-        status: ToolStatus.ERROR,
-        issues: [`Health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`],
-        lastChecked: new Date().toISOString()
+        toolId: identifier as ToolId,
+        isHealthy: false,
+        status: 'unhealthy',
+        lastChecked: new Date(),
+        lastHealthCheck: new Date(),
+        errors: [`Health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`]
       };
     }
   }
@@ -697,31 +719,24 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
       ]);
 
       const metrics: ToolMetrics = {
-        totalTools: registryHealth.totalTools,
-        enabledTools: registryHealth.enabledTools,
-        disabledTools: registryHealth.disabledTools,
-        errorTools: registryHealth.errorTools,
-        totalExecutions: executorStats.totalExecutions,
-        successfulExecutions: executorStats.successfulExecutions,
-        failedExecutions: executorStats.failedExecutions,
-        averageExecutionTime: executorStats.averageExecutionTime,
-        activeExecutions: executorHealth.activeExecutions,
-        systemHealth: {
-          registryHealthy: registryHealth.healthy,
-          executorHealthy: executorHealth.healthy,
-          foundationHealthy: registryHealth.healthy && executorHealth.healthy
-        },
-        topTools: executorStats.topTools.map(tool => ({
-          toolId: tool.toolId,
-          executionCount: tool.executionCount
-        })),
-        timestamp: new Date().toISOString()
+        toolId: this.foundationId,
+        executionCount: executorStats.totalExecutions || 0,
+        successCount: executorStats.successfulExecutions || 0,
+        errorCount: executorStats.failedExecutions || 0,
+        failureCount: executorStats.failedExecutions || 0,
+        averageExecutionTime: executorStats.averageExecutionTime || 0,
+        minExecutionTime: 0, // Would need to track this
+        maxExecutionTime: 0, // Would need to track this
+        totalExecutionTime: (executorStats.totalExecutions || 0) * (executorStats.averageExecutionTime || 0),
+        lastExecuted: new Date(),
+        errorRate: executorStats.totalExecutions > 0 ? (executorStats.failedExecutions || 0) / executorStats.totalExecutions : 0,
+        successRate: executorStats.totalExecutions > 0 ? (executorStats.successfulExecutions || 0) / executorStats.totalExecutions : 1
       };
 
       this.logger.debug('Foundation metrics retrieved', {
         foundationId: this.foundationId,
-        totalTools: metrics.totalTools,
-        totalExecutions: metrics.totalExecutions
+        executionCount: metrics.executionCount,
+        successRate: metrics.successRate
       });
 
       return metrics;
@@ -736,9 +751,9 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
         'Failed to retrieve foundation metrics',
         {
           operation: 'metrics_retrieval',
-          component: 'unified_foundation'
-        },
-        error as Error
+          component: 'unified_foundation',
+          originalError: error instanceof Error ? error.message : String(error)
+        }
       );
     }
   }
@@ -862,5 +877,137 @@ export class UnifiedToolFoundation implements IUnifiedToolFoundation {
 
   get id(): ToolId {
     return this.foundationId;
+  }
+
+  // ==================== Missing Interface Methods ====================
+
+  async getAllToolNames(): Promise<readonly string[]> {
+    return this.registry.getAllToolNames();
+  }
+
+  async findSimilarTools(identifier: ToolIdentifier, limit = 5): Promise<readonly UnifiedTool[]> {
+    return this.discoveryService.findSimilarTools(identifier, 'semantic', limit)
+      .then(similarities => similarities.map(s => s.tool));
+  }
+
+  async executeToolChain(
+    executions: readonly { identifier: ToolIdentifier; params: ToolParameters }[],
+    context: ExecutionContext
+  ): Promise<readonly ToolResult[]> {
+    const tools: { tool: UnifiedTool; params: ToolParameters }[] = [];
+
+    // Resolve all tools first
+    for (const execution of executions) {
+      const tool = await this.findTool(execution.identifier);
+      if (!tool) {
+        throw new ToolNotFoundError(
+          `Tool '${execution.identifier}' not found for chain execution`,
+          {
+            identifier: execution.identifier,
+            availableTools: await this.getAllToolNames(),
+            suggestedTools: []
+          }
+        );
+      }
+      tools.push({ tool, params: execution.params });
+    }
+
+    return this.executor.executeSequence(tools, context);
+  }
+
+  async executeToolsParallel(
+    executions: readonly { identifier: ToolIdentifier; params: ToolParameters }[],
+    context: ExecutionContext
+  ): Promise<readonly ToolResult[]> {
+    const tools: { tool: UnifiedTool; params: ToolParameters }[] = [];
+
+    // Resolve all tools first
+    for (const execution of executions) {
+      const tool = await this.findTool(execution.identifier);
+      if (!tool) {
+        throw new ToolNotFoundError(
+          `Tool '${execution.identifier}' not found for parallel execution`,
+          {
+            identifier: execution.identifier,
+            availableTools: await this.getAllToolNames(),
+            suggestedTools: []
+          }
+        );
+      }
+      tools.push({ tool, params: execution.params });
+    }
+
+    return this.executor.executeParallel(tools, context);
+  }
+
+  async getToolMetrics(toolId: ToolId): Promise<ToolMetrics> {
+    const stats = await this.executor.getToolExecutionStats(toolId);
+    return {
+      toolId,
+      executionCount: stats.executionCount,
+      successCount: stats.successCount,
+      errorCount: stats.failureCount,
+      failureCount: stats.failureCount,
+      averageExecutionTime: stats.averageExecutionTime,
+      minExecutionTime: 0, // Would need to track this
+      maxExecutionTime: 0, // Would need to track this
+      totalExecutionTime: stats.executionCount * stats.averageExecutionTime,
+      lastExecuted: stats.lastExecutedAt ? new Date(stats.lastExecutedAt) : undefined,
+      errorRate: stats.executionCount > 0 ? stats.failureCount / stats.executionCount : 0,
+      successRate: stats.successRate
+    };
+  }
+
+  async setToolEnabled(identifier: ToolIdentifier, enabled: boolean): Promise<boolean> {
+    return this.registry.setToolEnabled(identifier, enabled);
+  }
+
+  async getExecutionStats(): Promise<ToolExecutionStats> {
+    const executorStats = await this.executor.getExecutionStats();
+    const registryHealth = await this.registry.getRegistryHealth();
+
+    // Enhance topTools with tool names
+    const enhancedTopTools = await Promise.all(
+      executorStats.topTools.map(async (topTool) => {
+        const tool = await this.findTool(topTool.toolId);
+        return {
+          toolId: topTool.toolId,
+          name: tool?.name || 'Unknown Tool',
+          executionCount: topTool.executionCount
+        };
+      })
+    );
+
+    return {
+      totalTools: registryHealth.totalTools,
+      enabledTools: registryHealth.enabledTools,
+      totalExecutions: executorStats.totalExecutions,
+      successfulExecutions: executorStats.successfulExecutions,
+      failedExecutions: executorStats.failedExecutions,
+      averageExecutionTime: executorStats.averageExecutionTime,
+      topTools: enhancedTopTools
+    };
+  }
+
+  async getSystemHealth(): Promise<{
+    readonly healthy: boolean;
+    readonly totalTools: number;
+    readonly enabledTools: number;
+    readonly unhealthyTools: number;
+    readonly issues: readonly string[];
+  }> {
+    const registryHealth = await this.registry.getRegistryHealth();
+    const executorHealth = await this.executor.getHealthStatus();
+
+    return {
+      healthy: registryHealth.healthy && executorHealth.healthy,
+      totalTools: registryHealth.totalTools,
+      enabledTools: registryHealth.enabledTools,
+      unhealthyTools: registryHealth.errorTools,
+      issues: [
+        ...registryHealth.issues,
+        ...executorHealth.issues
+      ]
+    };
   }
 } 

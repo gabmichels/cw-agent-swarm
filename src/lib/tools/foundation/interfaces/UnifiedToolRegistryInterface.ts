@@ -14,12 +14,15 @@
 
 import {
   UnifiedToolDefinition,
+  UnifiedTool,
   ToolIdentifier,
   ToolId,
   ToolDiscoveryCriteria,
   ToolHealthStatus,
   ToolMetrics,
-  ValidationResult
+  ValidationResult,
+  ToolRegistrationResult,
+  ToolExecutionStats
 } from '../types/FoundationTypes';
 import { ToolCategory, ToolCapability, ToolStatus } from '../enums/ToolEnums';
 

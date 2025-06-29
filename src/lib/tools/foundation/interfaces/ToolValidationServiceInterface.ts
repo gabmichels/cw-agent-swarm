@@ -14,13 +14,16 @@
 
 import {
   UnifiedToolDefinition,
+  UnifiedTool,
   ToolIdentifier,
   ToolParameters,
   ExecutionContext,
   ToolResult,
-  ValidationResult
+  ValidationResult,
+  ToolParameterSchema,
+  ToolCapability
 } from '../types/FoundationTypes';
-import { ToolCapability } from '../enums/ToolEnums';
+import { ParameterValidationError, ParameterValidationWarning, SecurityIssue, PerformanceIssue, ResourceRequirements } from '../types/FoundationTypes';
 
 /**
  * Interface for the tool validation service
@@ -78,18 +81,8 @@ export interface IToolValidationService {
     toolName: string
   ): Promise<{
     readonly valid: boolean;
-    readonly errors: readonly {
-      readonly parameter: string;
-      readonly error: string;
-      readonly expectedType: string;
-      readonly actualType: string;
-      readonly value?: unknown;
-    }[];
-    readonly warnings: readonly {
-      readonly parameter: string;
-      readonly warning: string;
-      readonly suggestion?: string;
-    }[];
+    readonly errors: readonly ParameterValidationError[];
+    readonly warnings: readonly ParameterValidationWarning[];
   }>;
 
   /**
@@ -254,11 +247,7 @@ export interface IToolValidationService {
     context: ExecutionContext
   ): Promise<{
     readonly valid: boolean;
-    readonly securityIssues: readonly {
-      readonly issue: string;
-      readonly severity: 'low' | 'medium' | 'high' | 'critical';
-      readonly recommendation: string;
-    }[];
+    readonly securityIssues: readonly SecurityIssue[];
     readonly riskLevel: 'low' | 'medium' | 'high' | 'critical';
   }>;
 
@@ -294,17 +283,9 @@ export interface IToolValidationService {
     context: ExecutionContext
   ): Promise<{
     readonly valid: boolean;
-    readonly performanceIssues: readonly {
-      readonly issue: string;
-      readonly impact: 'low' | 'medium' | 'high';
-      readonly recommendation: string;
-    }[];
+    readonly performanceIssues: readonly PerformanceIssue[];
     readonly estimatedExecutionTime: number;
-    readonly resourceRequirements: {
-      readonly memory: number;
-      readonly cpu: number;
-      readonly network: boolean;
-    };
+    readonly resourceRequirements: ResourceRequirements;
   }>;
 
   /**

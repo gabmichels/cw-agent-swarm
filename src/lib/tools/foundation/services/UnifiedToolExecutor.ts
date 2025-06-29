@@ -33,7 +33,7 @@ import {
   ToolTimeoutError,
   ToolPermissionError
 } from '../errors/ToolFoundationErrors';
-import { IStructuredLogger } from '../../../logging/structured-logger.interface';
+import { IStructuredLogger } from '../../../logging/interfaces/IStructuredLogger';
 import { createToolId } from '../utils/ToolIdUtils';
 import { hasAllPermissions, hasAllCapabilities } from '../utils/ExecutionContextUtils';
 
@@ -62,7 +62,7 @@ interface ExecutionStats {
 /**
  * Retry policy configuration
  */
-interface RetryPolicy {
+interface RetryPolicy extends Record<string, unknown> {
   enabled: boolean;
   maxRetries: number;
   retryDelayMs: number;
@@ -139,11 +139,10 @@ export class UnifiedToolExecutor implements IUnifiedToolExecutor {
         throw new ToolValidationError(
           `Invalid parameters for tool '${tool.name}': ${paramValidation.errors.join(', ')}`,
           {
-            toolId: tool.id,
             toolName: tool.name,
-            parameterName: 'validation',
-            expectedType: 'valid',
-            actualType: 'invalid'
+            validationErrors: paramValidation.errors,
+            validationWarnings: paramValidation.warnings,
+            invalidFields: Object.keys(params)
           }
         );
       }
@@ -335,7 +334,12 @@ export class UnifiedToolExecutor implements IUnifiedToolExecutor {
     readonly errors: readonly string[];
     readonly warnings: readonly string[];
   }> {
-    return this.validationService.validateParameters(params, tool.parameters, tool.name);
+    const result = await this.validationService.validateParameters(params, tool.parameters || { type: 'object', properties: {}, required: [] }, tool.name);
+    return {
+      valid: result.valid,
+      errors: result.errors.map((e: any) => typeof e === 'string' ? e : e.error || JSON.stringify(e)),
+      warnings: result.warnings.map((w: any) => typeof w === 'string' ? w : w.warning || JSON.stringify(w))
+    };
   }
 
   async validateContext(tool: UnifiedTool, context: ExecutionContext): Promise<{

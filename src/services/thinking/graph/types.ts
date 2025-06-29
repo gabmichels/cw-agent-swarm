@@ -8,12 +8,12 @@ export interface IAgent {
    * Get the agent's unique identifier
    */
   getId(): string;
-  
+
   /**
    * Get the agent's capabilities
    */
   getCapabilities(): Promise<string[]>;
-  
+
   /**
    * Get a manager by type (for tool discovery)
    */
@@ -35,7 +35,7 @@ export interface Entity {
 export interface Intent {
   name: string;
   confidence: number;
-  alternatives?: Array<{name: string, confidence: number}>;
+  alternatives?: Array<{ name: string, confidence: number }>;
   isSummaryRequest?: boolean;
 }
 
@@ -65,17 +65,17 @@ export interface CognitiveArtifactTracker {
    * IDs of thought memories
    */
   thoughtIds: string[];
-  
+
   /**
    * IDs of entity memories
    */
   entityIds: string[];
-  
+
   /**
    * ID of the reasoning memory
    */
   reasoningId: string | null;
-  
+
   /**
    * ID of the plan memory
    */
@@ -90,32 +90,32 @@ export interface NodeError {
    * Node name where the error occurred
    */
   nodeName: string;
-  
+
   /**
    * Error message
    */
   message: string;
-  
+
   /**
    * Error stack trace
    */
   stack?: string;
-  
+
   /**
    * Timestamp when the error occurred
    */
   timestamp: string;
-  
+
   /**
    * Whether recovery was attempted
    */
   recoveryAttempted: boolean;
-  
+
   /**
    * Whether recovery was successful
    */
   recoverySuccessful?: boolean;
-  
+
   /**
    * Recovery strategy used
    */
@@ -130,22 +130,22 @@ export interface AgentPersona {
    * Agent name
    */
   name: string;
-  
+
   /**
    * Agent description/role
    */
   description: string;
-  
+
   /**
    * Agent capabilities
    */
   capabilities?: string[];
-  
+
   /**
    * Agent system prompt
    */
   systemPrompt?: string;
-  
+
   /**
    * Agent personality traits
    */
@@ -160,7 +160,7 @@ export interface ThinkingMetadata {
    * Agent instance for tool discovery and capability analysis
    */
   agent?: IAgent;
-  
+
   /**
    * Workflow execution context
    */
@@ -169,7 +169,7 @@ export interface ThinkingMetadata {
     nodeHistory: string[];
     retryCount: number;
   };
-  
+
   /**
    * Performance metrics
    */
@@ -178,7 +178,7 @@ export interface ThinkingMetadata {
     llmCallTime?: number;
     totalProcessingTime?: number;
   };
-  
+
   /**
    * Debug information
    */
@@ -197,47 +197,47 @@ export interface ThinkingState {
    * User input
    */
   input: string;
-  
+
   /**
    * User ID
    */
   userId: string;
-  
+
   /**
    * Agent persona information
    */
   agentPersona?: AgentPersona;
-  
+
   /**
    * Memories retrieved for context
    */
   contextMemories?: WorkingMemoryItem[];
-  
+
   /**
    * Files retrieved for context
    */
   contextFiles?: FileReference[];
-  
+
   /**
    * Working memory items
    */
   workingMemory?: WorkingMemoryItem[];
-  
+
   /**
    * Formatted memory context for LLM prompt
    */
   formattedMemoryContext?: string;
-  
+
   /**
    * Intent identified from the input
    */
   intent?: Intent;
-  
+
   /**
    * Request type classification for smart routing
    */
   requestType?: {
-    type: 'PURE_LLM_TASK' | 'EXTERNAL_TOOL_TASK' | 'SCHEDULED_TASK';
+    type: 'PURE_LLM_TASK' | 'EXTERNAL_TOOL_TASK' | 'SCHEDULED_TASK' | 'WORKFLOW_TASK' | 'APPROVAL_TASK' | 'CROSS_SYSTEM_TASK';
     confidence: number;
     reasoning: string;
     requiredTools?: string[];
@@ -250,77 +250,77 @@ export interface ThinkingState {
       intervalExpression?: string;
     };
   };
-  
+
   /**
    * Entities extracted from the input
    */
   entities?: Entity[];
-  
+
   /**
    * Whether the task should be delegated
    */
   shouldDelegate?: boolean;
-  
+
   /**
    * Reason for delegation decision
    */
   delegationReason?: string;
-  
+
   /**
    * Target for delegation
    */
   delegationTarget?: string;
-  
+
   /**
    * Execution plan
    */
   plan?: string[];
-  
+
   /**
    * Reasoning steps
    */
   reasoning?: string[];
-  
+
   /**
    * Tools selected for use
    */
   tools?: string[];
-  
+
   /**
    * Results from executed tools
    */
   toolResults?: Record<string, unknown>;
-  
+
   /**
    * Final response
    */
   response?: string;
-  
+
   /**
    * Tracking of stored cognitive artifacts
    */
   cognitiveArtifacts?: CognitiveArtifactTracker;
-  
+
   /**
    * Additional metadata with proper typing
    */
   metadata?: ThinkingMetadata;
-  
+
   /**
    * Status of the thinking process
    */
   status?: 'in_progress' | 'completed' | 'failed' | 'delegated';
-  
+
   /**
    * Errors encountered during thinking
    */
   errors?: NodeError[];
-  
+
   /**
    * Fallback response if the workflow fails
    */
   fallbackResponse?: string;
-  
+
   /**
    * Context about what was used in processing
    */

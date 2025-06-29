@@ -11,13 +11,13 @@
  * - Integration with IErrorManagementService
  */
 
-import { BaseError } from '@/lib/errors/base';
+import { AppError } from '@/lib/errors/base';
 import { ToolId, ToolIdentifier } from '../types/FoundationTypes';
 
 /**
  * Base error class for all tool foundation errors
  */
-export class ToolFoundationError extends BaseError {
+export class ToolFoundationError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -25,10 +25,9 @@ export class ToolFoundationError extends BaseError {
       readonly toolName?: string;
       readonly operation?: string;
       readonly details?: Record<string, unknown>;
-    } = {},
-    cause?: Error
+    } = {}
   ) {
-    super(message, 'TOOL_FOUNDATION_ERROR', context, cause);
+    super(message, 'TOOL_FOUNDATION_ERROR', context);
     this.name = 'ToolFoundationError';
   }
 }
@@ -39,7 +38,7 @@ export class ToolFoundationError extends BaseError {
  * NO FALLBACK EXECUTORS - This error should be handled properly
  * with suggestions for similar tools, not hidden by fallbacks.
  */
-export class ToolNotFoundError extends ToolFoundationError {
+export class ToolNotFoundError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -47,22 +46,22 @@ export class ToolNotFoundError extends ToolFoundationError {
       readonly availableTools?: readonly string[];
       readonly suggestedTools?: readonly string[];
       readonly searchCriteria?: Record<string, unknown>;
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
-      operation: 'tool_lookup',
-      details: context
-    }, cause);
+    super(message, 'TOOL_NOT_FOUND', {
+      identifier: context.identifier,
+      availableTools: context.availableTools,
+      suggestedTools: context.suggestedTools,
+      searchCriteria: context.searchCriteria
+    });
     this.name = 'ToolNotFoundError';
-    this.code = 'TOOL_NOT_FOUND';
   }
 }
 
 /**
  * Error thrown when tool execution fails
  */
-export class ToolExecutionError extends ToolFoundationError {
+export class ToolExecutionError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -72,24 +71,24 @@ export class ToolExecutionError extends ToolFoundationError {
       readonly executionTimeMs?: number;
       readonly retryAttempt?: number;
       readonly maxRetries?: number;
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
+    super(message, 'TOOL_EXECUTION_FAILED', {
       toolId: context.toolId,
       toolName: context.toolName,
-      operation: 'tool_execution',
-      details: context
-    }, cause);
+      parameters: context.parameters,
+      executionTimeMs: context.executionTimeMs,
+      retryAttempt: context.retryAttempt,
+      maxRetries: context.maxRetries
+    });
     this.name = 'ToolExecutionError';
-    this.code = 'TOOL_EXECUTION_FAILED';
   }
 }
 
 /**
  * Error thrown when tool validation fails
  */
-export class ToolValidationError extends ToolFoundationError {
+export class ToolValidationError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -98,24 +97,23 @@ export class ToolValidationError extends ToolFoundationError {
       readonly validationErrors: readonly string[];
       readonly validationWarnings?: readonly string[];
       readonly invalidFields?: readonly string[];
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
+    super(message, 'TOOL_VALIDATION_FAILED', {
       toolId: context.toolId,
       toolName: context.toolName,
-      operation: 'tool_validation',
-      details: context
-    }, cause);
+      validationErrors: context.validationErrors,
+      validationWarnings: context.validationWarnings,
+      invalidFields: context.invalidFields
+    });
     this.name = 'ToolValidationError';
-    this.code = 'TOOL_VALIDATION_FAILED';
   }
 }
 
 /**
  * Error thrown when tool registration fails
  */
-export class ToolRegistrationError extends ToolFoundationError {
+export class ToolRegistrationError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -123,23 +121,22 @@ export class ToolRegistrationError extends ToolFoundationError {
       readonly reason: 'duplicate_name' | 'invalid_definition' | 'registration_failed' | 'dependency_missing';
       readonly existingToolId?: ToolId;
       readonly validationErrors?: readonly string[];
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
+    super(message, 'TOOL_REGISTRATION_FAILED', {
       toolName: context.toolName,
-      operation: 'tool_registration',
-      details: context
-    }, cause);
+      reason: context.reason,
+      existingToolId: context.existingToolId,
+      validationErrors: context.validationErrors
+    });
     this.name = 'ToolRegistrationError';
-    this.code = 'TOOL_REGISTRATION_FAILED';
   }
 }
 
 /**
  * Error thrown when tool parameter validation fails
  */
-export class ToolParameterError extends ToolFoundationError {
+export class ToolParameterError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -150,24 +147,25 @@ export class ToolParameterError extends ToolFoundationError {
       readonly actualType: string;
       readonly validationRule?: string;
       readonly allowedValues?: readonly unknown[];
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
+    super(message, 'TOOL_PARAMETER_INVALID', {
       toolId: context.toolId,
       toolName: context.toolName,
-      operation: 'parameter_validation',
-      details: context
-    }, cause);
+      parameterName: context.parameterName,
+      expectedType: context.expectedType,
+      actualType: context.actualType,
+      validationRule: context.validationRule,
+      allowedValues: context.allowedValues
+    });
     this.name = 'ToolParameterError';
-    this.code = 'TOOL_PARAMETER_INVALID';
   }
 }
 
 /**
  * Error thrown when tool permissions are insufficient
  */
-export class ToolPermissionError extends ToolFoundationError {
+export class ToolPermissionError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -176,24 +174,23 @@ export class ToolPermissionError extends ToolFoundationError {
       readonly requiredPermissions: readonly string[];
       readonly userPermissions: readonly string[];
       readonly missingPermissions: readonly string[];
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
+    super(message, 'TOOL_PERMISSION_DENIED', {
       toolId: context.toolId,
       toolName: context.toolName,
-      operation: 'permission_check',
-      details: context
-    }, cause);
+      requiredPermissions: context.requiredPermissions,
+      userPermissions: context.userPermissions,
+      missingPermissions: context.missingPermissions
+    });
     this.name = 'ToolPermissionError';
-    this.code = 'TOOL_PERMISSION_DENIED';
   }
 }
 
 /**
  * Error thrown when tool discovery fails
  */
-export class ToolDiscoveryError extends ToolFoundationError {
+export class ToolDiscoveryError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -201,44 +198,44 @@ export class ToolDiscoveryError extends ToolFoundationError {
       readonly searchCriteria?: Record<string, unknown>;
       readonly discoveryMethod: string;
       readonly resultCount: number;
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
-      operation: 'tool_discovery',
-      details: context
-    }, cause);
+    super(message, 'TOOL_DISCOVERY_FAILED', {
+      searchQuery: context.searchQuery,
+      searchCriteria: context.searchCriteria,
+      discoveryMethod: context.discoveryMethod,
+      resultCount: context.resultCount
+    });
     this.name = 'ToolDiscoveryError';
-    this.code = 'TOOL_DISCOVERY_FAILED';
   }
 }
 
 /**
  * Error thrown when tool system initialization fails
  */
-export class ToolSystemError extends ToolFoundationError {
+export class ToolSystemError extends AppError {
   constructor(
     message: string,
     public readonly context: {
-      readonly operation: 'initialization' | 'shutdown' | 'health_check' | 'system_error';
+      readonly operation: 'initialization' | 'shutdown' | 'health_check' | 'system_error' | 'metrics_retrieval';
       readonly component?: string;
       readonly systemState?: string;
-    },
-    cause?: Error
+      readonly originalError?: string;
+    }
   ) {
-    super(message, {
+    super(message, 'TOOL_SYSTEM_ERROR', {
       operation: context.operation,
-      details: context
-    }, cause);
+      component: context.component,
+      systemState: context.systemState
+    });
     this.name = 'ToolSystemError';
-    this.code = 'TOOL_SYSTEM_ERROR';
   }
 }
 
 /**
  * Error thrown when tool timeout occurs
  */
-export class ToolTimeoutError extends ToolFoundationError {
+export class ToolTimeoutError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -246,24 +243,22 @@ export class ToolTimeoutError extends ToolFoundationError {
       readonly toolName: string;
       readonly timeoutMs: number;
       readonly executionTimeMs: number;
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
+    super(message, 'TOOL_EXECUTION_TIMEOUT', {
       toolId: context.toolId,
       toolName: context.toolName,
-      operation: 'tool_execution',
-      details: context
-    }, cause);
+      timeoutMs: context.timeoutMs,
+      executionTimeMs: context.executionTimeMs
+    });
     this.name = 'ToolTimeoutError';
-    this.code = 'TOOL_EXECUTION_TIMEOUT';
   }
 }
 
 /**
  * Error thrown when tool dependency is missing
  */
-export class ToolDependencyError extends ToolFoundationError {
+export class ToolDependencyError extends AppError {
   constructor(
     message: string,
     public readonly context: {
@@ -272,17 +267,16 @@ export class ToolDependencyError extends ToolFoundationError {
       readonly missingDependency: string;
       readonly dependencyType: 'service' | 'tool' | 'capability' | 'permission';
       readonly availableDependencies?: readonly string[];
-    },
-    cause?: Error
+    }
   ) {
-    super(message, {
+    super(message, 'TOOL_DEPENDENCY_MISSING', {
       toolId: context.toolId,
       toolName: context.toolName,
-      operation: 'dependency_check',
-      details: context
-    }, cause);
+      missingDependency: context.missingDependency,
+      dependencyType: context.dependencyType,
+      availableDependencies: context.availableDependencies
+    });
     this.name = 'ToolDependencyError';
-    this.code = 'TOOL_DEPENDENCY_MISSING';
   }
 }
 
