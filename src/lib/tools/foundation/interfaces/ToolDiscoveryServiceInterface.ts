@@ -331,4 +331,54 @@ export interface IToolDiscoveryService {
     capability: ToolCapability,
     includeDeprecated?: boolean
   ): Promise<readonly UnifiedTool[]>;
+
+  // ==================== PHASE 3.1 CROSS-SYSTEM FEATURES ====================
+
+  /**
+   * Discovers cross-system workflows based on user intent
+   * @param intent Natural language description of what user wants to accomplish
+   * @param context Optional search context for better results
+   * @returns Array of relevant cross-system workflows
+   */
+  discoverCrossSystemWorkflows(
+    intent: string,
+    context?: SearchContext
+  ): Promise<readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly description: string;
+    readonly systems: readonly ToolCategory[];
+    readonly toolChain: readonly {
+      readonly toolName: string;
+      readonly system: ToolCategory;
+      readonly dependsOn?: string[];
+      readonly outputMapping?: Record<string, string>;
+    }[];
+    readonly useCases: readonly string[];
+  }[]>;
+
+  /**
+   * Gets tool substitution suggestions for failed tools
+   * @param failedTool Tool that failed and needs substitution
+   * @param context Optional execution context for better matching
+   * @returns Array of tool substitution suggestions with confidence scores
+   */
+  getToolSubstitutions(
+    failedTool: UnifiedTool,
+    context?: ExecutionContext
+  ): Promise<readonly {
+    readonly originalTool: UnifiedTool;
+    readonly substituteTool: UnifiedTool;
+    readonly substitutionReason: string;
+    readonly confidenceScore: number;
+    readonly parameterMapping?: Record<string, string>;
+    readonly limitations?: readonly string[];
+  }[]>;
+
+  /**
+   * Gets tools by intent using LLM-powered analysis
+   * @param intent Natural language description of user intent
+   * @returns Array of tools that match the intent, sorted by relevance
+   */
+  getToolsByIntent(intent: string): Promise<readonly UnifiedTool[]>;
 } 

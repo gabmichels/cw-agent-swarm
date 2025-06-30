@@ -120,8 +120,14 @@ export enum ToolCapability {
   FILE_SHARE = 'file_share',
   FILE_DELETE = 'file_delete',
 
+  // Document capabilities
+  DOCUMENT_CREATE = 'document_create',
+  DOCUMENT_READ = 'document_read',
+  DOCUMENT_EDIT = 'document_edit',
+
   // Social media capabilities
   SOCIAL_POST = 'social_post',
+  SOCIAL_MEDIA_POST = 'social_media_post',
   SOCIAL_READ = 'social_read',
   SOCIAL_ANALYZE = 'social_analyze',
   SOCIAL_ENGAGE = 'social_engage',
@@ -129,8 +135,10 @@ export enum ToolCapability {
 
   // Web scraping capabilities
   WEB_SCRAPE = 'web_scrape',
+  WEB_SEARCH = 'web_search',
   DATA_EXTRACT = 'data_extract',
   CONTENT_PARSE = 'content_parse',
+  CONTENT_ANALYSIS = 'content_analysis',
   DYNAMIC_SCRAPE = 'dynamic_scrape',
 
   // Workflow capabilities

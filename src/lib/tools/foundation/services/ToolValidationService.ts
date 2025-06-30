@@ -33,7 +33,7 @@ import { ToolValidationError } from '../errors/ToolFoundationErrors';
 /**
  * Tool Validation Service Implementation
  */
-export class ToolValidationService {
+export class ToolValidationService implements IToolValidationService {
   constructor(
     private readonly logger: IStructuredLogger
   ) { }

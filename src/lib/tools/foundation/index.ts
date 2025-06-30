@@ -75,6 +75,9 @@ export { UnifiedToolRegistry } from './services/UnifiedToolRegistry';
 export { UnifiedToolExecutor } from './services/UnifiedToolExecutor';
 export { ToolDiscoveryService } from './services/ToolDiscoveryService';
 export { ToolValidationService } from './services/ToolValidationService';
+export { CrossSystemToolRouter } from './services/CrossSystemToolRouter';
+export { IntelligentToolRouter } from './services/IntelligentToolRouter';
+export { ToolCompositionEngine } from './services/ToolCompositionEngine';
 
 // Constants and Enums
 export { ToolCategory, ToolCapability, ToolStatus } from './enums/ToolEnums';
