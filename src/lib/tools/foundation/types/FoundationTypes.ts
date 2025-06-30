@@ -38,6 +38,10 @@ export interface ToolResult {
   readonly toolId?: ToolId;
   readonly durationMs?: number;
   readonly startedAt?: Date;
+  readonly timestamp?: string; // ISO timestamp for adaptive learning
+  readonly executionTimeMs?: number; // Direct property for performance tracking
+  readonly context?: ExecutionContext; // Execution context for pattern analysis
+  readonly parameters?: ToolParameters; // Parameters used for execution
   readonly metadata?: {
     readonly executionTimeMs: number;
     readonly toolId: ToolId;

@@ -18,95 +18,47 @@ export type { IUnifiedToolFoundation } from './interfaces/UnifiedToolFoundationI
 
 // Tool Definition and Management
 export type {
-  UnifiedToolDefinition,
-  ToolIdentifier,
-  ToolParameters,
-  ExecutionContext,
-  ToolResult,
-  ToolId,
-  UnifiedTool,
-  ToolDiscoveryCriteria,
-  SearchContext,
-  ToolHealthStatus,
-  ToolMetrics,
-  ValidationResult,
-  ToolParameterSchema,
-  ToolRegistrationResult,
-  ToolSearchResult,
-  ToolSimilarity,
-  ToolRecommendation,
-  ToolDiscoveryMethod,
-  ParameterValidationError,
-  ParameterValidationWarning,
-  SecurityIssue,
-  PerformanceIssue,
-  ResourceRequirements
+  ExecutionContext, ParameterValidationError,
+  ParameterValidationWarning, PerformanceIssue,
+  ResourceRequirements, SearchContext, SecurityIssue, ToolDiscoveryCriteria, ToolDiscoveryMethod, ToolHealthStatus, ToolId, ToolIdentifier, ToolMetrics, ToolParameterSchema, ToolParameters, ToolRecommendation, ToolRegistrationResult, ToolResult, ToolSearchResult,
+  ToolSimilarity, UnifiedTool, UnifiedToolDefinition, ValidationResult
 } from './types/FoundationTypes';
 
 // Registry and Discovery
-export type { IUnifiedToolRegistry } from './interfaces/UnifiedToolRegistryInterface';
 export type { IToolDiscoveryService } from './interfaces/ToolDiscoveryServiceInterface';
+export type { IUnifiedToolRegistry } from './interfaces/UnifiedToolRegistryInterface';
 
 // Execution Services
-export type { IUnifiedToolExecutor } from './interfaces/UnifiedToolExecutorInterface';
 export type { IToolValidationService } from './interfaces/ToolValidationServiceInterface';
+export type { IUnifiedToolExecutor } from './interfaces/UnifiedToolExecutorInterface';
 
 // Error Handling
 export {
-  ToolFoundationError,
-  ToolNotFoundError,
-  ToolExecutionError,
-  ToolValidationError,
-  ToolRegistrationError,
-  ToolParameterError,
-  ToolPermissionError,
-  ToolDiscoveryError,
-  ToolSystemError,
-  ToolTimeoutError,
-  ToolDependencyError,
-  isToolFoundationError,
-  extractToolContext,
-  createUserFriendlyMessage
+  ToolDependencyError, ToolDiscoveryError, ToolExecutionError, ToolFoundationError,
+  ToolNotFoundError, ToolParameterError,
+  ToolPermissionError, ToolRegistrationError, ToolSystemError,
+  ToolTimeoutError, ToolValidationError, createUserFriendlyMessage, extractToolContext, isToolFoundationError
 } from './errors/ToolFoundationErrors';
 
 // Foundation Implementation
-export { UnifiedToolFoundation } from './services/UnifiedToolFoundation';
-export { UnifiedToolRegistry } from './services/UnifiedToolRegistry';
-export { UnifiedToolExecutor } from './services/UnifiedToolExecutor';
-export { ToolDiscoveryService } from './services/ToolDiscoveryService';
-export { ToolValidationService } from './services/ToolValidationService';
 export { CrossSystemToolRouter } from './services/CrossSystemToolRouter';
 export { IntelligentToolRouter } from './services/IntelligentToolRouter';
 export { ToolCompositionEngine } from './services/ToolCompositionEngine';
+export { ToolDiscoveryService } from './services/ToolDiscoveryService';
+export { ToolValidationService } from './services/ToolValidationService';
+export { UnifiedToolExecutor } from './services/UnifiedToolExecutor';
+export { UnifiedToolFoundation } from './services/UnifiedToolFoundation';
+export { UnifiedToolRegistry } from './services/UnifiedToolRegistry';
 
 // Constants and Enums
-export { ToolCategory, ToolCapability, ToolStatus } from './enums/ToolEnums';
 export {
-  WORKSPACE_TOOLS,
-  SOCIAL_MEDIA_TOOLS,
-  AGENT_TOOLS,
-  EXTERNAL_WORKFLOW_TOOLS,
-  COST_TRACKING_TOOLS,
-  TOOL_RESPONSE_FORMATTER_TOOLS,
-  APPROVAL_SYSTEM_TOOLS,
-  ALL_TOOL_CONSTANTS,
-  TOOL_CATEGORY_MAPPINGS,
-  TOOL_CAPABILITY_MAPPINGS,
-  WORKSPACE_TOOL_NAMES,
-  SOCIAL_MEDIA_TOOL_NAMES,
-  AGENT_TOOL_NAMES,
-  EXTERNAL_WORKFLOW_TOOL_NAMES,
-  COST_TRACKING_TOOL_NAMES,
-  TOOL_RESPONSE_FORMATTER_TOOL_NAMES,
-  APPROVAL_SYSTEM_TOOL_NAMES,
-  ALL_TOOL_NAMES,
-  EMAIL_TOOL_NAMES,
-  CALENDAR_TOOL_NAMES,
-  SPREADSHEET_TOOL_NAMES,
-  FILE_TOOL_NAMES,
-  CONNECTION_TOOL_NAMES
+  AGENT_TOOLS, AGENT_TOOL_NAMES, ALL_TOOL_CONSTANTS, ALL_TOOL_NAMES, APPROVAL_SYSTEM_TOOLS, APPROVAL_SYSTEM_TOOL_NAMES, CALENDAR_TOOL_NAMES, CONNECTION_TOOL_NAMES, COST_TRACKING_TOOLS, COST_TRACKING_TOOL_NAMES, EMAIL_TOOL_NAMES, EXTERNAL_WORKFLOW_TOOLS, EXTERNAL_WORKFLOW_TOOL_NAMES, FILE_TOOL_NAMES, SOCIAL_MEDIA_TOOLS, SOCIAL_MEDIA_TOOL_NAMES, SPREADSHEET_TOOL_NAMES, TOOL_CAPABILITY_MAPPINGS, TOOL_CATEGORY_MAPPINGS, TOOL_RESPONSE_FORMATTER_TOOLS, TOOL_RESPONSE_FORMATTER_TOOL_NAMES, WORKSPACE_TOOLS, WORKSPACE_TOOL_NAMES
 } from './constants/ToolConstants';
+export { ToolCapability, ToolCategory, ToolStatus } from './enums/ToolEnums';
 
 // Utilities
-export { createToolId, validateToolId, isValidToolId } from './utils/ToolIdUtils';
-export { createExecutionContext, validateExecutionContext } from './utils/ExecutionContextUtils'; 
+export { createExecutionContext, validateExecutionContext } from './utils/ExecutionContextUtils';
+export { createToolId, isValidToolId, validateToolId } from './utils/ToolIdUtils';
+
+// Export Phase 3.3 services
+export { AdaptiveLearningService } from './services/AdaptiveLearningService';

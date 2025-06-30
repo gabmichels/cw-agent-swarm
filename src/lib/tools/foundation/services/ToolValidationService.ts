@@ -11,24 +11,24 @@
  * - Structured error handling
  */
 
-import { IToolValidationService } from '../interfaces/ToolValidationServiceInterface';
 import { IStructuredLogger } from '@/lib/logging/interfaces/IStructuredLogger';
-import {
-  UnifiedToolDefinition,
-  UnifiedTool,
-  ToolParameters,
-  ExecutionContext,
-  ValidationResult,
-  ToolParameterSchema,
-  ParameterValidationError,
-  ParameterValidationWarning,
-  SecurityIssue,
-  PerformanceIssue,
-  ResourceRequirements
-} from '../types/FoundationTypes';
 import { ulid } from 'ulid';
 import { ToolCapability } from '../enums/ToolEnums';
 import { ToolValidationError } from '../errors/ToolFoundationErrors';
+import { IToolValidationService } from '../interfaces/ToolValidationServiceInterface';
+import {
+  ExecutionContext,
+  ParameterValidationError,
+  ParameterValidationWarning,
+  PerformanceIssue,
+  ResourceRequirements,
+  SecurityIssue,
+  ToolIdentifier,
+  ToolParameters,
+  ToolParameterSchema,
+  UnifiedToolDefinition,
+  ValidationResult
+} from '../types/FoundationTypes';
 
 /**
  * Tool Validation Service Implementation
@@ -570,5 +570,561 @@ export class ToolValidationService implements IToolValidationService {
       await this.logger.error('Performance validation error', validationError);
       throw validationError;
     }
+  }
+
+  /**
+   * Validate tool metadata and configuration
+   */
+  async validateToolMetadata(tool: UnifiedToolDefinition): Promise<ValidationResult> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (!tool.metadata) {
+      warnings.push('Tool metadata is missing');
+      return { isValid: true, errors, warnings };
+    }
+
+    if (!tool.metadata.provider) {
+      warnings.push('Tool provider not specified in metadata');
+    }
+
+    if (!tool.metadata.version) {
+      warnings.push('Tool version not specified in metadata');
+    }
+
+    if (!tool.metadata.author) {
+      warnings.push('Tool author not specified in metadata');
+    }
+
+    return { isValid: true, errors, warnings };
+  }
+
+  /**
+   * Validate tool executor function
+   */
+  async validateToolExecutor(executor: Function, toolName: string): Promise<ValidationResult> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (typeof executor !== 'function') {
+      errors.push('Executor must be a function');
+      return { isValid: false, errors, warnings };
+    }
+
+    if (executor.length < 2) {
+      warnings.push('Executor should accept at least 2 parameters (params, context)');
+    }
+
+    return { isValid: true, errors, warnings };
+  }
+
+  /**
+   * Validate individual parameter value
+   */
+  async validateParameter(
+    paramName: string,
+    value: unknown,
+    paramSchema: {
+      readonly type: string;
+      readonly required: boolean;
+      readonly validation?: Record<string, unknown>;
+    }
+  ): Promise<{
+    readonly valid: boolean;
+    readonly error?: string;
+    readonly warning?: string;
+    readonly suggestion?: string;
+  }> {
+    const actualType = typeof value;
+
+    if (paramSchema.required && (value === undefined || value === null)) {
+      return {
+        valid: false,
+        error: `Required parameter '${paramName}' is missing`,
+        suggestion: `Provide a value of type '${paramSchema.type}'`
+      };
+    }
+
+    if (value !== undefined && actualType !== paramSchema.type) {
+      return {
+        valid: false,
+        error: `Parameter '${paramName}' expected type '${paramSchema.type}' but got '${actualType}'`,
+        suggestion: `Convert value to '${paramSchema.type}'`
+      };
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * Validate parameter types and constraints
+   */
+  async validateParameterTypes(
+    parameters: ToolParameters,
+    schema: ToolParameterSchema
+  ): Promise<{
+    readonly valid: boolean;
+    readonly typeErrors: readonly {
+      readonly parameter: string;
+      readonly expected: string;
+      readonly actual: string;
+    }[];
+    readonly constraintErrors: readonly {
+      readonly parameter: string;
+      readonly constraint: string;
+      readonly value: unknown;
+    }[];
+  }> {
+    const typeErrors: Array<{ parameter: string; expected: string; actual: string }> = [];
+    const constraintErrors: Array<{ parameter: string; constraint: string; value: unknown }> = [];
+
+    if (schema.properties) {
+      for (const [paramName, paramValue] of Object.entries(parameters)) {
+        const paramSchema = schema.properties[paramName];
+        if (!paramSchema) continue;
+
+        const actualType = typeof paramValue;
+        const expectedType = paramSchema.type;
+
+        if (expectedType && actualType !== expectedType) {
+          typeErrors.push({
+            parameter: paramName,
+            expected: expectedType,
+            actual: actualType
+          });
+        }
+
+        // Check constraints
+        if (paramSchema.minLength && typeof paramValue === 'string' && paramValue.length < paramSchema.minLength) {
+          constraintErrors.push({
+            parameter: paramName,
+            constraint: `minLength: ${paramSchema.minLength}`,
+            value: paramValue
+          });
+        }
+      }
+    }
+
+    return {
+      valid: typeErrors.length === 0 && constraintErrors.length === 0,
+      typeErrors,
+      constraintErrors
+    };
+  }
+
+  /**
+   * Validate user permissions for tool execution
+   */
+  async validatePermissions(
+    context: ExecutionContext,
+    requiredPermissions: readonly string[]
+  ): Promise<{
+    readonly valid: boolean;
+    readonly missingPermissions: readonly string[];
+    readonly availablePermissions: readonly string[];
+  }> {
+    const availablePermissions = context.permissions || [];
+    const missingPermissions = requiredPermissions.filter(
+      perm => !availablePermissions.includes(perm)
+    );
+
+    return {
+      valid: missingPermissions.length === 0,
+      missingPermissions,
+      availablePermissions
+    };
+  }
+
+  /**
+   * Validate agent capabilities for tool execution
+   */
+  async validateCapabilities(
+    context: ExecutionContext,
+    requiredCapabilities: readonly ToolCapability[]
+  ): Promise<{
+    readonly valid: boolean;
+    readonly missingCapabilities: readonly ToolCapability[];
+    readonly availableCapabilities: readonly ToolCapability[];
+  }> {
+    const availableCapabilities = context.capabilities || [];
+    const missingCapabilities = requiredCapabilities.filter(
+      cap => !availableCapabilities.includes(cap)
+    );
+
+    return {
+      valid: missingCapabilities.length === 0,
+      missingCapabilities,
+      availableCapabilities
+    };
+  }
+
+  /**
+   * Validate tool dependencies are available
+   */
+  async validateDependencies(
+    tool: UnifiedToolDefinition,
+    context: ExecutionContext
+  ): Promise<{
+    readonly valid: boolean;
+    readonly missingDependencies: readonly {
+      readonly name: string;
+      readonly type: 'service' | 'tool' | 'capability' | 'permission';
+      readonly required: boolean;
+    }[];
+    readonly availableDependencies: readonly string[];
+  }> {
+    const missingDependencies: Array<{
+      name: string;
+      type: 'service' | 'tool' | 'capability' | 'permission';
+      required: boolean;
+    }> = [];
+    const availableDependencies: string[] = [];
+
+    // Check capabilities
+    if (tool.capabilities) {
+      for (const capability of tool.capabilities) {
+        if (context.capabilities?.includes(capability)) {
+          availableDependencies.push(`capability:${capability}`);
+        } else {
+          missingDependencies.push({
+            name: capability,
+            type: 'capability',
+            required: true
+          });
+        }
+      }
+    }
+
+    return {
+      valid: missingDependencies.length === 0,
+      missingDependencies,
+      availableDependencies
+    };
+  }
+
+  /**
+   * Validate service dependencies
+   */
+  async validateServiceDependencies(
+    requiredServices: readonly string[],
+    context: ExecutionContext
+  ): Promise<{
+    readonly valid: boolean;
+    readonly missingServices: readonly string[];
+    readonly availableServices: readonly string[];
+  }> {
+    const availableServices = (context as any).serviceRegistry?.getAvailableServices() || [];
+    const missingServices = requiredServices.filter(
+      service => !availableServices.includes(service)
+    );
+
+    return {
+      valid: missingServices.length === 0,
+      missingServices,
+      availableServices
+    };
+  }
+
+  /**
+   * Validate tool chain dependencies
+   */
+  async validateToolChain(
+    toolChain: readonly ToolIdentifier[],
+    context: ExecutionContext
+  ): Promise<{
+    readonly valid: boolean;
+    readonly issues: readonly {
+      readonly toolId: ToolIdentifier;
+      readonly issue: string;
+      readonly severity: 'error' | 'warning';
+    }[];
+    readonly suggestions: readonly string[];
+  }> {
+    const issues: Array<{
+      toolId: ToolIdentifier;
+      issue: string;
+      severity: 'error' | 'warning';
+    }> = [];
+    const suggestions: string[] = [];
+
+    if (toolChain.length === 0) {
+      suggestions.push('Tool chain is empty - consider adding tools');
+    }
+
+    if (toolChain.length > 10) {
+      suggestions.push('Tool chain is very long - consider breaking into smaller chains');
+    }
+
+    return {
+      valid: issues.length === 0,
+      issues,
+      suggestions
+    };
+  }
+
+  /**
+   * Validate parameter security
+   */
+  async validateParameterSecurity(
+    parameters: ToolParameters,
+    schema: ToolParameterSchema
+  ): Promise<{
+    readonly valid: boolean;
+    readonly securityIssues: readonly {
+      readonly parameter: string;
+      readonly issue: string;
+      readonly severity: 'low' | 'medium' | 'high' | 'critical';
+      readonly value?: string;
+    }[];
+  }> {
+    const securityIssues: Array<{
+      parameter: string;
+      issue: string;
+      severity: 'low' | 'medium' | 'high' | 'critical';
+      value?: string;
+    }> = [];
+
+    for (const [paramName, paramValue] of Object.entries(parameters)) {
+      if (typeof paramValue === 'string') {
+        // Check for potential injection attacks
+        if (paramValue.includes('<script>') || paramValue.includes('javascript:')) {
+          securityIssues.push({
+            parameter: paramName,
+            issue: 'Potential script injection detected',
+            severity: 'critical',
+            value: paramValue.substring(0, 100)
+          });
+        }
+
+        if (paramValue.includes('DROP TABLE') || paramValue.includes('DELETE FROM')) {
+          securityIssues.push({
+            parameter: paramName,
+            issue: 'Potential SQL injection detected',
+            severity: 'critical',
+            value: paramValue.substring(0, 100)
+          });
+        }
+      }
+    }
+
+    return {
+      valid: securityIssues.length === 0,
+      securityIssues
+    };
+  }
+
+  /**
+   * Validate execution timeout requirements
+   */
+  async validateTimeout(
+    tool: UnifiedToolDefinition,
+    requestedTimeout: number
+  ): Promise<{
+    readonly valid: boolean;
+    readonly recommendedTimeout: number;
+    readonly reason?: string;
+  }> {
+    const minTimeout = 1000; // 1 second
+    const maxTimeout = 300000; // 5 minutes
+    const defaultTimeout = 30000; // 30 seconds
+
+    if (requestedTimeout < minTimeout) {
+      return {
+        valid: false,
+        recommendedTimeout: minTimeout,
+        reason: `Timeout too short, minimum is ${minTimeout}ms`
+      };
+    }
+
+    if (requestedTimeout > maxTimeout) {
+      return {
+        valid: false,
+        recommendedTimeout: maxTimeout,
+        reason: `Timeout too long, maximum is ${maxTimeout}ms`
+      };
+    }
+
+    return {
+      valid: true,
+      recommendedTimeout: requestedTimeout || defaultTimeout
+    };
+  }
+
+  /**
+   * Validate multiple tools for batch execution
+   */
+  async validateToolBatch(
+    tools: readonly UnifiedToolDefinition[],
+    context: ExecutionContext
+  ): Promise<{
+    readonly valid: boolean;
+    readonly toolResults: readonly {
+      readonly toolId: ToolIdentifier;
+      readonly valid: boolean;
+      readonly errors: readonly string[];
+      readonly warnings: readonly string[];
+    }[];
+    readonly batchIssues: readonly string[];
+  }> {
+    const toolResults: Array<{
+      toolId: ToolIdentifier;
+      valid: boolean;
+      errors: string[];
+      warnings: string[];
+    }> = [];
+    const batchIssues: string[] = [];
+
+    if (tools.length === 0) {
+      batchIssues.push('No tools provided for batch validation');
+    }
+
+    if (tools.length > 50) {
+      batchIssues.push('Too many tools in batch - consider splitting into smaller batches');
+    }
+
+    for (const tool of tools) {
+      const validation = await this.validateToolDefinition(tool);
+      toolResults.push({
+        toolId: tool.id,
+        valid: validation.isValid,
+        errors: [...validation.errors],
+        warnings: [...validation.warnings]
+      });
+    }
+
+    const allValid = toolResults.every(result => result.valid) && batchIssues.length === 0;
+
+    return {
+      valid: allValid,
+      toolResults,
+      batchIssues
+    };
+  }
+
+  private validationConfig: {
+    strictMode: boolean;
+    securityLevel: 'low' | 'medium' | 'high' | 'strict';
+    performanceChecks: boolean;
+    dependencyChecks: boolean;
+    customValidators: Record<string, Function>;
+  } = {
+      strictMode: false,
+      securityLevel: 'medium',
+      performanceChecks: true,
+      dependencyChecks: true,
+      customValidators: {} as Record<string, Function>
+    };
+
+  /**
+   * Configure validation settings
+   */
+  configureValidation(settings: {
+    readonly strictMode?: boolean;
+    readonly securityLevel?: 'low' | 'medium' | 'high' | 'strict';
+    readonly performanceChecks?: boolean;
+    readonly dependencyChecks?: boolean;
+    readonly customValidators?: Record<string, Function>;
+  }): void {
+    if (settings.strictMode !== undefined) {
+      this.validationConfig.strictMode = settings.strictMode;
+    }
+    if (settings.securityLevel !== undefined) {
+      this.validationConfig.securityLevel = settings.securityLevel;
+    }
+    if (settings.performanceChecks !== undefined) {
+      this.validationConfig.performanceChecks = settings.performanceChecks;
+    }
+    if (settings.dependencyChecks !== undefined) {
+      this.validationConfig.dependencyChecks = settings.dependencyChecks;
+    }
+    if (settings.customValidators !== undefined) {
+      this.validationConfig.customValidators = { ...settings.customValidators };
+    }
+  }
+
+  /**
+   * Get current validation configuration
+   */
+  getValidationConfig(): {
+    readonly strictMode: boolean;
+    readonly securityLevel: 'low' | 'medium' | 'high' | 'strict';
+    readonly performanceChecks: boolean;
+    readonly dependencyChecks: boolean;
+    readonly customValidators: readonly string[];
+  } {
+    return {
+      strictMode: this.validationConfig.strictMode,
+      securityLevel: this.validationConfig.securityLevel,
+      performanceChecks: this.validationConfig.performanceChecks,
+      dependencyChecks: this.validationConfig.dependencyChecks,
+      customValidators: Object.keys(this.validationConfig.customValidators)
+    };
+  }
+
+  private initialized = false;
+  private validationMetrics = {
+    totalValidations: 0,
+    successfulValidations: 0,
+    failedValidations: 0,
+    validationTimes: [] as number[],
+    validationsByType: {} as Record<string, number>
+  };
+
+  /**
+   * Initialize the validation service
+   */
+  async initialize(): Promise<boolean> {
+    try {
+      this.initialized = true;
+      this.logger.info('ToolValidationService initialized successfully');
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to initialize ToolValidationService', { error });
+      return false;
+    }
+  }
+
+  /**
+   * Shutdown the validation service gracefully
+   */
+  async shutdown(): Promise<boolean> {
+    try {
+      this.initialized = false;
+      this.logger.info('ToolValidationService shutdown successfully');
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to shutdown ToolValidationService', { error });
+      return false;
+    }
+  }
+
+  /**
+   * Check if validation service is healthy
+   */
+  async isHealthy(): Promise<boolean> {
+    return this.initialized;
+  }
+
+  /**
+   * Get validation service performance metrics
+   */
+  async getValidationMetrics(): Promise<{
+    readonly totalValidations: number;
+    readonly successfulValidations: number;
+    readonly failedValidations: number;
+    readonly averageValidationTime: number;
+    readonly validationsByType: Record<string, number>;
+  }> {
+    const averageValidationTime = this.validationMetrics.validationTimes.length > 0
+      ? this.validationMetrics.validationTimes.reduce((a, b) => a + b, 0) / this.validationMetrics.validationTimes.length
+      : 0;
+
+    return {
+      totalValidations: this.validationMetrics.totalValidations,
+      successfulValidations: this.validationMetrics.successfulValidations,
+      failedValidations: this.validationMetrics.failedValidations,
+      averageValidationTime,
+      validationsByType: { ...this.validationMetrics.validationsByType }
+    };
   }
 } 
