@@ -4,15 +4,15 @@ import { AgentRegistry } from '../lib/agents/registry';
 function getApiUrl(path: string): string {
   // Determine if we're running in a browser
   const isBrowser = typeof window !== 'undefined';
-  
+
   // Get the base URL from the browser if available, otherwise use a default
-  const baseUrl = isBrowser 
+  const baseUrl = isBrowser
     ? `${window.location.protocol}//${window.location.host}`
     : 'http://localhost:3000'; // Default for server-side
 
   // Ensure path starts with a slash
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  
+
   return `${baseUrl}${normalizedPath}`;
 }
 
@@ -48,21 +48,21 @@ export class AgentService {
         console.warn(`Error checking agent registry for ${agentId}:`, registryError);
         // Continue to try the API
       }
-      
+
       // If not in registry, try the API
       try {
         const response = await fetch(getApiUrl(`/api/multi-agent/agents/${agentId}`));
-        
+
         if (!response.ok) {
           if (response.status === 404) {
             console.log(`Agent ${agentId} not found`);
             return null;
           }
-          
+
           console.warn(`API error for agent ${agentId}: ${response.status} ${response.statusText}`);
           return null;
         }
-        
+
         const data = await response.json();
         return data.agent;
       } catch (apiError) {
@@ -74,7 +74,7 @@ export class AgentService {
       return null;
     }
   }
-  
+
   /**
    * Get all registered agent IDs
    * @returns Array of agent profiles
@@ -86,7 +86,7 @@ export class AgentService {
       if (agents.length > 0) {
         return agents.map(agent => agent.id);
       }
-      
+
       // Fallback to registry for backward compatibility  
       try {
         return await AgentRegistry.getAgentIds();
@@ -99,7 +99,7 @@ export class AgentService {
       return [];
     }
   }
-  
+
   /**
    * Get all registered agents
    * @returns Array of agent profiles
@@ -107,13 +107,14 @@ export class AgentService {
   static async getAllAgents(): Promise<AgentProfile[]> {
     try {
       try {
-        const response = await fetch(getApiUrl('/api/multi-agent/agents'));
-        
+        // Request all agents by setting a high limit to avoid pagination
+        const response = await fetch(getApiUrl('/api/multi-agent/agents?limit=1000'));
+
         if (!response.ok) {
           console.warn(`API error for getAllAgents: ${response.status} ${response.statusText}`);
           return [];
         }
-        
+
         const data = await response.json();
         return data.agents || [];
       } catch (apiError) {
@@ -125,7 +126,7 @@ export class AgentService {
       return [];
     }
   }
-  
+
   /**
    * Get the default agent (first available agent)
    * @returns The default agent instance or null if no agents are available
@@ -134,13 +135,13 @@ export class AgentService {
     try {
       // Get all available agents
       const agents = await this.getAllAgents();
-      
+
       // Return the first available agent, or null if none are found
       if (agents && agents.length > 0) {
         console.log(`Found default agent: ${agents[0].name || agents[0].id}`);
         return agents[0];
       }
-      
+
       // No agents available
       console.log("No agents available");
       return null;
@@ -149,7 +150,7 @@ export class AgentService {
       return null;
     }
   }
-  
+
   /**
    * Process a message using the specified agent
    * @param agentId The agent ID to use
@@ -158,11 +159,11 @@ export class AgentService {
    */
   static async processMessage(agentId: string, message: string, options?: any): Promise<any> {
     const agent = await this.getAgent(agentId);
-    
+
     if (!agent) {
       throw new Error(`Agent with ID ${agentId} not found`);
     }
-    
+
     // Use API to process message
     try {
       const response = await fetch(getApiUrl(`/api/multi-agent/agents/${agentId}/process`), {
@@ -175,19 +176,19 @@ export class AgentService {
           options
         })
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || `Failed to process message with agent ${agentId}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       console.error(`Error processing message with agent ${agentId}:`, error);
       throw error;
     }
   }
-  
+
   /**
    * Register a new agent in the system
    * @param agentData The agent data to register
@@ -201,12 +202,12 @@ export class AgentService {
         },
         body: JSON.stringify(agentData)
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to register agent');
       }
-      
+
       const data = await response.json();
       return data.agent;
     } catch (error) {
@@ -214,7 +215,7 @@ export class AgentService {
       throw error;
     }
   }
-  
+
   /**
    * Update an existing agent
    * @param agentId The ID of the agent to update
@@ -229,12 +230,12 @@ export class AgentService {
         },
         body: JSON.stringify(updates)
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || `Failed to update agent ${agentId}`);
       }
-      
+
       const data = await response.json();
       return data.agent;
     } catch (error) {
@@ -242,7 +243,7 @@ export class AgentService {
       throw error;
     }
   }
-  
+
   /**
    * Deletes an agent and all associated data
    * @param agentId The unique identifier of the agent to delete
@@ -256,12 +257,12 @@ export class AgentService {
           'Content-Type': 'application/json'
         }
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || `Failed to delete agent ${agentId}`);
       }
-      
+
       console.log(`Successfully deleted agent: ${agentId}`);
     } catch (error) {
       console.error(`Failed to delete agent: ${error}`);

@@ -80,7 +80,14 @@
     "test:baseline:performance": "vitest run tests/baseline-validation/performance --reporter=verbose",
     "test:baseline:report": "node tests/baseline-validation/generate-report.js",
     "test:baseline:runner": "node tests/baseline-validation/run-baseline-tests.js",
-    "test:regression": "node tests/baseline-validation/validate-regression.js"
+    "test:regression": "node tests/baseline-validation/validate-regression.js",
+    "test:comprehensive": "vitest run tests/comprehensive-validation --reporter=verbose",
+    "test:comprehensive:quick": "vitest run tests/comprehensive-validation/success-criteria/SuccessCriteriaValidation.test.ts --reporter=verbose",
+    "test:comprehensive:full": "vitest run tests/comprehensive-validation/regression/FullRegressionTest.test.ts --reporter=verbose",
+    "test:comprehensive:load": "vitest run tests/comprehensive-validation/performance/LoadAndPerformanceTest.test.ts --reporter=verbose",
+    "test:comprehensive:production": "vitest run tests/comprehensive-validation --reporter=verbose --timeout=300000",
+    "test:phase-5-1": "npm run test:comprehensive:quick && npm run test:comprehensive:full",
+    "validate:phase-5-1": "npm run test:baseline && npm run test:comprehensive:production"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.812.0",
