@@ -7,44 +7,46 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { getMemoryServices } from '../memory/services';
-import { createAgentMemoryService } from '../memory/services/multi-agent';
-import { registerAgent, getAgentById } from './agent-service';
+import { AgentBase } from '../../agents/shared/base/AgentBase.interface';
+import { ManagerType } from '../../agents/shared/base/managers/ManagerType';
+import { DefaultAgent } from '../../agents/shared/DefaultAgent';
 import { logger } from '../../lib/logging';
 import { AgentMemoryEntity, AgentStatus } from '../memory/schema/agent';
-import { AgentBase } from '../../agents/shared/base/AgentBase.interface';
-import { DefaultAgent } from '../../agents/shared/DefaultAgent';
-import { ManagerType } from '../../agents/shared/base/managers/ManagerType';
-import { VisualizationConfig } from '../../types/visualization-integration';
+import { getMemoryServices } from '../memory/services';
+import { createAgentMemoryService } from '../memory/services/multi-agent';
+import { getAgentById, registerAgent } from './agent-service';
 
 // Import new bootstrap utilities at the top of the file
+import {
+  AgentBootstrapError,
+  AgentValidationError,
+} from './agent-bootstrap-errors';
 import {
   agentBootstrapRegistry,
   AgentBootstrapState
 } from './agent-bootstrap-registry';
 import {
-  validateAgentPreInitialization,
-  handlePostInitialization
+  handlePostInitialization,
+  validateAgentPreInitialization
 } from './agent-bootstrap-utils';
-import {
-  AgentBootstrapError,
-  AgentValidationError,
-} from './agent-bootstrap-errors';
 
 // Update imports to include our new error handling and metrics components
-import { safelyInitializeAgent } from './agent-error-boundary';
-import { checkAgentHealth, registerAgentForHealthMonitoring } from './agent-health-check';
-import {
-  recordInitializationMetric,
-  startResourceMetricsCollection,
-  getAgentsSummaryMetrics,
-} from './agent-metrics';
 import {
   logAgentInitializationStage,
   recordInitializationMetrics
 } from './agent-bootstrap-utils';
+import { safelyInitializeAgent } from './agent-error-boundary';
+import { checkAgentHealth, registerAgentForHealthMonitoring } from './agent-health-check';
+import {
+  getAgentsSummaryMetrics,
+  recordInitializationMetric,
+  startResourceMetricsCollection,
+} from './agent-metrics';
 
-
+// Import workspace scheduler integration
+import { KnowledgeGraphManager } from '../../lib/agents/implementations/memory/KnowledgeGraphManager';
+import { createMarketScanningService } from '../../lib/knowledge/MarketScanningService';
+import { workspaceSchedulerIntegration } from '../../services/workspace/integration/WorkspaceSchedulerIntegration';
 
 /**
  * Create a fully capable agent instance with proper bootstrap tracking
@@ -654,6 +656,96 @@ export async function bootstrapAgentsFromDatabase(): Promise<number> {
       }
       */
     }
+
+    // Start workspace task processor
+    workspaceSchedulerIntegration.startTaskProcessor();
+    logger.info('Workspace task processor started');
+
+    // Initialize Market Scanning Service
+    try {
+      logger.info('Initializing market scanning service...');
+      const graphManager = new KnowledgeGraphManager();
+      await graphManager.initialize();
+
+      const marketScanningService = createMarketScanningService(graphManager);
+      marketScanningService.setupScheduledScans();
+
+      // Store reference for access from other parts of the system
+      (global as any).__marketScanningService = marketScanningService;
+
+      logger.info('Market scanning service initialized with scheduled scans');
+    } catch (marketError) {
+      logger.error('Failed to initialize market scanning service:', { error: marketError });
+    }
+
+    // Initialize Social Media Providers (if needed for background tasks)
+    try {
+      logger.info('Checking social media provider configuration...');
+
+      // Initialize providers only if environment variables are configured
+      const socialProviders = [];
+
+      if (process.env.TWITTER_CLIENT_ID && process.env.TWITTER_CLIENT_SECRET) {
+        const { TwitterProvider } = await import('../../services/social-media/providers/TwitterProvider');
+        socialProviders.push('Twitter');
+        logger.info('Twitter provider configured');
+      }
+
+      if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
+        const { LinkedInProvider } = await import('../../services/social-media/providers/LinkedInProvider');
+        socialProviders.push('LinkedIn');
+        logger.info('LinkedIn provider configured');
+      }
+
+      if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET) {
+        socialProviders.push('Facebook/Instagram');
+        logger.info('Facebook/Instagram provider configured');
+      }
+
+      if (socialProviders.length > 0) {
+        logger.info(`Social media providers available: ${socialProviders.join(', ')}`);
+      } else {
+        logger.info('No social media providers configured - connections will be available when credentials are added');
+      }
+
+    } catch (socialError) {
+      logger.error('Error checking social media provider configuration:', { error: socialError });
+    }
+
+    // Initialize File/Spreadsheet Services (Google Workspace, Microsoft 365, etc.)
+    try {
+      logger.info('Checking workspace provider configuration...');
+
+      const workspaceProviders = [];
+
+      if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+        workspaceProviders.push('Google Workspace');
+        logger.info('Google Workspace provider configured');
+      }
+
+      if (process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET) {
+        workspaceProviders.push('Microsoft 365');
+        logger.info('Microsoft 365 provider configured');
+      }
+
+      if (process.env.ZOHO_CLIENT_ID && process.env.ZOHO_CLIENT_SECRET) {
+        workspaceProviders.push('Zoho Workspace');
+        logger.info('Zoho Workspace provider configured');
+      }
+
+      if (workspaceProviders.length > 0) {
+        logger.info(`Workspace providers available: ${workspaceProviders.join(', ')}`);
+      } else {
+        logger.info('No workspace providers configured - connections will be available when credentials are added');
+      }
+
+    } catch (workspaceError) {
+      logger.error('Error checking workspace provider configuration:', { error: workspaceError });
+    }
+
+    // Check for any other background services that might need startup
+    logger.info('All background services initialization complete');
+    logger.info(`Bootstrap complete: ${loadedCount} agents loaded and running`);
 
     return loadedCount;
   } catch (error) {

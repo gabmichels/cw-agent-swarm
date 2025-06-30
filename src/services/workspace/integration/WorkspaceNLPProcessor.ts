@@ -5,7 +5,7 @@
  * related to workspace operations like email, calendar, files, and spreadsheets.
  */
 
-import { parse, ParsedResult } from 'chrono-node';
+import { parse } from 'chrono-node';
 import { logger } from '../../../lib/logging';
 
 /**
@@ -84,7 +84,7 @@ export class WorkspaceNLPProcessor {
     }
 
     // Extract entities based on command type
-    const entities = this.extractEntities(normalizedText, commandType);
+    const entities = await this.extractEntities(normalizedText, commandType);
 
     // Calculate confidence
     const confidence = this.calculateConfidence(normalizedText, commandType, entities);
@@ -143,77 +143,27 @@ export class WorkspaceNLPProcessor {
    * Email command matchers
    */
   private matchesEmailSend(text: string): boolean {
+    // STRICT: Only patterns that explicitly mention "email" or clear email intent
     const patterns = [
       /send.*email/,
       /email.*to/,
       /write.*email/,
       /compose.*email/,
       /draft.*email/,
-      /message.*to/,
       /mail.*to/,
-      // Patterns for sender preference contexts
-      /send.*from.*my/,
-      /use.*my.*email/,
-      /use.*my.*account/,
-      /using.*my.*email/,
-      /using.*my.*account/,
-      /send.*via.*my/,
-      /send.*with.*my/,
-      /send.*through.*my/,
-      /from.*my.*email/,
-      /from.*my.*account/,
-      // Provider specific patterns that should be email commands
-      /use.*gmail/,
-      /use.*outlook/,
-      /use.*hotmail/,
-      /use.*zoho/,
-      /use.*g[\s-]?suite/,
-      /use.*ms365/,
-      /use.*o365/,
-      /use.*microsoft.*365/,
-      /use.*office.*365/,
-      // General email context patterns
-      /send.*this/,
-      /send.*it/,
-      /make.*sure.*to.*use/,
-      /please.*use/,
-      /can.*you.*use/,
-      /i.*want.*to.*use/,
-      // "Via" patterns
-      /via.*my/,
-      /via.*gmail/,
-      /via.*outlook/,
-      /via.*zoho/,
-      // "Send with" patterns  
-      /send.*with/,
-      /send.*using/,
-      // "Through" patterns
-      /through.*my/,
-      /through.*gmail/,
-      /through.*google/,
-      /through.*outlook/,
-      // Additional patterns without "email" keyword
-      /from.*customer/,
-      /using.*customer/,
-      /send.*from.*customer/,
-      // "Google mail" and "Microsoft Exchange" patterns
-      /send.*via.*google.*mail/,
-      /use.*my.*microsoft.*exchange/,
-      /from.*my.*customer.*mail/,
-      // Integration scenario patterns
-      /email.*using.*my/,
-      /email.*with.*my/,
-      /email.*via.*my/,
-      // Send update patterns
-      /send.*update/,
-      /send.*message/,
-      // "Using" patterns for sender preference tests
-      /using.*@.*for.*email/,
-      // "Send from" patterns
-      /send.*from.*@/,
-      // "Use [email] account" patterns - catch all variations
-      /use.*@.*account/,
-      /^use\s+\w+[\.\w]*@\w+[\.\w]*\s+account$/i
+      // Only patterns that explicitly contain "email" keyword
+      /email.*from.*my/,
+      /email.*via.*gmail/,
+      /email.*via.*outlook/,
+      /email.*using.*gmail/,
+      /email.*using.*outlook/,
+      /send.*this.*email/,
+      /send.*it.*via.*email/,
+      /send.*an.*email/,
+      /email.*with.*gmail/,
+      /email.*with.*outlook/,
+      /email.*through.*gmail/,
+      /email.*through.*outlook/
     ];
     return patterns.some(pattern => pattern.test(text));
   }
@@ -397,7 +347,7 @@ export class WorkspaceNLPProcessor {
   /**
    * Extract entities from the command text
    */
-  private extractEntities(text: string, commandType: WorkspaceCommandType): Record<string, any> {
+  private async extractEntities(text: string, commandType: WorkspaceCommandType): Promise<Record<string, any>> {
     const entities: Record<string, any> = {};
 
     switch (commandType) {
@@ -405,7 +355,7 @@ export class WorkspaceNLPProcessor {
         entities.recipients = this.extractEmailAddresses(text);
         entities.subject = this.extractEmailSubject(text);
         entities.body = this.extractEmailBody(text);
-        entities.senderPreference = this.extractSenderPreference(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
 
         // Add debug logging for email extraction
         logger.debug('Email entity extraction results', {
@@ -413,16 +363,79 @@ export class WorkspaceNLPProcessor {
           recipients: entities.recipients,
           subject: entities.subject,
           body: entities.body,
-          senderPreference: entities.senderPreference,
+          workspaceAccountPreference: entities.workspaceAccountPreference,
           recipientsCount: entities.recipients?.length || 0
         });
         break;
 
       case WorkspaceCommandType.SCHEDULE_EVENT:
         entities.attendees = this.extractEmailAddresses(text);
-        entities.title = this.extractEventTitle(text);
+        entities.title = await this.extractEventTitle(text);
         entities.duration = this.extractDuration(text);
         entities.location = this.extractLocation(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+
+        // Extract event time (when the meeting should occur, not when to create it)
+        const eventTime = this.extractEventTime(text);
+        if (eventTime) {
+          entities.startTime = eventTime.startTime?.toISOString();
+          entities.endTime = eventTime.endTime?.toISOString();
+          entities.description = entities.description || 'Scheduled meeting';
+        }
+        break;
+
+      case WorkspaceCommandType.CHECK_CALENDAR:
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        entities.timeframe = this.extractTimeframe(text);
+        break;
+
+      case WorkspaceCommandType.FIND_AVAILABILITY:
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        entities.duration = this.extractDuration(text);
+        entities.timeframe = this.extractTimeframe(text);
+        break;
+
+      case WorkspaceCommandType.EDIT_EVENT:
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        entities.title = await this.extractEventTitle(text);
+        entities.location = this.extractLocation(text);
+        entities.duration = this.extractDuration(text);
+        break;
+
+      case WorkspaceCommandType.DELETE_EVENT:
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        entities.title = await this.extractEventTitle(text);
+        break;
+
+      case WorkspaceCommandType.FIND_EVENTS:
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        entities.keywords = this.extractKeywords(text);
+        entities.timeframe = this.extractTimeframe(text);
+        break;
+
+      case WorkspaceCommandType.SUMMARIZE_DAY:
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        entities.timeframe = this.extractTimeframe(text);
+        break;
+
+      case WorkspaceCommandType.READ_EMAIL:
+        entities.sender = this.extractSender(text);
+        entities.subject = this.extractEmailSubject(text);
+        entities.keywords = this.extractKeywords(text);
+        entities.timeframe = this.extractTimeframe(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.REPLY_EMAIL:
+        entities.subject = this.extractEmailSubject(text);
+        entities.body = this.extractEmailBody(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.FORWARD_EMAIL:
+        entities.recipients = this.extractEmailAddresses(text);
+        entities.body = this.extractEmailBody(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
         break;
 
       case WorkspaceCommandType.SEARCH_EMAIL:
@@ -430,18 +443,78 @@ export class WorkspaceNLPProcessor {
         entities.subject = this.extractEmailSubject(text);
         entities.keywords = this.extractKeywords(text);
         entities.timeframe = this.extractTimeframe(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.ANALYZE_EMAIL:
+        entities.keywords = this.extractKeywords(text);
+        entities.timeframe = this.extractTimeframe(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.CHECK_EMAIL_ATTENTION:
+        entities.timeframe = this.extractTimeframe(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.GET_ACTION_ITEMS:
+        entities.timeframe = this.extractTimeframe(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.GET_EMAIL_TRENDS:
+        entities.timeframe = this.extractTimeframe(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
         break;
 
       case WorkspaceCommandType.CREATE_SPREADSHEET:
         entities.title = this.extractSpreadsheetTitle(text);
         entities.template = this.extractSpreadsheetTemplate(text);
         entities.categories = this.extractCategories(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.READ_SPREADSHEET:
+        entities.title = this.extractSpreadsheetTitle(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.UPDATE_SPREADSHEET:
+        entities.title = this.extractSpreadsheetTitle(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.ANALYZE_SPREADSHEET:
+        entities.title = this.extractSpreadsheetTitle(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.CREATE_EXPENSE_TRACKER:
+        entities.title = this.extractSpreadsheetTitle(text);
+        entities.categories = this.extractCategories(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
         break;
 
       case WorkspaceCommandType.SEARCH_FILES:
         entities.query = this.extractFileQuery(text);
         entities.fileType = this.extractFileType(text);
         entities.timeframe = this.extractTimeframe(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.UPLOAD_FILE:
+        entities.fileType = this.extractFileType(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.SHARE_FILE:
+        entities.recipients = this.extractEmailAddresses(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
+        break;
+
+      case WorkspaceCommandType.GET_FILE_DETAILS:
+        entities.query = this.extractFileQuery(text);
+        entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
         break;
     }
 
@@ -518,25 +591,33 @@ export class WorkspaceNLPProcessor {
       });
 
       const currentTime = new Date().toISOString();
-      const prompt = `Analyze this user request for scheduling intent and extract the specific time if present.
+      const prompt = `Analyze this user request to determine if they want to DELAY/SCHEDULE the EXECUTION of an action.
 
 Current time: ${currentTime}
 
 User request: "${text}"
 
-Task: Determine if the user wants to SCHEDULE something for a specific future time, and if so, extract that time.
+CRITICAL DISTINCTION:
+- TASK SCHEDULING = User wants to delay WHEN THE ACTION IS PERFORMED
+- EVENT CONTENT = User is specifying WHEN AN EVENT SHOULD OCCUR (not when to create it)
 
-Examples of SCHEDULING intent with time extraction:
-- "Send this email tomorrow at 3pm" → Intent: YES, Time: [tomorrow at 3pm]
-- "Schedule this for next Monday" → Intent: YES, Time: [next Monday]
-- "Remind me to call John in 2 hours" → Intent: YES, Time: [2 hours from now]
-- "Set up a meeting for Friday at 2pm" → Intent: YES, Time: [this Friday at 2pm]
+Examples of TASK SCHEDULING intent (delay action execution):
+- "Send this email tomorrow at 3pm" → Intent: YES, Time: [tomorrow at 3pm] (send the email tomorrow)
+- "Schedule this email for next Monday" → Intent: YES, Time: [next Monday] (send email on Monday)
+- "Remind me to call John in 2 hours" → Intent: YES, Time: [2 hours from now] (create reminder in 2 hours)
+- "Send the report at 9am tomorrow" → Intent: YES, Time: [9am tomorrow] (send report tomorrow)
 
-Examples of NO scheduling intent (time references are context only):
-- "Send an email about our discussion from yesterday" → Intent: NO
-- "Email him the document from last week" → Intent: NO  
-- "Reply to the message I got this morning" → Intent: NO
-- "Send the report we worked on yesterday" → Intent: NO
+Examples of NO TASK SCHEDULING intent (immediate action with event content):
+- "Schedule a meeting for tomorrow at 1pm" → Intent: NO (create meeting NOW, meeting is tomorrow)
+- "Create a calendar event for Friday at 2pm" → Intent: NO (create event NOW, event is Friday)
+- "Set up a meeting for next Monday" → Intent: NO (set up NOW, meeting is Monday)
+- "Book a call for this afternoon" → Intent: NO (book NOW, call is this afternoon)
+- "Send an email about our discussion from yesterday" → Intent: NO (send NOW, discussion was yesterday)
+- "Email him the document from last week" → Intent: NO (send NOW, document from last week)
+- "Reply to the message I got this morning" → Intent: NO (reply NOW, message from this morning)
+
+KEY RULE: If the user says "schedule/create/book a meeting/event/call" they want to CREATE it NOW, not delay the creation.
+Only extract time if the user wants to DELAY the action itself.
 
 Respond in JSON format:
 {
@@ -683,19 +764,121 @@ Respond in JSON format:
     return undefined;
   }
 
-  private extractEventTitle(text: string): string | undefined {
-    const titlePatterns = [
+  private async extractEventTitle(text: string): Promise<string | undefined> {
+    // First try explicit quoted titles
+    const explicitTitlePatterns = [
       /meeting\s+(?:about|for|on)\s+"([^"]+)"/i,
       /event\s+(?:about|for|on)\s+"([^"]+)"/i,
       /schedule\s+"([^"]+)"/i,
       /titled\s+"([^"]+)"/i
     ];
 
-    for (const pattern of titlePatterns) {
+    for (const pattern of explicitTitlePatterns) {
       const match = text.match(pattern);
       if (match) return match[1];
     }
-    return undefined;
+
+    // Use LLM to extract meeting title intelligently
+    try {
+      const { OpenAI } = await import('openai');
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+
+      const prompt = `Extract the most appropriate meeting title from this user request. Focus on the PURPOSE or TOPIC of the meeting, not the time/logistics.
+
+User request: "${text}"
+
+Rules:
+- Extract the meeting purpose, topic, or subject
+- Ignore temporal words (tomorrow, today, 1pm, etc.)
+- Ignore logistics (using Gmail, with email, etc.)
+- Keep it concise and professional
+- If multiple topics mentioned, pick the main one
+- If no clear topic, generate based on attendees or default
+
+Examples:
+"Schedule a meeting for tomorrow at 1pm with john@company.com about quarterly review" → "Quarterly Review"
+"Set up a call with the marketing team to discuss the new campaign" → "New Campaign Discussion"
+"Schedule a meeting for tomorrow at 1pm with gab@crowd-wisdom.com using my Gmail account. The meeting is a simple catchup about current marketing initiatives." → "Marketing Initiatives Catchup"
+"Book a meeting with Sarah" → "Meeting with Sarah"
+
+Return only the title, nothing else.`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 50,
+        temperature: 0.1,
+      });
+
+      const extractedTitle = completion.choices[0]?.message?.content?.trim();
+
+      if (extractedTitle && extractedTitle.length > 0 && extractedTitle !== "null" && extractedTitle !== "undefined") {
+        logger.debug('Extracted meeting title using LLM', {
+          originalText: text,
+          extractedTitle: extractedTitle
+        });
+        return extractedTitle;
+      }
+    } catch (error) {
+      logger.debug('Failed to extract title using LLM, falling back to default:', error);
+    }
+
+    // Fallback: generate a default based on attendees
+    const emailPattern = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
+    const emailMatch = text.match(emailPattern);
+    if (emailMatch) {
+      const emailName = emailMatch[1].split('@')[0];
+      return `Meeting with ${emailName}`;
+    }
+
+    // Last resort: simple default
+    return 'Scheduled Meeting';
+  }
+
+  /**
+   * Extract event time (when the meeting should occur, not when to create it)
+   */
+  private extractEventTime(text: string): {
+    startTime?: Date;
+    endTime?: Date;
+  } | undefined {
+    try {
+      // Use chrono-node to parse the time mentioned in the context of the meeting
+      const parsed = parse(text);
+
+      if (parsed.length === 0) {
+        return undefined;
+      }
+
+      // Take the first parsed time as the event start time
+      const startTime = parsed[0].start.date();
+
+      // Try to find end time from the same parse result or infer it
+      let endTime: Date | undefined;
+
+      if (parsed[0].end) {
+        endTime = parsed[0].end.date();
+      } else {
+        // If no end time specified, default to 1 hour duration
+        endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+      }
+
+      logger.debug('Extracted event time for calendar event', {
+        originalText: text,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString()
+      });
+
+      return {
+        startTime,
+        endTime
+      };
+    } catch (error) {
+      logger.debug('Failed to extract event time:', error);
+      return undefined;
+    }
   }
 
   private extractDuration(text: string): number | undefined {
@@ -750,25 +933,111 @@ Respond in JSON format:
   /**
    * Extract sender preference from text - comprehensive NLP for email account selection
    */
-  private extractSenderPreference(text: string): {
+  /**
+   * Extract workspace account preference for ANY workspace operation
+   * This determines which workspace account to use for emails, calendars, files, documents, spreadsheets, etc.
+   */
+  private extractWorkspaceAccountPreference(text: string): {
     type?: 'provider' | 'category' | 'specific_email' | 'domain';
     value?: string;
     confidence?: number;
   } | undefined {
     const normalizedText = text.toLowerCase();
 
+    // ENHANCED: Comprehensive workspace account preference patterns for ALL workspace operations
+    // This includes patterns for emails, calendars, files, documents, spreadsheets, etc.
+    // These patterns were removed from command classification to prevent contamination
+
+    // 0. Enhanced workspace account preference patterns (high confidence)
+    const workspaceAccountPatterns = [
+      // Account preference patterns
+      { pattern: /use.*my.*email/i, confidence: 0.8 },
+      { pattern: /use.*my.*account/i, confidence: 0.8 },
+      { pattern: /using.*my.*email/i, confidence: 0.8 },
+      { pattern: /using.*my.*account/i, confidence: 0.8 },
+      { pattern: /send.*from.*my/i, confidence: 0.85 },
+      { pattern: /send.*via.*my/i, confidence: 0.8 },
+      { pattern: /send.*with.*my/i, confidence: 0.8 },
+      { pattern: /send.*through.*my/i, confidence: 0.8 },
+      { pattern: /from.*my.*email/i, confidence: 0.85 },
+      { pattern: /from.*my.*account/i, confidence: 0.85 },
+
+      // Provider-specific preference patterns
+      { pattern: /use.*gmail/i, provider: 'GOOGLE_WORKSPACE', confidence: 0.9 },
+      { pattern: /use.*outlook/i, provider: 'MICROSOFT_365', confidence: 0.9 },
+      { pattern: /use.*hotmail/i, provider: 'MICROSOFT_365', confidence: 0.9 },
+      { pattern: /use.*zoho/i, provider: 'ZOHO', confidence: 0.9 },
+      { pattern: /via.*gmail/i, provider: 'GOOGLE_WORKSPACE', confidence: 0.85 },
+      { pattern: /via.*outlook/i, provider: 'MICROSOFT_365', confidence: 0.85 },
+      { pattern: /via.*zoho/i, provider: 'ZOHO', confidence: 0.85 },
+      { pattern: /through.*gmail/i, provider: 'GOOGLE_WORKSPACE', confidence: 0.85 },
+      { pattern: /through.*outlook/i, provider: 'MICROSOFT_365', confidence: 0.85 },
+      { pattern: /send.*with.*gmail/i, provider: 'GOOGLE_WORKSPACE', confidence: 0.85 },
+      { pattern: /send.*using.*gmail/i, provider: 'GOOGLE_WORKSPACE', confidence: 0.85 },
+      { pattern: /send.*using.*outlook/i, provider: 'MICROSOFT_365', confidence: 0.85 },
+
+      // File and document operation patterns
+      { pattern: /save.*to.*my/i, confidence: 0.8 },
+      { pattern: /create.*in.*my/i, confidence: 0.8 },
+      { pattern: /upload.*to.*my/i, confidence: 0.8 },
+      { pattern: /store.*in.*my/i, confidence: 0.8 },
+      { pattern: /search.*in.*my/i, confidence: 0.8 },
+      { pattern: /find.*in.*my/i, confidence: 0.8 },
+      { pattern: /open.*from.*my/i, confidence: 0.8 },
+      { pattern: /read.*from.*my/i, confidence: 0.8 },
+      { pattern: /access.*my/i, confidence: 0.8 },
+      { pattern: /share.*from.*my/i, confidence: 0.8 },
+
+      // Generic preference indicators
+      { pattern: /make.*sure.*to.*use/i, confidence: 0.7 },
+      { pattern: /please.*use/i, confidence: 0.7 },
+      { pattern: /can.*you.*use/i, confidence: 0.7 },
+      { pattern: /i.*want.*to.*use/i, confidence: 0.75 },
+
+      // Account patterns for any workspace operation
+      { pattern: /use.*@.*account/i, confidence: 0.8 },
+      { pattern: /using.*@.*for/i, confidence: 0.8 },
+      { pattern: /send.*from.*@/i, confidence: 0.85 },
+      { pattern: /save.*to.*@/i, confidence: 0.8 },
+      { pattern: /create.*with.*@/i, confidence: 0.8 }
+    ];
+
+    // Check enhanced workspace account preference patterns first
+    for (const { pattern, provider, confidence } of workspaceAccountPatterns) {
+      if (pattern.test(text)) {
+        if (provider) {
+          return {
+            type: 'provider',
+            value: provider,
+            confidence: confidence
+          };
+        } else {
+          // Extract the actual preference value from the matched text
+          const match = text.match(pattern);
+          if (match) {
+            // Try to extract specific preference details using existing logic below
+            break; // Continue to detailed extraction
+          }
+        }
+      }
+    }
+
     // 1. Specific email address mentioned (highest confidence)
+    // FIXED: Only match emails when they're clearly the SENDER account, not attendees
     const explicitEmailPatterns = [
-      /from\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
-      /using\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
+      /from\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s+account/i,
       /send\s+from\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
       /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s+account/i,
       /send\s+this\s+from\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
-      /via\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
-      /with\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
-      /use\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
+      /via\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s+account/i,
+      /use\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s+account/i,
       /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s+for\s+this/i,
-      /using\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s+for/i
+      /using\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s+account/i
+      // REMOVED: Patterns that might match attendee emails
+      // /using\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i, 
+      // /via\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
+      // /with\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
+      // /use\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
     ];
 
     for (const pattern of explicitEmailPatterns) {

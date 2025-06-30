@@ -9,6 +9,7 @@ import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
 import { ManagerType } from '../../../agents/shared/base/managers/ManagerType';
 import { ToolManager } from '../../../agents/shared/base/managers/ToolManager.interface';
 import { logger } from '../../../lib/logging';
+import { WorkspaceCapabilityType } from '../../database/types';
 import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
 import { WorkspaceAgentTools } from '../tools/WorkspaceAgentTools';
 import { parseWorkspaceCommand, WorkspaceCommand, WorkspaceCommandType } from './WorkspaceNLPProcessor';
@@ -23,6 +24,9 @@ export interface WorkspaceIntegrationResult {
   error?: string;
   scheduled?: boolean;
   taskId?: string;
+  requiresUserChoice?: boolean;
+  message?: string;
+  availableConnections?: string[];
 }
 
 /**
@@ -105,7 +109,8 @@ export class WorkspaceAgentIntegration {
         agentId,
         commandType: command.type,
         confidence: command.confidence,
-        hasScheduledTime: !!command.scheduledTime
+        hasScheduledTime: !!command.scheduledTime,
+        hasWorkspaceAccountPreference: !!command.entities.workspaceAccountPreference
       });
 
       logger.info(`Processing workspace command for agent ${agentId}`, {
@@ -113,9 +118,9 @@ export class WorkspaceAgentIntegration {
         confidence: command.confidence
       });
 
-      // If no connection ID provided, handle based on command type
+      // UNIFIED CONNECTION SELECTION LOGIC
       if (!connectionId) {
-        // Always get a default connection for permission validation
+        // Always get a default connection for fallback
         const defaultConnectionId = await this.getDefaultConnectionId(agentId);
         if (!defaultConnectionId) {
           return {
@@ -124,13 +129,77 @@ export class WorkspaceAgentIntegration {
           };
         }
 
-        // For email commands with sender preferences, we'll validate with default but execute with smart selection
-        if (command.type === WorkspaceCommandType.SEND_EMAIL && command.entities.senderPreference) {
-          // Use default connection for validation, but mark for smart selection during execution
-          connectionId = defaultConnectionId;
-          (command as any).useSmartSelection = true; // Flag for later use
+        // If there's a workspace account preference, use unified smart selection for ALL command types
+        if (command.entities.workspaceAccountPreference) {
+          logger.debug('Using unified smart connection selection for workspace command', {
+            agentId,
+            commandType: command.type,
+            workspaceAccountPreference: command.entities.workspaceAccountPreference
+          });
+
+          try {
+            // Import WorkspaceConnectionSelector dynamically to avoid circular dependencies
+            const { WorkspaceConnectionSelector } = await import('../providers/WorkspaceConnectionSelector');
+            const connectionSelector = new WorkspaceConnectionSelector();
+
+            // Map command type to appropriate capability
+            const capability = this.getCapabilityForCommandType(command.type);
+            if (!capability) {
+              logger.warn('No capability mapping found for command type', {
+                agentId,
+                commandType: command.type
+              });
+              connectionId = defaultConnectionId;
+            } else {
+              // Use connection selector to find the best account
+              const selectionResult = await connectionSelector.selectConnection({
+                agentId,
+                capability,
+                recipientEmails: command.entities.attendees || command.entities.recipients || [],
+                senderPreference: command.entities.workspaceAccountPreference
+              });
+
+              if (!selectionResult.success) {
+                if (selectionResult.requiresUserChoice && selectionResult.suggestedMessage) {
+                  // Return the clarification message to the user
+                  return {
+                    success: false,
+                    requiresUserChoice: true,
+                    message: selectionResult.suggestedMessage,
+                    availableConnections: selectionResult.availableConnections?.map(c => c.id) || [],
+                    error: selectionResult.error
+                  };
+                } else {
+                  logger.warn('Smart connection selection failed, falling back to default', {
+                    agentId,
+                    commandType: command.type,
+                    error: selectionResult.error
+                  });
+                  connectionId = defaultConnectionId;
+                }
+              } else {
+                connectionId = selectionResult.connectionId!;
+                logger.info('✅ Using smart-selected connection for workspace command', {
+                  agentId,
+                  commandType: command.type,
+                  selectedConnection: selectionResult.connection?.email,
+                  selectedProvider: selectionResult.connection?.provider,
+                  reason: selectionResult.reason,
+                  confidence: selectionResult.confidence
+                });
+              }
+            }
+          } catch (error) {
+            logger.error('❌ Unified smart connection selection failed, falling back to default', {
+              agentId,
+              commandType: command.type,
+              workspaceAccountPreference: command.entities.workspaceAccountPreference,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            connectionId = defaultConnectionId;
+          }
         } else {
-          // For other commands, use the default connection
+          // No workspace account preference - use default connection
           connectionId = defaultConnectionId;
         }
       }
@@ -187,40 +256,8 @@ export class WorkspaceAgentIntegration {
         };
       }
 
-      logger.info(`Processing workspace command for agent ${agentId}`, {
-        commandType: command.type,
-        confidence: command.confidence
-      });
-
-      // If no connection ID provided, handle based on command type
-      if (!connectionId) {
-        // Always get a default connection for permission validation
-        const defaultConnectionId = await this.getDefaultConnectionId(agentId);
-        if (!defaultConnectionId) {
-          return {
-            success: false,
-            error: 'No workspace connection available'
-          };
-        }
-
-        // For email commands with sender preferences, we'll validate with default but execute with smart selection
-        if (command.type === WorkspaceCommandType.SEND_EMAIL && command.entities.senderPreference) {
-          // Use default connection for validation, but mark for smart selection during execution
-          connectionId = defaultConnectionId;
-          (command as any).useSmartSelection = true; // Flag for later use
-        } else {
-          // For other commands, use the default connection
-          connectionId = defaultConnectionId;
-        }
-      }
-
-      // Check if this is a scheduled command
-      if (command.scheduledTime) {
-        return await this.scheduleWorkspaceCommand(agentId, command, connectionId);
-      }
-
-      // Execute immediately
-      return await this.executeWorkspaceCommand(agentId, command, connectionId);
+      // Use the unified processWorkspaceCommand method
+      return await this.processWorkspaceCommand(agentId, command, connectionId);
     } catch (error) {
       logger.error(`Error processing workspace input for agent ${agentId}:`, error);
       return {
@@ -325,93 +362,47 @@ export class WorkspaceAgentIntegration {
 
     switch (type) {
       case WorkspaceCommandType.SEND_EMAIL:
-        // Use smart email sending if sender preference is available or if marked for smart selection
-        if (entities.senderPreference || (command as any).useSmartSelection) {
-          const smartEmailParams = {
-            to: entities.recipients || [],
-            subject: entities.subject || 'Email from Agent',
-            body: entities.body || 'This email was sent by your agent.',
-            originalMessage: command.originalText || '', // For NLP processing
-            senderPreference: entities.senderPreference
-          };
+        // Always use the connectionId that was intelligently selected above
+        // No more per-tool smart selection logic needed
+        const emailParams = {
+          to: entities.recipients || [],
+          subject: entities.subject || 'Email from Agent',
+          body: entities.body || 'This email was sent by your agent.',
+          connectionId
+        };
 
-          logger.debug('Sending email with smart selection', {
+        logger.debug('Sending email with unified connection selection', {
+          agentId,
+          emailParams,
+          recipientsCount: emailParams.to.length
+        });
+
+        if (emailParams.to.length === 0) {
+          logger.warn('No recipients found for email command', {
             agentId,
-            smartEmailParams,
-            recipientsCount: smartEmailParams.to.length,
-            senderPreference: entities.senderPreference
+            originalEntities: entities,
+            extractedRecipients: entities.recipients
           });
+          throw new Error('No email recipients found. Please specify valid email addresses.');
+        }
 
-          if (smartEmailParams.to.length === 0) {
-            logger.warn('No recipients found for email command', {
-              agentId,
-              originalEntities: entities,
-              extractedRecipients: entities.recipients
-            });
-            throw new Error('No email recipients found. Please specify valid email addresses.');
-          }
-
-          try {
-            const result = await this.workspaceTools.smartSendEmailTool.execute(smartEmailParams, context);
-            logger.info('✅ Email sent successfully via smart selection', {
-              agentId,
-              recipients: smartEmailParams.to,
-              subject: smartEmailParams.subject,
-              senderPreference: entities.senderPreference,
-              result
-            });
-            return result;
-          } catch (error) {
-            logger.error('❌ Smart email sending failed', {
-              agentId,
-              smartEmailParams,
-              error: error instanceof Error ? error.message : String(error),
-              stack: error instanceof Error ? error.stack : undefined
-            });
-            throw error;
-          }
-        } else {
-          // Fallback to regular email tool with specified connectionId
-          const emailParams = {
-            to: entities.recipients || [],
-            subject: entities.subject || 'Email from Agent',
-            body: entities.body || 'This email was sent by your agent.',
-            connectionId
-          };
-
-          logger.debug('Sending email with specified connection', {
+        try {
+          const result = await this.workspaceTools.sendEmailTool.execute(emailParams, context);
+          logger.info('✅ Email sent successfully', {
+            agentId,
+            recipients: emailParams.to,
+            subject: emailParams.subject,
+            result
+          });
+          return result;
+        } catch (error) {
+          logger.error('❌ Email sending failed', {
             agentId,
             emailParams,
-            recipientsCount: emailParams.to.length
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
           });
-
-          if (emailParams.to.length === 0) {
-            logger.warn('No recipients found for email command', {
-              agentId,
-              originalEntities: entities,
-              extractedRecipients: entities.recipients
-            });
-            throw new Error('No email recipients found. Please specify valid email addresses.');
-          }
-
-          try {
-            const result = await this.workspaceTools.sendEmailTool.execute(emailParams, context);
-            logger.info('✅ Email sent successfully', {
-              agentId,
-              recipients: emailParams.to,
-              subject: emailParams.subject,
-              result
-            });
-            return result;
-          } catch (error) {
-            logger.error('❌ Email sending failed', {
-              agentId,
-              emailParams,
-              error: error instanceof Error ? error.message : String(error),
-              stack: error instanceof Error ? error.stack : undefined
-            });
-            throw error;
-          }
+          throw error;
         }
 
       case WorkspaceCommandType.READ_EMAIL:
@@ -449,6 +440,7 @@ export class WorkspaceAgentIntegration {
         }, context);
 
       case WorkspaceCommandType.SCHEDULE_EVENT:
+        // Use the unified connection selection - no custom logic needed
         return await this.workspaceTools.scheduleEventTool.execute({
           title: entities.title || 'Agent Scheduled Event',
           startTime: entities.startTime,
@@ -601,7 +593,7 @@ export class WorkspaceAgentIntegration {
       [WorkspaceCommandType.SUMMARIZE_DAY]: 'CALENDAR_READ',
       [WorkspaceCommandType.SEARCH_FILES]: 'DRIVE_READ',
       [WorkspaceCommandType.UPLOAD_FILE]: 'DRIVE_UPLOAD',
-      [WorkspaceCommandType.SHARE_FILE]: 'DRIVE_SHARE',
+      [WorkspaceCommandType.SHARE_FILE]: 'DRIVE_MANAGE',
       [WorkspaceCommandType.GET_FILE_DETAILS]: 'DRIVE_READ',
       [WorkspaceCommandType.CREATE_SPREADSHEET]: 'SPREADSHEET_CREATE',
       [WorkspaceCommandType.READ_SPREADSHEET]: 'SPREADSHEET_READ',
@@ -694,6 +686,32 @@ export class WorkspaceAgentIntegration {
       logger.error('Failed to get available workspace tools:', error);
       return [];
     }
+  }
+
+  /**
+   * Map workspace command type to appropriate capability
+   */
+  private getCapabilityForCommandType(commandType: string): WorkspaceCapabilityType | null {
+    const capabilityMap: Record<string, WorkspaceCapabilityType> = {
+      [WorkspaceCommandType.SEND_EMAIL]: WorkspaceCapabilityType.EMAIL_SEND,
+      [WorkspaceCommandType.READ_EMAIL]: WorkspaceCapabilityType.EMAIL_READ,
+      [WorkspaceCommandType.SEARCH_EMAIL]: WorkspaceCapabilityType.EMAIL_READ,
+      [WorkspaceCommandType.CHECK_EMAIL_ATTENTION]: WorkspaceCapabilityType.EMAIL_READ,
+      [WorkspaceCommandType.ANALYZE_EMAIL]: WorkspaceCapabilityType.EMAIL_READ,
+      [WorkspaceCommandType.GET_ACTION_ITEMS]: WorkspaceCapabilityType.EMAIL_READ,
+      [WorkspaceCommandType.SCHEDULE_EVENT]: WorkspaceCapabilityType.CALENDAR_CREATE,
+      [WorkspaceCommandType.CHECK_CALENDAR]: WorkspaceCapabilityType.CALENDAR_READ,
+      [WorkspaceCommandType.FIND_AVAILABILITY]: WorkspaceCapabilityType.CALENDAR_READ,
+      [WorkspaceCommandType.SUMMARIZE_DAY]: WorkspaceCapabilityType.CALENDAR_READ,
+      [WorkspaceCommandType.CREATE_SPREADSHEET]: WorkspaceCapabilityType.SPREADSHEET_CREATE,
+      [WorkspaceCommandType.READ_SPREADSHEET]: WorkspaceCapabilityType.SPREADSHEET_READ,
+      [WorkspaceCommandType.UPDATE_SPREADSHEET]: WorkspaceCapabilityType.SPREADSHEET_EDIT,
+      [WorkspaceCommandType.SEARCH_FILES]: WorkspaceCapabilityType.DRIVE_READ,
+      [WorkspaceCommandType.UPLOAD_FILE]: WorkspaceCapabilityType.DRIVE_UPLOAD,
+      [WorkspaceCommandType.SHARE_FILE]: WorkspaceCapabilityType.DRIVE_MANAGE
+    };
+
+    return capabilityMap[commandType] || null;
   }
 }
 
