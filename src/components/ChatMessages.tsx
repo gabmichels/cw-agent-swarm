@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
-import { Message, FileAttachment } from '../types';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { FileAttachment, Message } from '../types';
 import ChatBubble from './ChatBubble';
 
 // Type for messages with timestamp
@@ -264,7 +264,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = React.memo(({
       {/* AI thinking loading indicator */}
       {isLoading && (
         <div className="flex justify-start mb-4">
-          <div className="min-w-[75%] max-w-[80%] rounded-lg p-3 shadow bg-gray-700">
+          <div className="max-w-md rounded-lg p-3 shadow bg-gray-700">
             <div className="flex items-center">
               <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"></div>
               <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce ml-1" style={{ animationDelay: '0.2s' }}></div>

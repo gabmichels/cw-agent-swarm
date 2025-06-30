@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Message, FileAttachment } from '../types';
-import MarkdownRenderer from './MarkdownRenderer';
+import { AlertTriangle, Check, Clock, Paperclip, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { FileAttachmentType } from '../constants/file';
+import { FileAttachment, Message } from '../types';
 import { highlightSearchMatches } from '../utils/smartSearch';
 import ChatBubbleMenu from './ChatBubbleMenu';
-import { ChevronLeft, ChevronRight, Paperclip, Check, X, Clock, AlertTriangle } from 'lucide-react';
-import { FileAttachmentType } from '../constants/file';
-import { toast } from 'react-hot-toast';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface ApprovalContent {
   taskId: string;
@@ -551,6 +550,41 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
     return false;
   };
 
+  // Determine bubble width based on content characteristics
+  const getBubbleWidthClass = (content: string): string => {
+    if (!content) return 'max-w-md'; // Small for empty content
+    
+    const contentLength = content.length;
+    const hasTable = content.includes('|') && content.includes('---');
+    const hasCodeBlock = content.includes('```');
+    const hasLongLines = content.split('\n').some(line => line.length > 80);
+    const hasStructuredData = content.includes('**') || content.includes('📧') || content.includes('📊');
+    const isEmailContent = content.includes('Email Attention') || content.includes('Priority') || content.includes('Sender');
+    
+    // Large width for structured content that needs space
+    if (hasTable || isEmailContent || (hasStructuredData && contentLength > 500)) {
+      return 'w-[80%] max-w-5xl'; // Wide for tables and structured data
+    }
+    
+    // Medium-large width for code blocks or long technical content
+    if (hasCodeBlock || hasLongLines || contentLength > 800) {
+      return 'w-[70%] max-w-3xl'; // Good for code and detailed responses
+    }
+    
+    // Medium width for moderate content
+    if (contentLength > 300) {
+      return 'w-[60%] max-w-2xl'; // Standard for regular responses
+    }
+    
+    // Small width for short messages
+    if (contentLength > 100) {
+      return 'max-w-lg'; // Compact for short responses
+    }
+    
+    // Very small for very short messages
+    return 'max-w-md'; // Minimal for brief messages
+  };
+
   return (
     <div 
       className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'} mb-4`}
@@ -558,7 +592,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
       onMouseLeave={() => setShowMenu(false)}
       id={message.id ? `message-${message.id}` : undefined}
     >
-      <div className={`flex flex-col ${isUserMessage ? 'items-end' : 'items-start'} max-w-2xl mr-3`}>
+      <div className={`flex flex-col ${isUserMessage ? 'items-end' : 'items-start'} ${getBubbleWidthClass(currentContent)} mr-3`}>
         <div className={`w-full rounded-lg p-3 shadow ${bgColorClasses}`}>
           {/* Message content */}
           <div className="mb-1 relative">

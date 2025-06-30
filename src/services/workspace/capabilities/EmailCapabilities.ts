@@ -1,9 +1,10 @@
-import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { google } from 'googleapis';
 import { DatabaseService } from '../../database/DatabaseService';
 import { IDatabaseProvider } from '../../database/IDatabaseProvider';
-import { WorkspaceConnection, WorkspaceCapabilityType } from '../../database/types';
+import { WorkspaceCapabilityType, WorkspaceConnection } from '../../database/types';
 import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
+import { UserEmailPreferencesService } from '../preferences/UserEmailPreferencesService';
 import { handlePermissionError, withWorkspaceErrorHandling } from '../utils/WorkspaceErrorHandler';
 
 // Email data types
@@ -43,6 +44,7 @@ export interface EmailSearchCriteria {
   before?: Date;
   maxResults?: number;
   pageToken?: string;
+  searchAllFolders?: boolean; // If true, search across all folders instead of just inbox
 }
 
 export interface SendEmailParams {
@@ -112,13 +114,28 @@ export interface AttentionAnalysis {
   summary: string;
 }
 
+export interface UserEmailImportanceCriteria {
+  urgentKeywords?: string[];
+  importantSenders?: string[];
+  importantDomains?: string[];
+  subjectPatterns?: string[];
+  priorityLabels?: string[];
+  customRules?: {
+    rule: string;
+    weight: number;
+    description: string;
+  }[];
+}
+
 export class EmailCapabilities {
   private db: IDatabaseProvider;
   private permissionService: AgentWorkspacePermissionService;
+  private userEmailPreferencesService: UserEmailPreferencesService;
 
   constructor() {
     this.db = DatabaseService.getInstance();
     this.permissionService = new AgentWorkspacePermissionService();
+    this.userEmailPreferencesService = new UserEmailPreferencesService();
   }
 
   /**
@@ -127,11 +144,11 @@ export class EmailCapabilities {
   async readSpecificEmail(emailId: string, connectionId: string, agentId: string): Promise<EmailMessage> {
     // Validate permissions
     const validation = await this.permissionService.validatePermissions(
-      agentId, 
-      WorkspaceCapabilityType.EMAIL_READ, 
+      agentId,
+      WorkspaceCapabilityType.EMAIL_READ,
       connectionId
     );
-    
+
     handlePermissionError(validation);
 
     const connection = await this.db.getWorkspaceConnection(connectionId);
@@ -142,7 +159,7 @@ export class EmailCapabilities {
     return await withWorkspaceErrorHandling(
       async () => {
         const gmail = await this.getGmailClient(connection);
-        
+
         const response = await gmail.users.messages.get({
           userId: 'me',
           id: emailId,
@@ -167,11 +184,11 @@ export class EmailCapabilities {
   async searchEmails(criteria: EmailSearchCriteria, connectionId: string, agentId: string): Promise<EmailMessage[]> {
     // Validate permissions
     const validation = await this.permissionService.validatePermissions(
-      agentId, 
-      WorkspaceCapabilityType.EMAIL_READ, 
+      agentId,
+      WorkspaceCapabilityType.EMAIL_READ,
       connectionId
     );
-    
+
     if (!validation.isValid) {
       throw new Error(validation.error || 'Permission denied');
     }
@@ -182,7 +199,7 @@ export class EmailCapabilities {
     }
 
     const gmail = await this.getGmailClient(connection);
-    
+
     try {
       const query = this.buildSearchQuery(criteria);
       const response = await gmail.users.messages.list({
@@ -192,7 +209,7 @@ export class EmailCapabilities {
       });
 
       const messages = response.data.messages || [];
-      const emailPromises = messages.map(msg => 
+      const emailPromises = messages.map(msg =>
         gmail.users.messages.get({
           userId: 'me',
           id: msg.id!,
@@ -216,7 +233,7 @@ export class EmailCapabilities {
     keywords?: string[];
     timeframe?: 'last_hour' | 'last_24_hours' | 'last_week' | 'last_month';
   }, connectionId: string, agentId: string): Promise<EmailMessage[]> {
-    
+
     const searchCriteria: EmailSearchCriteria = {
       isUnread: criteria.unread,
       hasAttachment: criteria.hasAttachments,
@@ -256,11 +273,11 @@ export class EmailCapabilities {
   async sendEmail(params: SendEmailParams, connectionId: string, agentId: string): Promise<EmailMessage> {
     // Validate permissions
     const validation = await this.permissionService.validatePermissions(
-      agentId, 
-      WorkspaceCapabilityType.EMAIL_SEND, 
+      agentId,
+      WorkspaceCapabilityType.EMAIL_SEND,
       connectionId
     );
-    
+
     handlePermissionError(validation);
 
     const connection = await this.db.getWorkspaceConnection(connectionId);
@@ -271,7 +288,7 @@ export class EmailCapabilities {
     return await withWorkspaceErrorHandling(
       async () => {
         const gmail = await this.getGmailClient(connection);
-        
+
         const emailContent = this.buildEmailContent(params, connection.email);
         const response = await gmail.users.messages.send({
           userId: 'me',
@@ -305,11 +322,11 @@ export class EmailCapabilities {
   async replyToEmail(params: ReplyEmailParams, connectionId: string, agentId: string): Promise<EmailMessage> {
     // Validate permissions
     const validation = await this.permissionService.validatePermissions(
-      agentId, 
-      WorkspaceCapabilityType.EMAIL_SEND, 
+      agentId,
+      WorkspaceCapabilityType.EMAIL_SEND,
       connectionId
     );
-    
+
     if (!validation.isValid) {
       throw new Error(validation.error || 'Permission denied');
     }
@@ -320,7 +337,7 @@ export class EmailCapabilities {
     }
 
     const gmail = await this.getGmailClient(connection);
-    
+
     try {
       // Get original email details
       const originalEmail = await gmail.users.messages.get({
@@ -357,11 +374,11 @@ export class EmailCapabilities {
   async forwardEmail(params: ForwardEmailParams, connectionId: string, agentId: string): Promise<EmailMessage> {
     // Validate permissions
     const validation = await this.permissionService.validatePermissions(
-      agentId, 
-      WorkspaceCapabilityType.EMAIL_SEND, 
+      agentId,
+      WorkspaceCapabilityType.EMAIL_SEND,
       connectionId
     );
-    
+
     if (!validation.isValid) {
       throw new Error(validation.error || 'Permission denied');
     }
@@ -372,7 +389,7 @@ export class EmailCapabilities {
     }
 
     const gmail = await this.getGmailClient(connection);
-    
+
     try {
       // Get original email details
       const originalEmail = await gmail.users.messages.get({
@@ -408,11 +425,11 @@ export class EmailCapabilities {
   async analyzeEmails(params: EmailAnalysisParams, connectionId: string, agentId: string): Promise<EmailAnalysisResult> {
     // Validate permissions
     const validation = await this.permissionService.validatePermissions(
-      agentId, 
-      WorkspaceCapabilityType.EMAIL_READ, 
+      agentId,
+      WorkspaceCapabilityType.EMAIL_READ,
       connectionId
     );
-    
+
     if (!validation.isValid) {
       throw new Error(validation.error || 'Permission denied');
     }
@@ -444,14 +461,40 @@ export class EmailCapabilities {
   /**
    * Get emails that need immediate attention
    */
-  async getEmailsNeedingAttention(connectionId: string, agentId: string): Promise<AttentionAnalysis> {
-    const result = await this.analyzeEmails({
-      timeframe: 'today',
-      analysisType: 'attention',
-      includeRead: false
+  async getEmailsNeedingAttention(connectionId: string, agentId: string, userId?: string): Promise<AttentionAnalysis> {
+    // Load user's email importance preferences if userId is provided
+    let userCriteria: UserEmailImportanceCriteria | undefined = undefined;
+    if (userId) {
+      const criteria = await this.userEmailPreferencesService.getUserImportanceCriteria(userId);
+      userCriteria = criteria || undefined; // Convert null to undefined
+    }
+
+    // Search ALL unread emails across ALL folders (inbox + other folders)
+    // When users ask about "important unread emails", they mean ALL unread emails everywhere
+    // It's the user's responsibility to clean up old emails if needed
+    const emails = await this.searchEmails({
+      isUnread: true,  // Only unread emails
+      maxResults: 100,  // Increase limit to capture more emails
+      searchAllFolders: true // Search across all Gmail folders/labels, not just inbox
     }, connectionId, agentId);
 
-    return result.data as AttentionAnalysis;
+    // Analyze the unread emails for attention patterns using user preferences
+    const urgentEmails = emails.filter(email => this.isUrgent(email, userCriteria));
+    const overdueReplies = emails.filter(email => this.isOverdueReply(email));
+
+    // ALL unread emails need attention by definition
+    const needsAttention = emails;
+
+    const analysis: AttentionAnalysis = {
+      needsAttention,
+      urgentCount: urgentEmails.length,
+      unreadCount: emails.length,
+      overdueReplies,
+      upcomingDeadlines: await this.extractDeadlines(emails),
+      summary: this.generateAttentionSummary(urgentEmails.length, emails.length, overdueReplies.length)
+    };
+
+    return analysis;
   }
 
   /**
@@ -516,6 +559,13 @@ export class EmailCapabilities {
   private buildSearchQuery(criteria: EmailSearchCriteria): string {
     const queryParts: string[] = [];
 
+    // Control search scope - inbox only vs all folders
+    if (!criteria.searchAllFolders && (!criteria.labels || criteria.labels.length === 0)) {
+      // By default, search in INBOX only unless explicitly searching all folders
+      // This prevents searching across promotional/social/update folders
+      queryParts.push('in:inbox');
+    }
+
     if (criteria.query) queryParts.push(criteria.query);
     if (criteria.from) queryParts.push(`from:${criteria.from}`);
     if (criteria.to) queryParts.push(`to:${criteria.to}`);
@@ -524,6 +574,12 @@ export class EmailCapabilities {
     if (criteria.isUnread) queryParts.push('is:unread');
     if (criteria.after) queryParts.push(`after:${criteria.after.toISOString().split('T')[0]}`);
     if (criteria.before) queryParts.push(`before:${criteria.before.toISOString().split('T')[0]}`);
+
+    // Handle specific labels if provided
+    if (criteria.labels && criteria.labels.length > 0) {
+      const labelQueries = criteria.labels.map(label => `label:${label}`);
+      queryParts.push(`(${labelQueries.join(' OR ')})`);
+    }
 
     return queryParts.join(' ');
   }
@@ -688,9 +744,11 @@ export class EmailCapabilities {
     const urgentEmails = emails.filter(email => this.isUrgent(email));
     const unreadEmails = emails.filter(email => !email.isRead);
     const overdueReplies = emails.filter(email => this.isOverdueReply(email));
-    
-    const needsAttention = Array.from(new Set([...urgentEmails, ...overdueReplies]));
-    
+
+    // Include ALL unread emails in needsAttention, not just urgent/overdue ones
+    // This better matches user expectations when they ask about "important unread emails"
+    const needsAttention = Array.from(new Set([...unreadEmails, ...urgentEmails, ...overdueReplies]));
+
     const analysis: AttentionAnalysis = {
       needsAttention,
       urgentCount: urgentEmails.length,
@@ -744,22 +802,22 @@ export class EmailCapabilities {
     const received = emails.length;
     const sent = 0; // Would need to query sent emails separately
     const replied = emails.filter(email => email.labels?.includes('\\Answered')).length;
-    
+
     const hourlyDistribution = this.getHourlyDistribution(emails);
     const topSenders = this.getTopSenders(emails);
 
     return {
-      summary: `Email activity: ${received} received, ${replied} replied to (${Math.round(replied/received*100)}% response rate)`,
+      summary: `Email activity: ${received} received, ${replied} replied to (${Math.round(replied / received * 100)}% response rate)`,
       insights: [
         `Peak email time: ${this.getPeakHour(hourlyDistribution)}:00`,
         `Most active sender: ${topSenders[0]?.name || 'N/A'} (${topSenders[0]?.count || 0} emails)`,
-        `Response rate: ${Math.round(replied/received*100)}%`
+        `Response rate: ${Math.round(replied / received * 100)}%`
       ],
       data: {
         received,
         sent,
         replied,
-        responseRate: replied/received,
+        responseRate: replied / received,
         hourlyDistribution,
         topSenders
       }
@@ -779,7 +837,7 @@ export class EmailCapabilities {
       const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
       const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
       if (priorityDiff !== 0) return priorityDiff;
-      
+
       if (a.dueDate && b.dueDate) {
         return a.dueDate.getTime() - b.dueDate.getTime();
       }
@@ -823,14 +881,81 @@ export class EmailCapabilities {
   }
 
   // Email analysis helper methods
-  private isUrgent(email: EmailMessage): boolean {
-    const urgentKeywords = ['urgent', 'asap', 'emergency', 'critical', 'immediate'];
+  private isUrgent(email: EmailMessage, userCriteria?: UserEmailImportanceCriteria): boolean {
+    const defaultUrgentKeywords = ['urgent', 'asap', 'emergency', 'critical', 'immediate'];
     const subject = email.subject.toLowerCase();
     const body = email.body.toLowerCase();
-    
-    return urgentKeywords.some(keyword => 
+
+    // Check system defaults first
+    const hasSystemUrgency = defaultUrgentKeywords.some(keyword =>
       subject.includes(keyword) || body.includes(keyword)
     ) || email.isImportant;
+
+    // If no user criteria provided, use system defaults only
+    if (!userCriteria) {
+      return hasSystemUrgency;
+    }
+
+    // Check user-defined urgent keywords
+    if (userCriteria.urgentKeywords && userCriteria.urgentKeywords.length > 0) {
+      const hasUserKeywords = userCriteria.urgentKeywords.some(keyword =>
+        subject.includes(keyword.toLowerCase()) || body.includes(keyword.toLowerCase())
+      );
+      if (hasUserKeywords) return true;
+    }
+
+    // Check important senders
+    if (userCriteria.importantSenders && userCriteria.importantSenders.length > 0) {
+      const fromEmail = email.from.toLowerCase();
+      const hasImportantSender = userCriteria.importantSenders.some(sender =>
+        fromEmail.includes(sender.toLowerCase())
+      );
+      if (hasImportantSender) return true;
+    }
+
+    // Check important domains
+    if (userCriteria.importantDomains && userCriteria.importantDomains.length > 0) {
+      const fromEmail = email.from.toLowerCase();
+      const hasImportantDomain = userCriteria.importantDomains.some(domain =>
+        fromEmail.includes(`@${domain.toLowerCase()}`)
+      );
+      if (hasImportantDomain) return true;
+    }
+
+    // Check subject patterns (regex support)
+    if (userCriteria.subjectPatterns && userCriteria.subjectPatterns.length > 0) {
+      const hasSubjectPattern = userCriteria.subjectPatterns.some(pattern => {
+        try {
+          const regex = new RegExp(pattern, 'i');
+          return regex.test(subject);
+        } catch {
+          // If pattern is not valid regex, treat as plain text
+          return subject.includes(pattern.toLowerCase());
+        }
+      });
+      if (hasSubjectPattern) return true;
+    }
+
+    // Check priority labels
+    if (userCriteria.priorityLabels && userCriteria.priorityLabels.length > 0) {
+      const hasCustomLabel = userCriteria.priorityLabels.some(label =>
+        email.labels.includes(label)
+      );
+      if (hasCustomLabel) return true;
+    }
+
+    // Check custom rules (future enhancement - could support complex logic)
+    if (userCriteria.customRules && userCriteria.customRules.length > 0) {
+      // For now, just check if rule text appears in email
+      const hasCustomRule = userCriteria.customRules.some(rule => {
+        const ruleText = rule.rule.toLowerCase();
+        return subject.includes(ruleText) || body.includes(ruleText) || email.from.toLowerCase().includes(ruleText);
+      });
+      if (hasCustomRule) return true;
+    }
+
+    // Fall back to system defaults
+    return hasSystemUrgency;
   }
 
   private isOverdueReply(email: EmailMessage): boolean {
@@ -870,18 +995,28 @@ export class EmailCapabilities {
     if (urgent === 0 && unread === 0 && overdue === 0) {
       return 'No emails need immediate attention';
     }
-    
+
+    // If there are unread emails, they should be mentioned as needing attention
+    if (unread > 0) {
+      const parts = [];
+      if (urgent > 0) parts.push(`${urgent} urgent`);
+      parts.push(`${unread} unread`);
+      if (overdue > 0) parts.push(`${overdue} overdue replies`);
+
+      return `${parts.join(', ')} emails need your attention`;
+    }
+
+    // Fallback for edge cases (urgent/overdue but no unread)
     const parts = [];
     if (urgent > 0) parts.push(`${urgent} urgent`);
-    if (unread > 0) parts.push(`${unread} unread`);
     if (overdue > 0) parts.push(`${overdue} overdue replies`);
-    
+
     return `${parts.join(', ')} emails need attention`;
   }
 
   private generateAttentionRecommendations(analysis: AttentionAnalysis): string[] {
     const recommendations = [];
-    
+
     if (analysis.urgentCount > 0) {
       recommendations.push('Review and respond to urgent emails first');
     }
@@ -894,7 +1029,7 @@ export class EmailCapabilities {
     if (analysis.unreadCount > 10) {
       recommendations.push('Consider batch processing unread emails');
     }
-    
+
     return recommendations;
   }
 
@@ -902,18 +1037,18 @@ export class EmailCapabilities {
     // Simple sentiment analysis based on keywords
     const positiveWords = ['thank', 'great', 'excellent', 'good', 'pleased', 'happy'];
     const negativeWords = ['problem', 'issue', 'urgent', 'error', 'failed', 'wrong', 'disappointed'];
-    
+
     const text = `${email.subject} ${email.body}`.toLowerCase();
     let score = 0;
-    
+
     positiveWords.forEach(word => {
       if (text.includes(word)) score += 0.1;
     });
-    
+
     negativeWords.forEach(word => {
       if (text.includes(word)) score -= 0.2;
     });
-    
+
     return Math.max(-1, Math.min(1, score));
   }
 
@@ -926,23 +1061,23 @@ export class EmailCapabilities {
 
   private getHourlyDistribution(emails: EmailMessage[]): { hour: number; count: number }[] {
     const distribution = new Array(24).fill(0).map((_, hour) => ({ hour, count: 0 }));
-    
+
     emails.forEach(email => {
       const hour = email.date.getHours();
       distribution[hour].count++;
     });
-    
+
     return distribution;
   }
 
   private getTopSenders(emails: EmailMessage[]): { email: string; count: number; name?: string }[] {
     const senderCounts = new Map<string, number>();
-    
+
     emails.forEach(email => {
       const sender = email.from;
       senderCounts.set(sender, (senderCounts.get(sender) || 0) + 1);
     });
-    
+
     return Array.from(senderCounts.entries())
       .map(([email, count]) => ({ email, count, name: email.split('<')[0].trim() }))
       .sort((a, b) => b.count - a.count)
@@ -950,14 +1085,14 @@ export class EmailCapabilities {
   }
 
   private getPeakHour(distribution: { hour: number; count: number }[]): number {
-    return distribution.reduce((peak, current) => 
+    return distribution.reduce((peak, current) =>
       current.count > peak.count ? current : peak
     ).hour;
   }
 
   private getVolumeByDay(emails: EmailMessage[], timeRange: { start: Date; end: Date }): { date: string; received: number; sent: number }[] {
     const days = new Map<string, { received: number; sent: number }>();
-    
+
     emails.forEach(email => {
       const dateKey = email.date.toISOString().split('T')[0];
       if (!days.has(dateKey)) {
@@ -965,7 +1100,7 @@ export class EmailCapabilities {
       }
       days.get(dateKey)!.received++;
     });
-    
+
     return Array.from(days.entries()).map(([date, counts]) => ({
       date,
       ...counts
@@ -980,12 +1115,12 @@ export class EmailCapabilities {
 
   private categorizeEmails(emails: EmailMessage[]): { category: string; count: number; percentage: number }[] {
     const categories = new Map<string, number>();
-    
+
     emails.forEach(email => {
       const category = this.categorizeEmail(email);
       categories.set(category, (categories.get(category) || 0) + 1);
     });
-    
+
     const total = emails.length;
     return Array.from(categories.entries())
       .map(([category, count]) => ({
@@ -999,18 +1134,18 @@ export class EmailCapabilities {
   private categorizeEmail(email: EmailMessage): string {
     const subject = email.subject.toLowerCase();
     const body = email.body.toLowerCase();
-    
+
     if (subject.includes('meeting') || body.includes('meeting')) return 'Meetings';
     if (subject.includes('invoice') || body.includes('payment')) return 'Finance';
     if (subject.includes('project') || body.includes('deadline')) return 'Projects';
     if (subject.includes('newsletter') || subject.includes('unsubscribe')) return 'Newsletters';
     if (email.from.includes('noreply') || email.from.includes('no-reply')) return 'Automated';
-    
+
     return 'General';
   }
 
   private getPeakDay(volumeData: { date: string; received: number; sent: number }[]): string {
-    return volumeData.reduce((peak, current) => 
+    return volumeData.reduce((peak, current) =>
       current.received > peak.received ? current : peak
     ).date;
   }
@@ -1018,7 +1153,7 @@ export class EmailCapabilities {
   private extractActionItemsFromEmail(email: EmailMessage): ActionItem[] {
     const items: ActionItem[] = [];
     const text = `${email.subject} ${email.body}`.toLowerCase();
-    
+
     // Check for reply needed
     if (text.includes('?') || text.includes('please respond') || text.includes('let me know')) {
       items.push({
@@ -1030,7 +1165,7 @@ export class EmailCapabilities {
         description: 'Email appears to require a response'
       });
     }
-    
+
     // Check for meeting requests
     if (text.includes('meeting') || text.includes('schedule') || text.includes('calendar')) {
       items.push({
@@ -1042,7 +1177,7 @@ export class EmailCapabilities {
         description: 'Meeting or scheduling request detected'
       });
     }
-    
+
     // Check for approval needed
     if (text.includes('approve') || text.includes('approval') || text.includes('sign off')) {
       items.push({
@@ -1054,7 +1189,7 @@ export class EmailCapabilities {
         description: 'Approval or sign-off required'
       });
     }
-    
+
     return items;
   }
 } 

@@ -9,6 +9,7 @@
 import { ulid } from 'ulid';
 import { PromptFormatter } from '../../agents/shared/messaging/PromptFormatter';
 import { createLogger } from '../../lib/logging/winston-logger';
+import { ToolExecutionResult } from '../../lib/tools/types';
 import { AgentLLMService } from '../messaging/message-generator';
 import {
   FormattedToolResponse,
@@ -53,6 +54,8 @@ export class LLMToolResponseFormatter implements IToolResponseFormatter {
         agentId: context.agentId,
         toolId: context.toolResult.toolId
       });
+
+
 
       // Check cache first if enabled
       if (context.responseConfig.enableCaching) {
@@ -273,18 +276,28 @@ IMPORTANT:
         ? 'PARTIAL_SUCCESS'
         : 'ERROR';
 
-    // Build context based on execution state
+    // Check if there's already a pre-formatted response (like tables, detailed summaries, etc.)
+    const preFormattedContent = this.extractPreFormattedContent(toolResult);
+    const hasPreFormattedContent = preFormattedContent && preFormattedContent.length > 100;
+
+    // Build context based on execution state and content availability
     let stateGuidance = '';
-    switch (executionState) {
-      case 'SUCCESS':
-        stateGuidance = 'SUCCESSFUL EXECUTION: Summarize what was accomplished and the value delivered. Be natural and vary your language.';
-        break;
-      case 'PARTIAL_SUCCESS':
-        stateGuidance = 'PARTIAL SUCCESS: Explain what progress was made, what still needs to be done, and provide clear next steps.';
-        break;
-      case 'ERROR':
-        stateGuidance = 'EXECUTION ERROR: Explain what went wrong in clear terms and provide helpful guidance on how to resolve the issue.';
-        break;
+    if (hasPreFormattedContent) {
+      // We have well-formatted content - enhance it conversationally while preserving structure
+      stateGuidance = `ENHANCE EXISTING CONTENT: The tool has already provided well-formatted information. Your job is to make it more conversational and engaging while preserving ALL data structures, tables, and detailed information. DO NOT recreate or summarize - just add a friendly conversational wrapper and any helpful context.`;
+    } else {
+      // No pre-formatted content - create from raw data
+      switch (executionState) {
+        case 'SUCCESS':
+          stateGuidance = 'SUCCESSFUL EXECUTION: Summarize what was accomplished and the value delivered. Be natural and vary your language.';
+          break;
+        case 'PARTIAL_SUCCESS':
+          stateGuidance = 'PARTIAL SUCCESS: Explain what progress was made, what still needs to be done, and provide clear next steps.';
+          break;
+        case 'ERROR':
+          stateGuidance = 'EXECUTION ERROR: Explain what went wrong in clear terms and provide helpful guidance on how to resolve the issue.';
+          break;
+      }
     }
 
     // Check if persona-aware instructions are available
@@ -293,7 +306,37 @@ IMPORTANT:
       ? `\nPERSONA GUIDANCE:\n${customInstructions}`
       : '\nRespond naturally and authentically, varying your language and avoiding repetitive phrases.';
 
-    return `ORIGINAL USER REQUEST: "${context.originalUserMessage}"
+    // Build the context based on whether we have pre-formatted content
+    if (hasPreFormattedContent) {
+      // For pre-formatted content, remove length constraints entirely to preserve all structured data
+      return `ORIGINAL USER REQUEST: "${context.originalUserMessage}"
+
+TOOL EXECUTION RESULT:
+- Tool: ${toolResult.toolId}
+- Status: ${executionState}
+- Execution Time: ${toolResult.metrics?.durationMs}ms
+
+PRE-FORMATTED CONTENT TO ENHANCE:
+${preFormattedContent}
+
+RECENT CONVERSATION:
+${recentContext}
+
+${stateGuidance}${personaGuidance}
+
+CRITICAL INSTRUCTIONS FOR PRE-FORMATTED CONTENT:
+- **MUST PRESERVE** all tables, data structures, and detailed information EXACTLY as provided
+- **DO NOT SUMMARIZE** or recreate the content - it's already perfectly formatted
+- The content above is structured data that users need to see in full detail
+- You may add a brief, friendly intro (1-2 sentences) or conclusion if helpful
+- **NEVER** truncate tables or remove email details
+- **NEVER** replace the formatted table with a summary
+- **NO LENGTH RESTRICTIONS** - preserve all content regardless of length
+
+${context.responseConfig.includeEmojis ? 'You may use appropriate emojis.' : 'Do not use emojis.'}
+${context.responseConfig.includeMetrics ? 'Include relevant performance metrics if helpful.' : 'Focus on outcomes rather than technical metrics.'}`;
+    } else {
+      return `ORIGINAL USER REQUEST: "${context.originalUserMessage}"
 
 TOOL EXECUTION RESULT:
 - Tool: ${toolResult.toolId}
@@ -310,6 +353,67 @@ ${stateGuidance}${personaGuidance}
 ${context.responseConfig.includeEmojis ? 'You may use appropriate emojis.' : 'Do not use emojis.'}
 ${context.responseConfig.includeMetrics ? 'Include relevant performance metrics if helpful.' : 'Focus on outcomes rather than technical metrics.'}
 Keep response under ${context.responseConfig.maxResponseLength} characters.`;
+    }
+  }
+
+  /**
+   * Extract pre-formatted content from tool result data
+   * Looks for fields like formattedSummary, formattedResponse, table, etc.
+   */
+  private extractPreFormattedContent(toolResult: ToolExecutionResult): string | null {
+    if (!toolResult.data || typeof toolResult.data !== 'object') {
+      return null;
+    }
+
+    const data = toolResult.data as any;
+
+    // Look for common pre-formatted content fields
+    const preFormattedFields = [
+      'formattedSummary',
+      'formattedResponse',
+      'formattedContent',
+      'detailedSummary',
+      'tableContent',
+      'structuredResponse'
+    ];
+
+    // Check top-level fields first
+    for (const field of preFormattedFields) {
+      if (data[field] && typeof data[field] === 'string' && data[field].length > 50) {
+        // Check if it looks like structured content (tables, lists, detailed formatting)
+        const content = data[field];
+        const hasTable = content.includes('|') && content.includes('---');
+        const hasStructuredContent = content.includes('**') || content.includes('📧') || content.includes('\n\n');
+        const hasDetailedInfo = content.length > 200;
+
+        if (hasTable || hasStructuredContent || hasDetailedInfo) {
+          return content;
+        }
+      }
+    }
+
+    // Check nested structures (like executionResult)
+    const nestedDataFields = ['executionResult', 'result', 'data', 'response'];
+
+    for (const nestedField of nestedDataFields) {
+      const nestedData = data[nestedField];
+      if (nestedData && typeof nestedData === 'object') {
+        for (const field of preFormattedFields) {
+          if (nestedData[field] && typeof nestedData[field] === 'string' && nestedData[field].length > 50) {
+            const content = nestedData[field];
+            const hasTable = content.includes('|') && content.includes('---');
+            const hasStructuredContent = content.includes('**') || content.includes('📧') || content.includes('\n\n');
+            const hasDetailedInfo = content.length > 200;
+
+            if (hasTable || hasStructuredContent || hasDetailedInfo) {
+              return content;
+            }
+          }
+        }
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -365,15 +469,28 @@ Keep response under ${context.responseConfig.maxResponseLength} characters.`;
     // Trim and clean up
     processed = processed.trim();
 
-    // Apply length constraints
-    if (processed.length > context.responseConfig.maxResponseLength) {
-      const truncateIndex = context.responseConfig.maxResponseLength - 3;
-      processed = processed.substring(0, truncateIndex) + '...';
+    // Check if this response contains pre-formatted content (tables, structured data)
+    const hasPreFormattedContent = this.extractPreFormattedContent(context.toolResult) !== null;
 
-      this.logger.warn('Response truncated due to length limit', {
+    // Apply length constraints - skip entirely for pre-formatted content
+    if (!hasPreFormattedContent) {
+      const maxLength = context.responseConfig.maxResponseLength;
+      if (processed.length > maxLength) {
+        const truncateIndex = maxLength - 3;
+        processed = processed.substring(0, truncateIndex) + '...';
+
+        this.logger.warn('Response truncated due to length limit', {
+          contextId: context.id,
+          originalLength: response.length,
+          maxLength: maxLength,
+          wasPreFormatted: false
+        });
+      }
+    } else {
+      this.logger.info('Preserving full length for pre-formatted content', {
         contextId: context.id,
-        originalLength: response.length,
-        maxLength: context.responseConfig.maxResponseLength
+        responseLength: processed.length,
+        wasPreFormatted: true
       });
     }
 

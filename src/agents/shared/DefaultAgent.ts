@@ -921,16 +921,16 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
 
     // Register the LLM-based tool response formatter with highest priority
     if (this.outputProcessor && this.agentConfig.enableLLMFormatting) {
-      // Initialize LLM formatter after other managers are ready
-      setTimeout(async () => {
-        try {
-          await this.initializeLLMPersonaFormatter();
-        } catch (error) {
-          this.logger.warn("Failed to initialize LLM Persona Formatter", {
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-      }, 100); // Small delay to ensure dependencies are ready
+      // Initialize LLM formatter immediately during setup to avoid race conditions
+      try {
+        await this.initializeLLMPersonaFormatter();
+        this.logger.info('LLM Persona Formatter initialized during agent setup', { agentId: this.agentId });
+      } catch (error) {
+        this.logger.warn("Failed to initialize LLM Persona Formatter during setup", {
+          agentId: this.agentId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
 
     this.thinkingProcessor = new ThinkingProcessor(this);
@@ -1804,10 +1804,25 @@ Please provide a helpful, contextual response based on this analysis and memory 
               });
             }
 
-            // Generate response based on result
-            let responseContent = await this.formatWorkspaceResponse(workspaceResult, message);
-            if (workspaceResult.scheduled) {
-              responseContent = `I've scheduled that task for you. Task ID: ${workspaceResult.taskId}`;
+            // Determine content strategy based on LLM formatting configuration
+            let responseContent: string;
+            const enableLLMFormatting = this.agentConfig.enableLLMFormatting ?? false;
+
+            if (enableLLMFormatting) {
+              // When LLM formatting is enabled, pass minimal content and let the LLM formatter handle the data
+              if (workspaceResult.scheduled) {
+                responseContent = `I've scheduled that task for you. Task ID: ${workspaceResult.taskId}`;
+              } else if (workspaceResult.success && workspaceResult.data) {
+                responseContent = 'Workspace command executed successfully';
+              } else {
+                responseContent = `Workspace command failed: ${workspaceResult.error}`;
+              }
+            } else {
+              // When LLM formatting is disabled, use the traditional formatting approach
+              responseContent = await this.formatWorkspaceResponse(workspaceResult, message);
+              if (workspaceResult.scheduled) {
+                responseContent = `I've scheduled that task for you. Task ID: ${workspaceResult.taskId}`;
+              }
             }
 
             // Create workspace response for unified formatting (both success and failure)
@@ -3438,19 +3453,66 @@ Task scheduled successfully (ID: ${safeTaskId})`;
       return `✅ I've successfully sent your email to ${recipients} with the subject "${data.subject}". The email was delivered from ${data.from}.`;
     }
 
-    // Email reading/checking response
+    // Enhanced Email attention analysis response - provide detailed email information
     if (data.needsAttention !== undefined || data.unreadCount !== undefined) {
+      // Check if the new formatEmailAttentionResponse has already provided a formatted response
+      if (data.formattedSummary) {
+        // Use the new table format from WorkspaceAgentTools.formatEmailAttentionResponse()
+        return data.formattedSummary;
+      }
+
+      // Fallback to original formatting logic for backward compatibility
       const unreadCount = data.unreadCount || 0;
       const urgentCount = data.urgentCount || 0;
+      const needsAttention = data.needsAttention || [];
 
       if (unreadCount === 0) {
         return "Good news! You have no unread emails that need your attention right now.";
       } else {
-        let response = `You have ${unreadCount} unread email${unreadCount > 1 ? 's' : ''}`;
-        if (urgentCount > 0) {
-          response += `, including ${urgentCount} urgent message${urgentCount > 1 ? 's' : ''} that need${urgentCount === 1 ? 's' : ''} immediate attention`;
+        // Format emails in a clean table format
+        const emailsToShow = needsAttention.slice(0, 10); // Show up to 10 emails
+
+        if (emailsToShow.length === 0) {
+          return `I found ${unreadCount} unread emails, but couldn't retrieve detailed information. Would you like me to try again?`;
         }
-        return response + ".";
+
+        const tableHeader = '| Priority | Subject | From | Date/Time |\n|----------|---------|------|-----------|';
+
+        const tableRows = emailsToShow.map((email: any, index: number) => {
+          const date = new Date(email.date);
+          const isToday = date.toDateString() === new Date().toDateString();
+          const timeFormat = isToday ?
+            date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) :
+            date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+          // Clean and truncate subject
+          const subject = (email.subject || 'No Subject').substring(0, 40) + (email.subject?.length > 40 ? '...' : '');
+
+          // Extract sender name and clean it
+          const senderMatch = email.from?.match(/^(.*?)\s*<([^>]+)>/) || [null, email.from, email.from];
+          const senderName = (senderMatch[1]?.trim() || senderMatch[2] || 'Unknown').substring(0, 25);
+
+          // Determine priority based on urgency criteria
+          const isUrgent = index < urgentCount || email.isImportant || email.labels?.includes('IMPORTANT');
+          const priority = isUrgent ? '🔴 Urgent' : '📧 Normal';
+
+          return `| ${priority} | ${subject} | ${senderName} | ${timeFormat} |`;
+        }).join('\n');
+
+        const hasMore = needsAttention.length > 10;
+        const moreText = hasMore ? `\n\n*Showing top 10 of ${needsAttention.length} total unread emails.*` : '';
+
+        // Build the response
+        let response = `**📬 Email Summary:** Found ${unreadCount} unread emails`;
+        if (urgentCount > 0) {
+          response += ` (${urgentCount} urgent)`;
+        }
+        response += '\n\n';
+        response += tableHeader + '\n' + tableRows;
+        response += moreText;
+        response += '\n\nWould you like me to help draft responses, provide more details on specific emails, or prioritize these messages?';
+
+        return response;
       }
     }
 

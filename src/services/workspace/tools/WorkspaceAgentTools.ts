@@ -1400,9 +1400,149 @@ export class WorkspaceAgentTools {
     },
     execute: async (params: GetEmailAttentionParams, context: AgentContext) => {
       const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
-      return await emailCapabilities.getEmailsNeedingAttention(params.connectionId, context.agentId);
+      const analysis = await emailCapabilities.getEmailsNeedingAttention(params.connectionId, context.agentId, context.userId);
+
+      // Format the response to include detailed email information in a table-like structure
+      // This will be displayed directly to the user, so make it comprehensive and helpful
+      return this.formatEmailAttentionResponse(analysis);
     }
   };
+
+  /**
+   * Format email attention analysis into a comprehensive, user-friendly response
+   */
+  private formatEmailAttentionResponse(analysis: any): any {
+    if (analysis.unreadCount === 0) {
+      return {
+        success: true,
+        summary: "Good news! You have no unread emails that need your attention right now.",
+        details: "Your inbox is all caught up.",
+        unreadCount: 0,
+        urgentCount: 0
+      };
+    }
+
+    // Create detailed email information for the most important emails (top 10)
+    const topEmails = analysis.needsAttention.slice(0, 10);
+
+    let formattedResponse = `📧 **Email Attention Summary**\n\n`;
+    formattedResponse += `📊 **Overview:** ${analysis.urgentCount} urgent, ${analysis.unreadCount} unread total`;
+    if (analysis.overdueReplies.length > 0) {
+      formattedResponse += `, ${analysis.overdueReplies.length} overdue replies`;
+    }
+    formattedResponse += `\n\n`;
+
+    if (topEmails.length > 0) {
+      formattedResponse += `🔥 **Top ${Math.min(topEmails.length, 10)} Emails Needing Attention:**\n\n`;
+
+      // Create a proper table format for email details
+      formattedResponse += `| Priority | Sender | Subject | Date | Preview |\n`;
+      formattedResponse += `|----------|--------|---------|------|--------|\n`;
+
+      topEmails.forEach((email: any, index: number) => {
+        const priority = this.determineEmailPriority(email, analysis);
+        const sender = this.extractSenderName(email.from);
+        const dateStr = this.formatEmailDate(email.date);
+        const subjectPreview = email.subject.length > 50 ?
+          email.subject.substring(0, 50) + '...' :
+          email.subject;
+
+        // Create body preview for all emails (not just urgent)
+        let bodyPreview = '';
+        if (email.body) {
+          bodyPreview = email.body.replace(/\n+/g, ' ').replace(/\|/g, '\\|').substring(0, 80);
+          if (email.body.length > 80) bodyPreview += '...';
+        }
+
+        // Escape any pipe characters in the data to avoid breaking the table
+        const escapedSender = sender.replace(/\|/g, '\\|');
+        const escapedSubject = subjectPreview.replace(/\|/g, '\\|');
+        const escapedPreview = bodyPreview.replace(/\|/g, '\\|');
+
+        formattedResponse += `| ${priority} | ${escapedSender} | ${escapedSubject} | ${dateStr} | ${escapedPreview} |\n`;
+      });
+
+      formattedResponse += `\n`;
+    }
+
+    // Add actionable recommendations
+    if (analysis.urgentCount > 0) {
+      formattedResponse += `🎯 **Recommended Actions:**\n`;
+      formattedResponse += `• Start with the ${analysis.urgentCount} urgent email${analysis.urgentCount > 1 ? 's' : ''}\n`;
+      if (analysis.overdueReplies.length > 0) {
+        formattedResponse += `• Address ${analysis.overdueReplies.length} overdue repl${analysis.overdueReplies.length > 1 ? 'ies' : 'y'}\n`;
+      }
+      if (analysis.unreadCount > 10) {
+        formattedResponse += `• Consider batch processing for the remaining ${analysis.unreadCount - analysis.urgentCount} emails\n`;
+      }
+    }
+
+    return {
+      success: true,
+      formattedSummary: formattedResponse,
+      summary: analysis.summary, // Keep original summary for compatibility
+      unreadCount: analysis.unreadCount,
+      urgentCount: analysis.urgentCount,
+      overdueCount: analysis.overdueReplies.length,
+      emailDetails: topEmails.map((email: any) => ({
+        subject: email.subject,
+        from: this.extractSenderName(email.from),
+        date: this.formatEmailDate(email.date),
+        priority: this.determineEmailPriority(email, analysis),
+        bodyPreview: email.body ? email.body.substring(0, 150) + '...' : ''
+      }))
+    };
+  }
+
+  /**
+ * Determine email priority based on analysis
+ */
+  private determineEmailPriority(email: any, analysis: any): string {
+    const isUrgent = analysis.urgentCount > 0 &&
+      analysis.needsAttention.findIndex((e: any) => e.id === email.id) < analysis.urgentCount;
+    const isOverdue = analysis.overdueReplies.some((e: any) => e.id === email.id);
+
+    if (isUrgent && isOverdue) return '🔥 URGENT+OVERDUE';
+    if (isUrgent) return '🔥 URGENT';
+    if (isOverdue) return '⏰ OVERDUE';
+    if (email.isImportant) return '⭐ IMPORTANT';
+    return '📧 UNREAD';
+  }
+
+  /**
+   * Extract sender name from email address
+   */
+  private extractSenderName(fromField: string): string {
+    // Handle "Name <email@domain.com>" format
+    const nameMatch = fromField.match(/^(.+?)\s*<.*>$/);
+    if (nameMatch) {
+      return nameMatch[1].trim().replace(/"/g, '');
+    }
+
+    // Handle plain email address
+    const emailMatch = fromField.match(/([^@]+)@/);
+    if (emailMatch) {
+      return emailMatch[1].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+
+    return fromField.substring(0, 30); // Fallback
+  }
+
+  /**
+   * Format email date for display
+   */
+  private formatEmailDate(date: Date): string {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffHours < 1) return 'Just now';
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+
+    return date.toLocaleDateString();
+  }
 
   private getActionItemsTool: AgentTool<GetActionItemsParams, any> = {
     name: "get_email_action_items",

@@ -1,14 +1,14 @@
-import { 
-  EmailMessage, 
-  EmailSearchCriteria, 
-  SendEmailParams, 
-  ReplyEmailParams, 
-  ForwardEmailParams,
+import {
+  ActionItem,
+  AttentionAnalysis,
   EmailAnalysisParams,
   EmailAnalysisResult,
-  ActionItem,
+  EmailMessage,
+  EmailSearchCriteria,
   EmailTrends,
-  AttentionAnalysis
+  ForwardEmailParams,
+  ReplyEmailParams,
+  SendEmailParams
 } from '../EmailCapabilities';
 
 /**
@@ -59,7 +59,7 @@ export interface IEmailCapabilities {
   /**
    * Get emails that need immediate attention
    */
-  getEmailsNeedingAttention(connectionId: string, agentId: string): Promise<AttentionAnalysis>;
+  getEmailsNeedingAttention(connectionId: string, agentId: string, userId?: string): Promise<AttentionAnalysis>;
 
   /**
    * Extract action items from emails

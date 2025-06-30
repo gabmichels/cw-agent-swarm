@@ -1,10 +1,10 @@
-import { IEmailCapabilities } from '../interfaces/IEmailCapabilities';
-import { EmailCapabilities, EmailMessage, EmailAttachment, SendEmailParams } from '../EmailCapabilities';
-import { ZohoWorkspaceProvider } from '../../providers/ZohoWorkspaceProvider';
 import { AxiosInstance } from 'axios';
+import FormData from 'form-data';
 import { FileService } from '../../../../lib/storage/FileService';
 import { StorageProvider } from '../../../../lib/storage/StorageService';
-import FormData from 'form-data';
+import { ZohoWorkspaceProvider } from '../../providers/ZohoWorkspaceProvider';
+import { EmailAttachment, EmailCapabilities, EmailMessage, EmailSearchCriteria, SendEmailParams } from '../EmailCapabilities';
+import { IEmailCapabilities } from '../interfaces/IEmailCapabilities';
 
 // Local interfaces for Zoho-specific functionality
 interface EmailResult {
@@ -93,6 +93,113 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       azureAccountName: process.env.AZURE_ACCOUNT_NAME,
       azureAccountKey: process.env.AZURE_ACCOUNT_KEY
     });
+  }
+
+  /**
+   * Search for emails based on criteria - implements IEmailCapabilities interface
+   */
+  async searchEmails(criteria: EmailSearchCriteria, connectionId: string, agentId: string): Promise<EmailMessage[]> {
+    // Use parent class permission validation
+    const validation = await super.searchEmails(criteria, connectionId, agentId).catch(() => ({ length: 0 }));
+
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
+      const accountId = await this.getAccountId(client);
+
+      const params: any = {
+        limit: criteria.maxResults || 50,
+        start: criteria.pageToken ? parseInt(criteria.pageToken) : 0
+      };
+
+      // Add search criteria
+      if (criteria.query) {
+        params.searchKey = criteria.query;
+      }
+
+      // Handle folder/label search with INBOX-only default behavior
+      if (criteria.labels && criteria.labels.length > 0) {
+        // Map common labels to Zoho folder names
+        const folderMap: Record<string, string> = {
+          'INBOX': 'Inbox',
+          'SENT': 'Sent',
+          'DRAFT': 'Drafts',
+          'SPAM': 'Spam',
+          'TRASH': 'Trash'
+        };
+        params.folder = folderMap[criteria.labels[0]] || criteria.labels[0];
+      } else if (!criteria.searchAllFolders) {
+        // DEFAULT TO INBOX ONLY - consistent with Gmail behavior
+        // This prevents searching across all folders unless explicitly requested
+        params.folder = 'Inbox';
+      }
+      // If searchAllFolders is true, don't set folder param to search all folders
+
+      // Handle unread filter
+      if (criteria.isUnread !== undefined) {
+        params.status = criteria.isUnread ? 'unread' : 'read';
+      }
+
+      // Handle date filters
+      if (criteria.after) {
+        params.fromDate = criteria.after.toISOString().split('T')[0];
+      }
+      if (criteria.before) {
+        params.toDate = criteria.before.toISOString().split('T')[0];
+      }
+
+      console.log('Searching Zoho emails with params:', params);
+
+      // Get messages from Zoho Mail using search endpoint
+      const response = await client.get(`/accounts/${accountId}/messages/view`, { params });
+
+      if (response.data.status?.code !== 200) {
+        throw new Error(response.data.status?.description || 'Failed to search emails');
+      }
+
+      const messages = response.data.data || [];
+
+      // Convert Zoho messages to EmailMessage format
+      const emails: EmailMessage[] = await Promise.all(
+        messages.map(async (msg: any) => this.convertZohoToEmailMessage(msg))
+      );
+
+      return emails;
+    } catch (error) {
+      console.error('Zoho email search error:', error);
+      throw new Error(`Failed to search emails: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Convert Zoho message to EmailMessage format
+   */
+  private convertZohoToEmailMessage(zohoMsg: any): EmailMessage {
+    const headers = [
+      { name: 'From', value: zohoMsg.fromAddress || zohoMsg.sender || '' },
+      { name: 'To', value: zohoMsg.toAddress || zohoMsg.recipient || '' },
+      { name: 'Subject', value: zohoMsg.subject || '' },
+      { name: 'Date', value: zohoMsg.receivedTime || zohoMsg.sentTime || new Date().toISOString() }
+    ];
+
+    if (zohoMsg.ccAddress) {
+      headers.push({ name: 'Cc', value: zohoMsg.ccAddress });
+    }
+
+    const getHeader = (name: string) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+    return {
+      id: zohoMsg.messageId || zohoMsg.mid || '',
+      threadId: zohoMsg.conversationId || zohoMsg.cid || '',
+      subject: getHeader('Subject'),
+      from: getHeader('From'),
+      to: getHeader('To').split(',').map((email: string) => email.trim()).filter(Boolean),
+      cc: getHeader('Cc').split(',').map((email: string) => email.trim()).filter(Boolean),
+      body: zohoMsg.content || zohoMsg.summary || '',
+      date: new Date(zohoMsg.receivedTime || zohoMsg.sentTime || Date.now()),
+      isRead: zohoMsg.status !== 'unread',
+      isImportant: zohoMsg.priority === 'high' || zohoMsg.priority === 'urgent',
+      labels: [zohoMsg.folder || 'INBOX']
+    };
   }
 
   /**
@@ -219,6 +326,10 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
           'TRASH': 'Trash'
         };
         params.folder = folderMap[query.labelIds[0]] || query.labelIds[0];
+      } else {
+        // DEFAULT TO INBOX ONLY - consistent with Gmail behavior
+        // This prevents searching across all folders unless explicitly requested
+        params.folder = 'Inbox';
       }
 
       console.log('Reading emails from Zoho Mail API:', {
