@@ -94,12 +94,11 @@ import { EnhancedWorkspaceAgentIntegration } from '../../services/workspace/inte
 import { WorkspaceAgentIntegration } from '../../services/workspace/integration/WorkspaceAgentIntegration';
 
 // Import ACG services - Phase 7 Integration
-import { IContentGenerationService } from '../../services/acg/interfaces/IContentGenerationService';
-import { WorkspaceACGIntegration } from '../../services/acg/integration/WorkspaceACGIntegration';
 import { DefaultContentGenerationService } from '../../services/acg/core/DefaultContentGenerationService';
-import { EmailContentGenerator } from '../../services/acg/generators/email/EmailContentGenerator';
 import { DocumentContentGenerator } from '../../services/acg/generators/document/DocumentContentGenerator';
-import { ContentType } from '../../services/acg/types/ContentGenerationTypes';
+import { EmailContentGenerator } from '../../services/acg/generators/email/EmailContentGenerator';
+import { WorkspaceACGIntegration } from '../../services/acg/integration/WorkspaceACGIntegration';
+import { IContentGenerationService } from '../../services/acg/interfaces/IContentGenerationService';
 import { WorkspaceNLPProcessor } from '../../services/workspace/integration/WorkspaceNLPProcessor';
 
 // Import visualization components
@@ -124,7 +123,15 @@ import { DefaultErrorClassificationEngine } from '../../services/errors/ErrorCla
 import { DefaultErrorNotificationService } from '../../services/errors/ErrorNotificationService';
 import { DefaultRecoveryStrategyManager } from '../../services/errors/RecoveryStrategyManager';
 
+// Import tool name constants - NO STRING LITERALS 
+import {
+  CALENDAR_TOOL_NAMES,
+  EMAIL_TOOL_NAMES
+} from '../../constants/tool-names';
+
 // Import tool response formatter
+
+// Import tool name constants - NO STRING LITERALS 
 
 // Agent status constants
 const AGENT_STATUS = {
@@ -3067,15 +3074,15 @@ Please provide a helpful, contextual response based on this analysis and memory 
           // FALLBACK: If no tools found yet, manually add common workspace tools if we have valid connections
           if (allToolNames.length === 0) {
             this.logger.warn('No workspace tools found via methods, adding fallback workspace tools');
-            // Add basic workspace tools that should be available if workspace is integrated
+            // Add basic workspace tools that should be available if workspace is integrated - NO STRING LITERALS
             const fallbackWorkspaceTools = [
-              'send_email',
-              'smart_send_email',
-              'read_email',
-              'find_important_emails',
-              'read_calendar',
-              'schedule_event',
-              'find_availability'
+              EMAIL_TOOL_NAMES.SEND_EMAIL,
+              EMAIL_TOOL_NAMES.SMART_SEND_EMAIL,
+              'read_email', // TODO: Add to constants
+              EMAIL_TOOL_NAMES.FIND_IMPORTANT_EMAILS,
+              CALENDAR_TOOL_NAMES.READ_CALENDAR,
+              CALENDAR_TOOL_NAMES.SCHEDULE_EVENT,
+              CALENDAR_TOOL_NAMES.FIND_AVAILABILITY
             ];
             allToolNames.push(...fallbackWorkspaceTools);
             this.logger.info('✅ Added fallback workspace tools', {
@@ -3088,11 +3095,11 @@ Please provide a helpful, contextual response based on this analysis and memory 
             error: error instanceof Error ? error.message : String(error)
           });
 
-          // Even if there's an error, add basic workspace tools as fallback
+          // Even if there's an error, add basic workspace tools as fallback - NO STRING LITERALS
           const fallbackWorkspaceTools = [
-            'send_email',
-            'smart_send_email',
-            'read_email'
+            EMAIL_TOOL_NAMES.SEND_EMAIL,
+            EMAIL_TOOL_NAMES.SMART_SEND_EMAIL,
+            'read_email' // TODO: Add to constants
           ];
           allToolNames.push(...fallbackWorkspaceTools);
           this.logger.info('✅ Added error fallback workspace tools', {
@@ -3724,7 +3731,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
     // Tool-specific parameter extraction
     switch (toolName.toLowerCase()) {
       case 'sendemail':
-      case 'send_email':
+      case EMAIL_TOOL_NAMES.SEND_EMAIL:
         // Extract email components
         const emailMatch = message.match(/(?:to|email|send)\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
         if (emailMatch) {

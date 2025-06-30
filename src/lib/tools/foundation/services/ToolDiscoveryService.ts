@@ -17,23 +17,23 @@
  * - Tool similarity matching and substitution
  */
 
-import { IUnifiedToolRegistry } from '../interfaces/UnifiedToolRegistryInterface';
+import { ulid } from 'ulid';
+import { EMAIL_TOOL_NAMES, SPREADSHEET_TOOL_NAMES } from '../../../../constants/tool-names';
+import { IStructuredLogger } from '../../../logging/interfaces/IStructuredLogger';
+import { ToolCapability, ToolCategory } from '../enums/ToolEnums';
+import { ToolDiscoveryError } from '../errors/ToolFoundationErrors';
 import { ICrossSystemToolDiscovery } from '../interfaces/ICrossSystemToolDiscovery';
+import { IUnifiedToolRegistry } from '../interfaces/UnifiedToolRegistryInterface';
 import {
-  UnifiedTool,
-  ToolDiscoveryCriteria,
+  ExecutionContext,
   SearchContext,
+  ToolDiscoveryCriteria,
+  ToolDiscoveryMethod,
+  ToolRecommendation,
   ToolSearchResult,
   ToolSimilarity,
-  ToolRecommendation,
-  ToolDiscoveryMethod,
-  ExecutionContext,
-  ToolParameters
+  UnifiedTool
 } from '../types/FoundationTypes';
-import { ToolCategory, ToolCapability } from '../enums/ToolEnums';
-import { IStructuredLogger } from '../../../logging/interfaces/IStructuredLogger';
-import { ToolDiscoveryError } from '../errors/ToolFoundationErrors';
-import { ulid } from 'ulid';
 
 /**
  * Cross-system workflow template for tool chaining
@@ -86,8 +86,8 @@ export class ToolDiscoveryService implements ICrossSystemToolDiscovery {
       description: 'Send email campaigns and track engagement using thinking system analytics',
       systems: [ToolCategory.WORKSPACE, ToolCategory.THINKING],
       toolChain: [
-        { toolName: 'send_email', system: ToolCategory.WORKSPACE },
-        { toolName: 'content_analysis', system: ToolCategory.THINKING, dependsOn: ['send_email'] }
+        { toolName: EMAIL_TOOL_NAMES.SEND_EMAIL, system: ToolCategory.WORKSPACE },
+        { toolName: 'content_analysis', system: ToolCategory.THINKING, dependsOn: [EMAIL_TOOL_NAMES.SEND_EMAIL] }
       ],
       useCases: ['email marketing', 'campaign analysis', 'engagement tracking']
     },
@@ -98,7 +98,7 @@ export class ToolDiscoveryService implements ICrossSystemToolDiscovery {
       systems: [ToolCategory.THINKING, ToolCategory.WORKSPACE],
       toolChain: [
         { toolName: 'web_search', system: ToolCategory.THINKING },
-        { toolName: 'create_spreadsheet', system: ToolCategory.WORKSPACE, dependsOn: ['web_search'] }
+        { toolName: SPREADSHEET_TOOL_NAMES.CREATE_SPREADSHEET, system: ToolCategory.WORKSPACE, dependsOn: ['web_search'] }
       ],
       useCases: ['research documentation', 'data compilation', 'report generation']
     }
@@ -1080,5 +1080,57 @@ export class ToolDiscoveryService implements ICrossSystemToolDiscovery {
     });
 
     return sorted;
+  }
+
+  // ==================== Service Lifecycle Methods ====================
+
+  /**
+   * Initialize the discovery service
+   */
+  async initialize(): Promise<boolean> {
+    try {
+      this.logger.info('Initializing Tool Discovery Service');
+      // Discovery service is ready to use immediately
+      this.logger.info('Tool Discovery Service initialized successfully');
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to initialize Tool Discovery Service', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Shutdown the discovery service gracefully
+   */
+  async shutdown(): Promise<boolean> {
+    try {
+      this.logger.info('Shutting down Tool Discovery Service');
+      // No cleanup needed for discovery service
+      this.logger.info('Tool Discovery Service shutdown complete');
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to shutdown Tool Discovery Service', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Check if discovery service is healthy
+   */
+  async isHealthy(): Promise<boolean> {
+    try {
+      // Basic health check - verify registry is accessible
+      await this.registry.getAllTools();
+      return true;
+    } catch (error) {
+      this.logger.error('Tool Discovery Service health check failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return false;
+    }
   }
 } 

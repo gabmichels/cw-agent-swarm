@@ -229,27 +229,16 @@ export class DefaultRecoveryStrategyManager implements IRecoveryStrategyManager 
           continue;
         }
 
-        // Max retries reached - try fallback strategies
+        // Max retries reached - NO FALLBACK EXECUTORS - Log and escalate properly
         if (config.fallbackEnabled && !fallbackUsed) {
-          this.logger.info('Attempting fallback strategy', {
+          this.logger.error('All retry attempts failed, escalating error', {
             errorType,
-            context
+            context,
+            attempts: attemptNumber,
+            lastError: lastError?.message
           });
-
-          try {
-            const fallbackResult = await this.executeFallbackStrategy(
-              operation,
-              errorType,
-              context
-            );
-            fallbackUsed = true;
-            return fallbackResult;
-          } catch (fallbackError) {
-            this.logger.warn('Fallback strategy failed', {
-              errorType,
-              error: (fallbackError as Error).message
-            });
-          }
+          // Set fallbackUsed to true to avoid the check later, but don't hide the error
+          fallbackUsed = true;
         }
 
         // Try graceful degradation
@@ -373,29 +362,8 @@ export class DefaultRecoveryStrategyManager implements IRecoveryStrategyManager 
     return state;
   }
 
-  /**
-   * Execute fallback strategy for failed operations
-   */
-  private async executeFallbackStrategy<T>(
-    operation: () => Promise<T>,
-    errorType: ErrorType,
-    context: Record<string, unknown>
-  ): Promise<T> {
-    // Implement type-specific fallback strategies
-    switch (errorType) {
-      case ErrorType.TOOL_EXECUTION:
-        return this.executeToolFallback(operation, context);
-
-      case ErrorType.API_FAILURE:
-        return this.executeApiFallback(operation, context);
-
-      case ErrorType.WORKSPACE_CONNECTION:
-        return this.executeWorkspaceFallback(operation, context);
-
-      default:
-        throw new Error('No fallback strategy available');
-    }
-  }
+  // REMOVED: executeFallbackStrategy - NO FALLBACK EXECUTORS
+  // All errors should be handled properly with context and suggestions
 
   /**
    * Execute with graceful degradation
@@ -416,47 +384,11 @@ export class DefaultRecoveryStrategyManager implements IRecoveryStrategyManager 
     throw new Error('Graceful degradation not implemented for this operation');
   }
 
-  /**
-   * Tool execution fallback strategy
-   */
-  private async executeToolFallback<T>(
-    operation: () => Promise<T>,
-    context: Record<string, unknown>
-  ): Promise<T> {
-    // Try alternative tool or simplified operation
-    this.logger.info('Attempting tool fallback', { context });
-
-    // This would implement tool-specific fallback logic
-    throw new Error('Tool fallback not implemented');
-  }
-
-  /**
-   * API failure fallback strategy
-   */
-  private async executeApiFallback<T>(
-    operation: () => Promise<T>,
-    context: Record<string, unknown>
-  ): Promise<T> {
-    // Try cached data or alternative API
-    this.logger.info('Attempting API fallback', { context });
-
-    // This would implement API-specific fallback logic
-    throw new Error('API fallback not implemented');
-  }
-
-  /**
-   * Workspace connection fallback strategy
-   */
-  private async executeWorkspaceFallback<T>(
-    operation: () => Promise<T>,
-    context: Record<string, unknown>
-  ): Promise<T> {
-    // Try token refresh or alternative connection
-    this.logger.info('Attempting workspace fallback', { context });
-
-    // This would implement workspace-specific fallback logic
-    throw new Error('Workspace fallback not implemented');
-  }
+  // REMOVED: All fallback strategy methods - NO FALLBACK EXECUTORS
+  // - executeToolFallback
+  // - executeApiFallback  
+  // - executeWorkspaceFallback
+  // All errors should be handled properly with context and escalated appropriately
 
   /**
    * Sleep for specified milliseconds
@@ -508,8 +440,8 @@ export class DefaultRecoveryStrategyManager implements IRecoveryStrategyManager 
         strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
         circuitBreakerThreshold: 5,
         circuitBreakerWindow: 10,
-        fallbackEnabled: true,
-        gracefulDegradation: true
+        fallbackEnabled: false, // NO FALLBACK EXECUTORS
+        gracefulDegradation: false
       }],
 
       [ErrorType.API_FAILURE, {
@@ -520,7 +452,7 @@ export class DefaultRecoveryStrategyManager implements IRecoveryStrategyManager 
         strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
         circuitBreakerThreshold: 10,
         circuitBreakerWindow: 5,
-        fallbackEnabled: true,
+        fallbackEnabled: false, // NO FALLBACK EXECUTORS
         gracefulDegradation: false
       }],
 
@@ -556,7 +488,7 @@ export class DefaultRecoveryStrategyManager implements IRecoveryStrategyManager 
         strategy: RetryStrategy.EXPONENTIAL_BACKOFF,
         circuitBreakerThreshold: 3,
         circuitBreakerWindow: 10,
-        fallbackEnabled: true,
+        fallbackEnabled: false, // NO FALLBACK EXECUTORS
         gracefulDegradation: false
       }],
 

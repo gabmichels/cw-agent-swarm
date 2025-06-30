@@ -5,18 +5,17 @@
  * replacing fallback executors with actual workspace tool execution.
  */
 
-import { ToolService } from './ToolService';
-import { WorkspaceAgentTools } from '../../workspace/tools/WorkspaceAgentTools';
 import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
-import { createLogger } from '../../../lib/logging/winston-logger';
 import {
-  EMAIL_TOOL_NAMES,
   CALENDAR_TOOL_NAMES,
-  SPREADSHEET_TOOL_NAMES,
-  FILE_TOOL_NAMES,
   CONNECTION_TOOL_NAMES,
-  ALL_WORKSPACE_TOOL_NAME_LIST
+  EMAIL_TOOL_NAMES,
+  FILE_TOOL_NAMES,
+  SPREADSHEET_TOOL_NAMES
 } from '../../../constants/tool-names';
+import { createLogger } from '../../../lib/logging/winston-logger';
+import { WorkspaceAgentTools } from '../../workspace/tools/WorkspaceAgentTools';
+import { ToolService } from './ToolService';
 
 export interface WorkspaceToolExecutorBridgeConfig {
   /** Whether to enable debug logging */
@@ -214,9 +213,9 @@ export class WorkspaceToolExecutorBridge {
         toolName.replace(/_/g, ' ').toLowerCase(),
         toolName.toLowerCase(),
         toolName.toUpperCase(),
-        // Also try with "Smart" prefix for email tools
-        toolName.startsWith('send_email') ? 'smart_send_email' : null,
-        toolName.startsWith('send_email') ? 'Smart Send Email' : null
+        // Also try with "Smart" prefix for email tools - NO STRING LITERALS
+        toolName.startsWith(EMAIL_TOOL_NAMES.SEND_EMAIL) ? EMAIL_TOOL_NAMES.SMART_SEND_EMAIL : null,
+        toolName.startsWith(EMAIL_TOOL_NAMES.SEND_EMAIL) ? 'Smart Send Email' : null
       ].filter(Boolean);
 
       let foundTool: any = null;

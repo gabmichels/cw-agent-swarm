@@ -1,8 +1,8 @@
-import { IToolService, Tool as IToolBase, ToolExecutionOptions, ToolExecutionResult as IToolExecutionResult, ToolDiscoveryOptions, ToolFeedback, ToolParameter } from '../../../interfaces/tools';
 import { IdGenerator } from '@/utils/ulid';
-import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { ChatOpenAI } from '@langchain/openai';
 import { ApifyWebSearchTool } from '../../../agents/shared/tools/web/ApifyWebSearchTool';
+import { Tool as IToolBase, ToolExecutionResult as IToolExecutionResult, IToolService, ToolDiscoveryOptions, ToolExecutionOptions, ToolFeedback, ToolParameter } from '../../../interfaces/tools';
 
 /**
  * Extended tool definition
@@ -69,27 +69,27 @@ export class ToolService implements IToolService {
    * Registry of available tools
    */
   private tools: Map<string, IToolBase> = new Map();
-  
+
   /**
    * Tool execution handlers
    */
   private executors: Map<string, (params: Record<string, unknown>) => Promise<unknown>> = new Map();
-  
+
   /**
    * Tool usage history for feedback and recommendations
    */
   private toolUsage: Map<string, ExtendedToolFeedback[]> = new Map();
-  
+
   /**
    * Intent to tool mapping for quick recommendations
    */
   private intentToolMapping: Map<string, Map<string, number>> = new Map();
-  
+
   /**
    * LLM for tool discovery
    */
   private llm: ChatOpenAI;
-  
+
   /**
    * Constructor
    */
@@ -98,11 +98,11 @@ export class ToolService implements IToolService {
       modelName: process.env.OPENAI_CHEAP_MODEL || "gpt-4.1-nano-2025-04-14",
       temperature: 0.1
     });
-    
+
     // Register built-in tools
     this.registerBuiltInTools();
   }
-  
+
   /**
    * Register built-in tools
    */
@@ -148,7 +148,7 @@ export class ToolService implements IToolService {
       isEnabled: true,
       version: '1.0.0'
     });
-    
+
     // Web Search Tool
     this.registerTool({
       name: 'Web Search',
@@ -183,7 +183,7 @@ export class ToolService implements IToolService {
       isEnabled: true,
       version: '1.0.0'
     });
-    
+
     // Text Analysis Tool
     this.registerTool({
       name: 'Text Analysis',
@@ -218,32 +218,32 @@ export class ToolService implements IToolService {
       isEnabled: true,
       version: '1.0.0'
     });
-    
+
     // Register executors for these tools
     this.executors.set('file-search', this.executeFileSearch.bind(this));
     this.executors.set('web-search', this.executeWebSearch.bind(this));
     this.executors.set('text-analysis', this.executeTextAnalysis.bind(this));
   }
-  
+
   /**
    * Register a new tool
    */
   async registerTool(toolBase: Omit<IToolBase, 'id'>): Promise<string> {
     // Generate ID for the tool
     const id = String(IdGenerator.generate('tool'));
-    
+
     // Create tool with ID
     const tool: IToolBase = {
       ...toolBase,
       id
     };
-    
+
     // Add the tool to the registry
     this.tools.set(id, tool);
-    
+
     return id;
   }
-  
+
   /**
    * Register a tool executor
    */
@@ -253,14 +253,14 @@ export class ToolService implements IToolService {
   ): void {
     this.executors.set(toolId, executor);
   }
-  
+
   /**
    * Get all registered tools
    */
   async getAllTools(): Promise<IToolBase[]> {
     return Array.from(this.tools.values());
   }
-  
+
   /**
    * Execute a tool
    */
@@ -269,37 +269,44 @@ export class ToolService implements IToolService {
     if (!tool) {
       throw new Error(`Tool ${options.toolId} not found`);
     }
-    
+
     const executor = this.executors.get(options.toolId);
     if (!executor) {
-      console.warn(`No executor found in registry for ${options.toolId}, using fallback executor`);
-      // Use a fallback executor instead of failing
-      return this.executeFallbackTool(options.toolId, options.parameters);
+      // NO FALLBACK EXECUTORS - Throw proper error with suggestions
+      const availableTools = Array.from(this.tools.keys());
+      const suggestions = availableTools.filter(id => id.includes(options.toolId.toLowerCase()) ||
+        options.toolId.toLowerCase().includes(id.toLowerCase())).slice(0, 3);
+
+      throw new Error(
+        `No executor found for tool '${options.toolId}'. ` +
+        `Available tools: ${availableTools.join(', ')}` +
+        (suggestions.length > 0 ? `. Did you mean: ${suggestions.join(', ')}?` : '')
+      );
     }
-    
+
     const startTime = new Date();
-    
+
     try {
       // Validate parameters
       this.validateParameters(tool, options.parameters);
-      
+
       // Execute tool
       const output = await executor(options.parameters);
-      
+
       const endTime = new Date();
-      
+
       // Update tool metadata
       if (tool.metadata) {
         tool.metadata.lastUsed = startTime.toISOString();
         tool.metadata.usageCount++;
-        tool.metadata.averageExecutionTime = 
-          (tool.metadata.averageExecutionTime * (tool.metadata.usageCount - 1) + 
-           (endTime.getTime() - startTime.getTime())) / tool.metadata.usageCount;
-        tool.metadata.successRate = 
-          (tool.metadata.successRate * (tool.metadata.usageCount - 1) + 1) / 
+        tool.metadata.averageExecutionTime =
+          (tool.metadata.averageExecutionTime * (tool.metadata.usageCount - 1) +
+            (endTime.getTime() - startTime.getTime())) / tool.metadata.usageCount;
+        tool.metadata.successRate =
+          (tool.metadata.successRate * (tool.metadata.usageCount - 1) + 1) /
           tool.metadata.usageCount;
       }
-      
+
       return {
         success: true,
         output,
@@ -311,27 +318,27 @@ export class ToolService implements IToolService {
           parameters: options.parameters
         }
       };
-      
+
     } catch (error) {
       const endTime = new Date();
-      
+
       // Update tool metadata on failure
       if (tool.metadata) {
         tool.metadata.lastUsed = startTime.toISOString();
         tool.metadata.usageCount++;
-        tool.metadata.averageExecutionTime = 
-          (tool.metadata.averageExecutionTime * (tool.metadata.usageCount - 1) + 
-           (endTime.getTime() - startTime.getTime())) / tool.metadata.usageCount;
+        tool.metadata.averageExecutionTime =
+          (tool.metadata.averageExecutionTime * (tool.metadata.usageCount - 1) +
+            (endTime.getTime() - startTime.getTime())) / tool.metadata.usageCount;
         // Decrease success rate on failure
-        tool.metadata.successRate = 
-          (tool.metadata.successRate * (tool.metadata.usageCount - 1)) / 
+        tool.metadata.successRate =
+          (tool.metadata.successRate * (tool.metadata.usageCount - 1)) /
           tool.metadata.usageCount;
         // Store the error for debugging
         if (typeof tool.metadata === 'object') {
           (tool.metadata as any).lastError = error instanceof Error ? error.message : String(error);
         }
       }
-      
+
       return {
         success: false,
         output: null, // Required by the interface, even for errors
@@ -346,56 +353,7 @@ export class ToolService implements IToolService {
       };
     }
   }
-  
-  /**
-   * Execute a tool using a fallback when no specific executor is available
-   */
-  private async executeFallbackTool(
-    toolId: string, 
-    parameters: Record<string, unknown>
-  ): Promise<IToolExecutionResult> {
-    const startTime = new Date();
-    
-    try {
-      // Log the attempt with parameters
-      console.log(`Using fallback executor for tool ${toolId} with parameters:`, parameters);
-      
-      // Return a successful but simulated result
-      const endTime = new Date();
-      
-      return {
-        success: true,
-        output: {
-          simulated: true,
-          message: `Tool ${toolId} execution simulated successfully`,
-          parameters
-        },
-        duration: endTime.getTime() - startTime.getTime(),
-        metadata: {
-          toolId,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
-          parameters
-        }
-      };
-    } catch (error) {
-      const endTime = new Date();
-      
-      return {
-        success: false,
-        output: null, // Required by the interface
-        error: error instanceof Error ? error.message : String(error),
-        duration: endTime.getTime() - startTime.getTime(),
-        metadata: {
-          toolId,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
-          parameters
-        }
-      };
-    }
-  }
-  
+
   /**
    * Validate tool parameters
    */
@@ -406,21 +364,21 @@ export class ToolService implements IToolService {
     if (!tool.parameters) {
       return;
     }
-    
+
     // Check required parameters
     for (const [name, param] of Object.entries(tool.parameters)) {
       if (param.required && !(name in parameters)) {
         throw new Error(`Missing required parameter: ${name}`);
       }
     }
-    
+
     // Check parameter types (basic validation)
     for (const [name, value] of Object.entries(parameters)) {
       const param = tool.parameters[name];
       if (!param) {
         throw new Error(`Unknown parameter: ${name}`);
       }
-      
+
       // Basic type checking
       switch (param.type) {
         case 'string':
@@ -451,7 +409,7 @@ export class ToolService implements IToolService {
       }
     }
   }
-  
+
   /**
    * Discover tools suitable for an intent
    */
@@ -461,35 +419,35 @@ export class ToolService implements IToolService {
       if (options.intent) {
         try {
           const recommendations = await this.getRecommendedTools(options.intent);
-          
+
           // If we have good recommendations and they meet our criteria, use them
           if (recommendations.length > 0) {
             // Filter recommendations based on provided capabilities and categories
             let filteredRecommendations = recommendations;
-            
+
             if (options.requiredCapabilities && options.requiredCapabilities.length > 0) {
-              filteredRecommendations = filteredRecommendations.filter(rec => 
-                rec.tool.requiredCapabilities?.every(cap => 
+              filteredRecommendations = filteredRecommendations.filter(rec =>
+                rec.tool.requiredCapabilities?.every(cap =>
                   options.requiredCapabilities!.includes(cap)
                 ) ?? false
               );
             }
-            
+
             if (options.categories && options.categories.length > 0) {
-              filteredRecommendations = filteredRecommendations.filter(rec => 
-                rec.tool.categories?.some(cat => 
+              filteredRecommendations = filteredRecommendations.filter(rec =>
+                rec.tool.categories?.some(cat =>
                   options.categories!.includes(cat)
                 ) ?? false
               );
             }
-            
+
             // If we still have recommendations after filtering
             if (filteredRecommendations.length > 0) {
               // Apply limit
-              const limitedRecommendations = options.limit 
+              const limitedRecommendations = options.limit
                 ? filteredRecommendations.slice(0, options.limit)
                 : filteredRecommendations;
-              
+
               // Extract just the tools
               return limitedRecommendations.map(rec => rec.tool);
             }
@@ -499,54 +457,54 @@ export class ToolService implements IToolService {
           // Fall back to normal discovery if recommendations fail
         }
       }
-      
+
       // Get all tools
       const allTools = await this.getAllTools();
-      
+
       // Apply capability filter if provided
       let filteredTools = allTools;
       if (options.requiredCapabilities && options.requiredCapabilities.length > 0) {
-        filteredTools = filteredTools.filter(tool => 
-          tool.requiredCapabilities?.every(cap => 
+        filteredTools = filteredTools.filter(tool =>
+          tool.requiredCapabilities?.every(cap =>
             options.requiredCapabilities!.includes(cap)
           ) ?? false
         );
       }
-      
+
       // Apply category filter if provided
       if (options.categories && options.categories.length > 0) {
-        filteredTools = filteredTools.filter(tool => 
-          tool.categories?.some(cat => 
+        filteredTools = filteredTools.filter(tool =>
+          tool.categories?.some(cat =>
             options.categories!.includes(cat)
           ) ?? false
         );
       }
-      
+
       // If we have a small number of tools, use LLM to rank them
       if (filteredTools.length > 0 && filteredTools.length <= 10 && options.intent) {
         // Use LLM to match intent to tools
         const rankedTools = await this.rankToolsForIntent(options.intent, filteredTools);
-        
+
         // Apply limit if provided
         if (options.limit && options.limit < rankedTools.length) {
           return rankedTools.slice(0, options.limit);
         }
-        
+
         return rankedTools;
       }
-      
+
       // If we have too many tools or no tools, just return the filtered list
       if (options.limit && options.limit < filteredTools.length) {
         return filteredTools.slice(0, options.limit);
       }
-      
+
       return filteredTools;
     } catch (error) {
       console.error('Error discovering tools:', error);
       return [];
     }
   }
-  
+
   /**
    * Use LLM to rank tools based on relevance to intent
    */
@@ -582,28 +540,28 @@ Rank these tools based on their relevance to the user's intent, from most releva
         new SystemMessage(systemPrompt),
         new HumanMessage(humanMessage)
       ];
-      
+
       // @ts-ignore - LangChain types may not be up to date
       const response = await this.llm.call(messages);
-      
+
       // Parse the response
       const content = response.content.toString();
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      
+
       if (jsonMatch) {
         const rankingData = JSON.parse(jsonMatch[0]);
-        
+
         if (rankingData.rankedToolIds && Array.isArray(rankingData.rankedToolIds)) {
           // Map IDs back to tools, maintaining order
           const toolMap = new Map<string, Tool>();
           tools.forEach(tool => toolMap.set(tool.id, tool));
-          
+
           return rankingData.rankedToolIds
             .filter((id: string) => toolMap.has(id))
             .map((id: string) => toolMap.get(id)!);
         }
       }
-      
+
       // Fallback to the original list if parsing fails
       return tools;
     } catch (error) {
@@ -611,7 +569,7 @@ Rank these tools based on their relevance to the user's intent, from most releva
       return tools;
     }
   }
-  
+
   /**
    * Create a chain of tools for a complex operation
    */
@@ -621,11 +579,11 @@ Rank these tools based on their relevance to the user's intent, from most releva
   ): Promise<Tool> {
     // Validate that all tools exist
     const allTools = await Promise.all(toolIds.map(id => this.getToolById(id)));
-    
+
     if (allTools.some(tool => tool === null)) {
       throw new Error('One or more tools in the chain do not exist');
     }
-    
+
     // Create a new composite tool
     const compositeTool: Omit<Tool, 'id'> = {
       name: `Tool Chain: ${allTools.filter(Boolean).map(t => t!.name).join(' → ')}`,
@@ -648,32 +606,32 @@ Rank these tools based on their relevance to the user's intent, from most releva
       isEnabled: true,
       version: '1.0.0'
     };
-    
+
     // Register the composite tool
     const compositeToolId = await this.registerTool(compositeTool);
-    
+
     // Register the executor for this composite tool
     this.executors.set(compositeToolId, async (params: Record<string, unknown>) => {
       let currentContext = { ...params };
-      
+
       let results = [];
-      
+
       // Execute each tool in sequence
       for (const toolId of toolIds) {
         // Map context to tool parameters based on contextMapping
         const toolParams: Record<string, unknown> = {};
-        
+
         // Get the tool
         const tool = await this.getToolById(toolId);
-        
+
         if (!tool) {
           throw new Error(`Tool ${toolId} not found in chain execution`);
         }
-        
+
         // Map parameters from context based on contextMapping
         for (const param of Object.values(tool.parameters)) {
           const mappingKey = `${toolId}.${param.name}`;
-          
+
           if (contextMapping[mappingKey]) {
             toolParams[param.name] = currentContext[contextMapping[mappingKey]];
           } else if (currentContext[param.name] !== undefined) {
@@ -682,39 +640,39 @@ Rank these tools based on their relevance to the user's intent, from most releva
             throw new Error(`Required parameter ${param.name} for tool ${tool.name} not available in context`);
           }
         }
-        
+
         // Execute the tool
         const result = await this.executeTool({
           toolId,
           parameters: toolParams
         });
-        
+
         if (!result.success) {
           throw new Error(`Error in tool chain at step ${tool.name}: ${result.error}`);
         }
-        
+
         // Add result to context for next tool
         currentContext = {
           ...currentContext,
           [`result_${toolId}`]: result.output,
           lastResult: result.output
         };
-        
+
         results.push({
           toolId,
           result: result.output
         });
       }
-      
+
       return {
         steps: results,
         finalResult: currentContext.lastResult
       };
     });
-    
+
     return (await this.getToolById(compositeToolId))!;
   }
-  
+
   /**
    * Get a tool by ID
    */
@@ -722,14 +680,14 @@ Rank these tools based on their relevance to the user's intent, from most releva
     const tool = this.tools.get(toolId);
     return tool || null;
   }
-  
+
   /**
    * File search tool implementation
    */
   private async executeFileSearch(params: Record<string, any>): Promise<any> {
     // Placeholder implementation
     console.log(`Executing file search with query: ${params.query}`);
-    
+
     // In a real implementation, this would connect to the FileRetriever service
     return {
       results: [
@@ -750,17 +708,17 @@ Rank these tools based on their relevance to the user's intent, from most releva
       totalMatches: 2
     };
   }
-  
+
   /**
    * Web search tool implementation
    */
   private async executeWebSearch(params: Record<string, any>): Promise<any> {
     const startTime = Date.now();
-    
+
     try {
       // Create an instance of ApifyWebSearchTool
       const webSearchTool = new ApifyWebSearchTool();
-      
+
       // Execute the search
       const result = await webSearchTool.execute({
         query: params.query,
@@ -768,7 +726,7 @@ Rank these tools based on their relevance to the user's intent, from most releva
         country: params.country || 'US',
         safeSearch: params.safeSearch !== false
       });
-      
+
       if (!result.success) {
         return {
           success: false,
@@ -776,13 +734,13 @@ Rank these tools based on their relevance to the user's intent, from most releva
           duration: Date.now() - startTime
         };
       }
-      
+
       return {
         success: true,
         output: result.data,
         duration: Date.now() - startTime
       };
-      
+
     } catch (error) {
       console.error('Error in web search:', error);
       return {
@@ -792,13 +750,13 @@ Rank these tools based on their relevance to the user's intent, from most releva
       };
     }
   }
-  
+
   /**
    * Text analysis tool implementation
    */
   private async executeTextAnalysis(params: Record<string, any>): Promise<any> {
     const startTime = Date.now();
-    
+
     try {
       const text = params.text;
       if (!text) {
@@ -810,7 +768,7 @@ Rank these tools based on their relevance to the user's intent, from most releva
       }
 
       const analysisTypes = params.analysisTypes || ['sentiment', 'entities', 'keywords'];
-      
+
       // Use cheap model for analysis
       const prompt = `Analyze the following text and provide results in JSON format with these aspects: ${analysisTypes.join(', ')}
 
@@ -826,7 +784,7 @@ Respond only with a JSON object containing the analysis results.`;
 
       const response = await this.llm.invoke(messages as any); // Type assertion needed due to LangChain types
       const content = response.content;
-      
+
       if (typeof content !== 'string') {
         throw new Error('Invalid response format from LLM');
       }
@@ -843,7 +801,7 @@ Respond only with a JSON object containing the analysis results.`;
         output: analysis,
         duration: Date.now() - startTime
       };
-      
+
     } catch (error) {
       console.error('Error in text analysis:', error);
       return {
@@ -853,7 +811,7 @@ Respond only with a JSON object containing the analysis results.`;
       };
     }
   }
-  
+
   /**
    * Record feedback about a tool execution
    */
@@ -861,35 +819,35 @@ Respond only with a JSON object containing the analysis results.`;
     try {
       // Validate that the tool exists
       const tool = await this.getToolById(feedback.toolId);
-      
+
       if (!tool) {
         console.error(`Cannot record feedback for unknown tool: ${feedback.toolId}`);
         return false;
       }
-      
+
       // Store the feedback
       if (!this.toolUsage.has(feedback.toolId)) {
         this.toolUsage.set(feedback.toolId, []);
       }
-      
+
       this.toolUsage.get(feedback.toolId)!.push(feedback);
-      
+
       // Update intent-tool mapping
       this.updateIntentToolMapping(
-        feedback.intent, 
+        feedback.intent,
         feedback.toolId,
         feedback.wasSuccessful && feedback.wasUseful
       );
-      
+
       console.log(`Recorded feedback for tool ${feedback.toolId} (successful: ${feedback.wasSuccessful}, useful: ${feedback.wasUseful})`);
-      
+
       return true;
     } catch (error) {
       console.error('Error recording tool feedback:', error);
       return false;
     }
   }
-  
+
   /**
    * Update the intent-to-tool mapping for quick recommendations
    */
@@ -897,16 +855,16 @@ Respond only with a JSON object containing the analysis results.`;
     if (!this.intentToolMapping.has(intent)) {
       this.intentToolMapping.set(intent, new Map<string, number>());
     }
-    
+
     const toolMapping = this.intentToolMapping.get(intent)!;
-    
+
     // Update score - increase if successful, decrease if not
     const currentScore = toolMapping.get(toolId) || 0;
     const newScore = wasSuccessful ? currentScore + 1 : Math.max(0, currentScore - 0.5);
-    
+
     toolMapping.set(toolId, newScore);
   }
-  
+
   /**
    * Get usage statistics for a tool
    */
@@ -914,14 +872,14 @@ Respond only with a JSON object containing the analysis results.`;
     try {
       // Check if tool exists
       const tool = await this.getToolById(toolId);
-      
+
       if (!tool) {
         return null;
       }
-      
+
       // Get usage data
       const usageData = this.toolUsage.get(toolId) || [];
-      
+
       if (usageData.length === 0) {
         return {
           totalExecutions: 0,
@@ -932,48 +890,48 @@ Respond only with a JSON object containing the analysis results.`;
           commonParameters: {}
         };
       }
-      
+
       // Calculate statistics
       const totalExecutions = usageData.length;
       const successfulExecutions = usageData.filter(usage => usage.wasSuccessful).length;
       const usefulExecutions = usageData.filter(usage => usage.wasUseful).length;
-      
+
       const totalExecutionTime = usageData.reduce((total, usage) => total + usage.executionTime, 0);
       const avgExecutionTime = totalExecutionTime / totalExecutions;
-      
+
       // Calculate top intents
       const intentCounts = new Map<string, number>();
-      
+
       for (const usage of usageData) {
         const currentCount = intentCounts.get(usage.intent) || 0;
         intentCounts.set(usage.intent, currentCount + 1);
       }
-      
+
       const topIntents = Array.from(intentCounts.entries())
         .map(([intent, count]) => ({ intent, count }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 5); // Top 5 intents
-      
+
       // Analyze common parameters
       const parameterValues: Record<string, any[]> = {};
-      
+
       for (const usage of usageData) {
         for (const [param, value] of Object.entries(usage.parameters)) {
           if (!parameterValues[param]) {
             parameterValues[param] = [];
           }
-          
+
           if (!parameterValues[param].includes(value)) {
             parameterValues[param].push(value);
           }
-          
+
           // Keep only the 10 most recent values
           if (parameterValues[param].length > 10) {
             parameterValues[param] = parameterValues[param].slice(-10);
           }
         }
       }
-      
+
       return {
         totalExecutions,
         successfulExecutions,
@@ -987,67 +945,67 @@ Respond only with a JSON object containing the analysis results.`;
       return null;
     }
   }
-  
+
   /**
    * Get recommended tools for an intent based on past usage
    */
-  async getRecommendedTools(intent: string, limit: number = 3): Promise<Array<{tool: Tool, score: number}>> {
+  async getRecommendedTools(intent: string, limit: number = 3): Promise<Array<{ tool: Tool, score: number }>> {
     try {
       // Check if we have direct mappings for this intent
       if (this.intentToolMapping.has(intent)) {
         const toolScores = this.intentToolMapping.get(intent)!;
-        
+
         // Get tools with scores
-        const recommendations: Array<{tool: Tool, score: number}> = [];
-        
+        const recommendations: Array<{ tool: Tool, score: number }> = [];
+
         for (const [toolId, score] of Array.from(toolScores.entries())) {
           const tool = await this.getToolById(toolId);
-          
+
           if (tool && score > 0) {
             recommendations.push({ tool, score });
           }
         }
-        
+
         // Sort by score and apply limit
         return recommendations
           .sort((a, b) => b.score - a.score)
           .slice(0, limit);
       }
-      
+
       // If we don't have direct mappings, try semantic matching with similar intents
       // This is a simplified approach - in a production system, you would use embeddings
-      
+
       // Get all known intents
       const allIntents = Array.from(this.intentToolMapping.keys());
-      
+
       if (allIntents.length === 0) {
         return [];
       }
-      
+
       // Get the most similar intent using the LLM
       const mostSimilarIntent = await this.findSimilarIntent(intent, allIntents);
-      
+
       if (mostSimilarIntent && this.intentToolMapping.has(mostSimilarIntent)) {
         const toolScores = this.intentToolMapping.get(mostSimilarIntent)!;
-        
+
         // Get tools with scores, but with a penalty for using semantic matching
-        const recommendations: Array<{tool: Tool, score: number}> = [];
-        
+        const recommendations: Array<{ tool: Tool, score: number }> = [];
+
         for (const [toolId, score] of Array.from(toolScores.entries())) {
           const tool = await this.getToolById(toolId);
-          
+
           if (tool && score > 0) {
             // Apply a 20% penalty for semantic matching vs. exact match
             recommendations.push({ tool, score: score * 0.8 });
           }
         }
-        
+
         // Sort by score and apply limit
         return recommendations
           .sort((a, b) => b.score - a.score)
           .slice(0, limit);
       }
-      
+
       // If all else fails, return empty list
       return [];
     } catch (error) {
@@ -1055,7 +1013,7 @@ Respond only with a JSON object containing the analysis results.`;
       return [];
     }
   }
-  
+
   /**
    * Find a semantically similar intent from a list of known intents
    */
@@ -1073,7 +1031,7 @@ are semantically similar (similarity less than 60%), respond with "NO_SIMILAR_IN
       const humanMessage = `New intent: "${newIntent}"
 
 Known intents:
-${knownIntents.map((intent, i) => `${i+1}. "${intent}"`).join('\n')}
+${knownIntents.map((intent, i) => `${i + 1}. "${intent}"`).join('\n')}
 
 Which of the known intents is most semantically similar to the new intent?`;
 
@@ -1082,25 +1040,25 @@ Which of the known intents is most semantically similar to the new intent?`;
         new SystemMessage(systemPrompt),
         new HumanMessage(humanMessage)
       ];
-      
+
       // @ts-ignore - LangChain types may not be up to date
       const response = await this.llm.call(messages);
-      
+
       // Parse the response
       const content = response.content.toString().trim();
-      
+
       // Check if no similar intent was found
       if (content === 'NO_SIMILAR_INTENT') {
         return null;
       }
-      
+
       // Check if the response matches one of our known intents
       for (const intent of knownIntents) {
         if (content.includes(intent)) {
           return intent;
         }
       }
-      
+
       // If we can't match the response to a known intent, just return the first one
       // This is a fallback and shouldn't happen often with a well-prompted LLM
       return knownIntents[0];

@@ -1,8 +1,7 @@
 import { IdGenerator } from '@/utils/ulid';
-import { Tool, ToolParameter, ToolExecutionResult } from './IToolService';
-import { ToolRegistry } from './ToolRegistry';
+import { Tool, ToolExecutionResult } from './IToolService';
+// Note: ToolRegistry replaced with foundation UnifiedToolRegistry
 import { ChatOpenAI } from '@langchain/openai';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 // Comment out glob import which uses node:events
 // import { glob } from 'glob';
 import { promises as fs } from 'fs';
@@ -16,7 +15,7 @@ const globBrowserSafe = async (pattern: string, options: any = {}): Promise<stri
     console.warn('glob is not supported in browser environment');
     return [];
   }
-  
+
   try {
     // Use dynamic import to avoid webpack bundling issues
     const { glob } = await import('glob');
@@ -35,52 +34,52 @@ export interface Plugin {
    * Unique ID for the plugin
    */
   id: string;
-  
+
   /**
    * Name of the plugin
    */
   name: string;
-  
+
   /**
    * Description of the plugin
    */
   description: string;
-  
+
   /**
    * Version of the plugin
    */
   version: string;
-  
+
   /**
    * Author of the plugin
    */
   author: string;
-  
+
   /**
    * Homepage or documentation URL
    */
   homepage?: string;
-  
+
   /**
    * Tools provided by this plugin
    */
   tools: Array<Tool>;
-  
+
   /**
    * List of other plugins this plugin depends on
    */
   dependencies?: Array<string>;
-  
+
   /**
    * Required environment variables
    */
   requiredEnvVars?: Array<string>;
-  
+
   /**
    * Callback to initialize the plugin
    */
   initialize?: () => Promise<boolean>;
-  
+
   /**
    * Callback to execute a tool
    */
@@ -89,12 +88,12 @@ export interface Plugin {
     parameters: Record<string, any>,
     context?: any
   ) => Promise<ToolExecutionResult>;
-  
+
   /**
    * Callback to clean up resources when the plugin is unloaded
    */
   cleanup?: () => Promise<void>;
-  
+
   /**
    * Metadata for the plugin
    */
@@ -104,7 +103,7 @@ export interface Plugin {
 /**
  * Plugin installation status
  */
-export type PluginStatus = 
+export type PluginStatus =
   | 'installed'
   | 'active'
   | 'inactive'
@@ -120,47 +119,47 @@ export interface PluginManifest {
    * Name of the plugin
    */
   name: string;
-  
+
   /**
    * Description of the plugin
    */
   description: string;
-  
+
   /**
    * Version of the plugin
    */
   version: string;
-  
+
   /**
    * Author of the plugin
    */
   author: string;
-  
+
   /**
    * Homepage or documentation URL
    */
   homepage?: string;
-  
+
   /**
    * Main entry point for the plugin
    */
   main: string;
-  
+
   /**
    * List of other plugins this plugin depends on
    */
   dependencies?: Array<string>;
-  
+
   /**
    * Required environment variables
    */
   requiredEnvVars?: Array<string>;
-  
+
   /**
    * Minimum supported agent version
    */
   minAgentVersion?: string;
-  
+
   /**
    * Maximum supported agent version
    */
@@ -175,39 +174,39 @@ export class PluginSystem {
    * Registry of loaded plugins
    */
   private plugins: Map<string, Plugin> = new Map();
-  
+
   /**
    * Plugin statuses
    */
   private pluginStatus: Map<string, PluginStatus> = new Map();
-  
+
   /**
    * Registry of available tools
    */
-  private toolRegistry: ToolRegistry;
-  
+  // private toolRegistry: ToolRegistry; // TODO: Replace with foundation
+
   /**
    * LLM for tool wrapping/marshaling
    */
   private llm: ChatOpenAI;
-  
+
   /**
    * Plugin directory paths
    */
   private pluginDirs: string[] = [];
-  
+
   /**
    * Constructor
    * @param toolRegistry Tool registry to register plugin tools with
    */
-  constructor(toolRegistry: ToolRegistry) {
-    this.toolRegistry = toolRegistry;
+  constructor(/* toolRegistry: ToolRegistry */) { // TODO: Replace with foundation
+    // this.toolRegistry = toolRegistry; // TODO: Replace with foundation
     this.llm = new ChatOpenAI({
       modelName: process.env.OPENAI_MODEL_NAME,
       temperature: 0.1
     });
   }
-  
+
   /**
    * Add a plugin directory to search for plugins
    * @param dir Directory path
@@ -217,7 +216,7 @@ export class PluginSystem {
       this.pluginDirs.push(dir);
     }
   }
-  
+
   /**
    * Discover plugins in the registered directories
    * @returns List of discovered plugin IDs
@@ -225,38 +224,38 @@ export class PluginSystem {
   async discoverPlugins(): Promise<string[]> {
     try {
       const discoveredPlugins: string[] = [];
-      
+
       // Search each directory
       for (const dir of this.pluginDirs) {
         // Look for plugin.json files
         const pluginPaths = await globBrowserSafe(`${dir}/**/plugin.json`, { nodir: true });
-        
+
         for (const manifestPath of pluginPaths) {
           try {
             // Load the manifest
             const manifestContent = await fs.readFile(manifestPath, 'utf-8');
             const manifest: PluginManifest = JSON.parse(manifestContent);
-            
+
             // Generate an ID for the plugin
             const pluginId = IdGenerator.generate('plugin').toString();
-            
+
             // Store the plugin ID
             discoveredPlugins.push(pluginId);
-            
+
             console.log(`Discovered plugin: ${manifest.name} (${pluginId})`);
           } catch (error) {
             console.error(`Error loading plugin manifest at ${manifestPath}:`, error);
           }
         }
       }
-      
+
       return discoveredPlugins;
     } catch (error) {
       console.error('Error discovering plugins:', error);
       return [];
     }
   }
-  
+
   /**
    * Load a plugin from a manifest file
    * @param manifestPath Path to the plugin manifest
@@ -265,20 +264,20 @@ export class PluginSystem {
   async loadPluginFromManifest(manifestPath: string): Promise<string | null> {
     try {
       console.log(`Loading plugin from ${manifestPath}`);
-      
+
       // Read and parse the manifest
       const manifestContent = await fs.readFile(manifestPath, 'utf-8');
       const manifest: PluginManifest = JSON.parse(manifestContent);
-      
+
       // Generate an ID for the plugin
       const pluginId = IdGenerator.generate('plugin').toString();
-      
+
       // Get directory containing the manifest
       const pluginDir = path.dirname(manifestPath);
-      
+
       // Get the plugin main file
       const mainFile = path.join(pluginDir, manifest.main);
-      
+
       // Check if the main file exists
       try {
         await fs.access(mainFile);
@@ -286,11 +285,11 @@ export class PluginSystem {
         console.error(`Plugin main file not found: ${mainFile}`);
         return null;
       }
-      
+
       // Load the plugin module
       // In a real implementation, this would use dynamic imports or require
       // For safety in this example, we'll just mock a successful load
-      
+
       // Create the plugin object (mock implementation)
       const plugin: Plugin = {
         id: pluginId,
@@ -302,7 +301,7 @@ export class PluginSystem {
         dependencies: manifest.dependencies || [],
         requiredEnvVars: manifest.requiredEnvVars || [],
         tools: [], // Will be populated during initialization
-        
+
         // Mock execution function
         async executeTool(toolId, parameters, context) {
           const startTime = new Date().toISOString();
@@ -337,20 +336,20 @@ export class PluginSystem {
           }
         }
       };
-      
+
       // Register the plugin
       this.plugins.set(pluginId, plugin);
       this.pluginStatus.set(pluginId, 'installed');
-      
+
       console.log(`Loaded plugin: ${manifest.name} (${pluginId})`);
-      
+
       return pluginId;
     } catch (error) {
       console.error(`Error loading plugin from ${manifestPath}:`, error);
       return null;
     }
   }
-  
+
   /**
    * Register a plugin manually
    * @param plugin Plugin to register
@@ -360,26 +359,26 @@ export class PluginSystem {
     try {
       // Generate an ID for the plugin
       const pluginId = IdGenerator.generate('plugin').toString();
-      
+
       // Create the full plugin object
       const fullPlugin: Plugin = {
         ...plugin,
         id: pluginId
       };
-      
+
       // Register the plugin
       this.plugins.set(pluginId, fullPlugin);
       this.pluginStatus.set(pluginId, 'installed');
-      
+
       console.log(`Registered plugin: ${plugin.name} (${pluginId})`);
-      
+
       return pluginId;
     } catch (error) {
       console.error(`Error registering plugin ${plugin.name}:`, error);
       throw error;
     }
   }
-  
+
   /**
    * Initialize a plugin
    * @param pluginId Plugin ID
@@ -392,9 +391,9 @@ export class PluginSystem {
         console.error(`Plugin ${pluginId} not found`);
         return false;
       }
-      
+
       const plugin = this.plugins.get(pluginId)!;
-      
+
       // Check dependencies
       if (plugin.dependencies && plugin.dependencies.length > 0) {
         for (const dependency of plugin.dependencies) {
@@ -405,7 +404,7 @@ export class PluginSystem {
           }
         }
       }
-      
+
       // Check required environment variables
       if (plugin.requiredEnvVars && plugin.requiredEnvVars.length > 0) {
         for (const envVar of plugin.requiredEnvVars) {
@@ -416,37 +415,40 @@ export class PluginSystem {
           }
         }
       }
-      
+
       // Initialize the plugin
       if (plugin.initialize) {
         const success = await plugin.initialize();
-        
+
         if (!success) {
           console.error(`Plugin ${pluginId} initialization failed`);
           this.pluginStatus.set(pluginId, 'error');
           return false;
         }
       }
-      
+
       // Register the plugin's tools
+      // TODO: Replace with foundation UnifiedToolRegistry
+      /*
       for (const tool of plugin.tools) {
         try {
           // Register the tool with the ToolRegistry
-          this.toolRegistry.registerExecutor(tool.id, async (params) => {
+          this.toolRegistry.registerExecutor(tool.id, async (params: Record<string, any>) => {
             return await plugin.executeTool(tool.id, params, {});
           });
-          
+
           console.log(`Registered tool ${tool.name} from plugin ${plugin.name}`);
         } catch (error) {
           console.error(`Error registering tool ${tool.name} from plugin ${plugin.name}:`, error);
         }
       }
-      
+      */
+
       // Mark the plugin as active
       this.pluginStatus.set(pluginId, 'active');
-      
+
       console.log(`Initialized plugin: ${plugin.name} (${pluginId})`);
-      
+
       return true;
     } catch (error) {
       console.error(`Error initializing plugin ${pluginId}:`, error);
@@ -454,7 +456,7 @@ export class PluginSystem {
       return false;
     }
   }
-  
+
   /**
    * Execute a tool from a plugin
    * @param pluginId Plugin ID
@@ -474,21 +476,21 @@ export class PluginSystem {
       if (!this.plugins.has(pluginId)) {
         throw new Error(`Plugin ${pluginId} not found`);
       }
-      
+
       // Check if plugin is active
       if (this.pluginStatus.get(pluginId) !== 'active') {
         throw new Error(`Plugin ${pluginId} is not active`);
       }
-      
+
       const plugin = this.plugins.get(pluginId)!;
-      
+
       // Execute the tool
       const result = await plugin.executeTool(toolId, parameters, context);
-      
+
       return result;
     } catch (error) {
       console.error(`Error executing tool ${toolId} from plugin ${pluginId}:`, error);
-      
+
       const startTime = new Date().toISOString();
       const endTime = new Date().toISOString();
       return {
@@ -504,7 +506,7 @@ export class PluginSystem {
       };
     }
   }
-  
+
   /**
    * Deactivate a plugin
    * @param pluginId Plugin ID
@@ -517,32 +519,32 @@ export class PluginSystem {
         console.error(`Plugin ${pluginId} not found`);
         return false;
       }
-      
+
       const plugin = this.plugins.get(pluginId)!;
-      
+
       // Check if plugin is active
       if (this.pluginStatus.get(pluginId) !== 'active') {
         console.warn(`Plugin ${pluginId} is not active`);
         return true;
       }
-      
+
       // Run cleanup if available
       if (plugin.cleanup) {
         await plugin.cleanup();
       }
-      
+
       // Mark the plugin as inactive
       this.pluginStatus.set(pluginId, 'inactive');
-      
+
       console.log(`Deactivated plugin: ${plugin.name} (${pluginId})`);
-      
+
       return true;
     } catch (error) {
       console.error(`Error deactivating plugin ${pluginId}:`, error);
       return false;
     }
   }
-  
+
   /**
    * Uninstall a plugin
    * @param pluginId Plugin ID
@@ -555,25 +557,25 @@ export class PluginSystem {
         console.error(`Plugin ${pluginId} not found`);
         return false;
       }
-      
+
       // Deactivate the plugin if active
       if (this.pluginStatus.get(pluginId) === 'active') {
         await this.deactivatePlugin(pluginId);
       }
-      
+
       // Remove the plugin
       this.plugins.delete(pluginId);
       this.pluginStatus.delete(pluginId);
-      
+
       console.log(`Uninstalled plugin: ${pluginId}`);
-      
+
       return true;
     } catch (error) {
       console.error(`Error uninstalling plugin ${pluginId}:`, error);
       return false;
     }
   }
-  
+
   /**
    * Get all plugins
    * @param filterByStatus Filter plugins by status
@@ -583,21 +585,21 @@ export class PluginSystem {
     try {
       // Get all plugins
       const allPlugins = Array.from(this.plugins.values());
-      
+
       // Filter by status if requested
       if (filterByStatus) {
         return allPlugins.filter(
           plugin => this.pluginStatus.get(plugin.id) === filterByStatus
         );
       }
-      
+
       return allPlugins;
     } catch (error) {
       console.error('Error getting plugins:', error);
       return [];
     }
   }
-  
+
   /**
    * Get plugin status
    * @param pluginId Plugin ID
@@ -609,14 +611,14 @@ export class PluginSystem {
       if (!this.plugins.has(pluginId)) {
         return null;
       }
-      
+
       return this.pluginStatus.get(pluginId) || null;
     } catch (error) {
       console.error(`Error getting status for plugin ${pluginId}:`, error);
       return null;
     }
   }
-  
+
   /**
    * Create a sandbox for plugin tool execution
    * @param plugin Plugin
@@ -629,7 +631,7 @@ export class PluginSystem {
   ): (parameters: Record<string, any>, context?: any) => Promise<ToolExecutionResult> {
     // In a real implementation, this would create a sandboxed environment
     // For this example, we'll just wrap the plugin's executeTool method
-    
+
     return (parameters: Record<string, any>, context?: any) => {
       console.log(`Executing sandboxed tool ${toolId} from plugin ${plugin.id}`);
       return plugin.executeTool(toolId, parameters, context);

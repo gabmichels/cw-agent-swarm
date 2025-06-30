@@ -17,7 +17,7 @@ import { UnifiedToolDefinition, ExecutionContext, ToolResult, ToolParameters } f
 import { ToolCategory, ToolCapability, ToolStatus } from '../../foundation/enums/ToolEnums';
 import { AGENT_TOOLS } from '../../foundation/constants/ToolConstants';
 import { AppError } from '../../../errors/base';
-import { IdGenerator } from '../../../../utils/ulid';
+import { ulid } from 'ulid';
 import { IStructuredLogger } from '../../../logging/interfaces/IStructuredLogger';
 
 /**
@@ -73,7 +73,7 @@ export class UnifiedAgentToolSystem {
   private async registerAgentTools(): Promise<void> {
     const agentTools: UnifiedToolDefinition[] = [
       {
-        id: IdGenerator.generate() as unknown as string,
+        id: ulid(),
         name: AGENT_TOOLS.REGISTER_AGENT,
         displayName: 'Register Agent',
         description: 'Register a new agent in the system with specified capabilities and configuration',
@@ -118,7 +118,7 @@ export class UnifiedAgentToolSystem {
         status: ToolStatus.ACTIVE
       },
       {
-        id: IdGenerator.generate() as unknown as string,
+        id: ulid(),
         name: AGENT_TOOLS.UNREGISTER_AGENT,
         displayName: 'Unregister Agent',
         description: 'Remove an agent from the system and clean up its resources',
@@ -151,7 +151,7 @@ export class UnifiedAgentToolSystem {
         status: ToolStatus.ACTIVE
       },
       {
-        id: IdGenerator.generate() as unknown as string,
+        id: ulid(),
         name: AGENT_TOOLS.CHECK_AGENT_HEALTH,
         displayName: 'Check Agent Health',
         description: 'Check the health status of an agent including all its managers',
@@ -184,7 +184,7 @@ export class UnifiedAgentToolSystem {
         status: ToolStatus.ACTIVE
       },
       {
-        id: IdGenerator.generate() as unknown as string,
+        id: ulid(),
         name: AGENT_TOOLS.GET_AGENT_METRICS,
         displayName: 'Get Agent Metrics',
         description: 'Retrieve performance and usage metrics for an agent',
@@ -220,7 +220,7 @@ export class UnifiedAgentToolSystem {
         status: ToolStatus.ACTIVE
       },
       {
-        id: IdGenerator.generate() as unknown as string,
+        id: ulid(),
         name: AGENT_TOOLS.SEND_MESSAGE_TO_AGENT,
         displayName: 'Send Message to Agent',
         description: 'Send a message to a specific agent for processing',
@@ -262,7 +262,7 @@ export class UnifiedAgentToolSystem {
         status: ToolStatus.ACTIVE
       },
       {
-        id: IdGenerator.generate() as unknown as string,
+        id: ulid(),
         name: AGENT_TOOLS.REGISTER_TOOL,
         displayName: 'Register Tool',
         description: 'Register a new tool with an agent tool manager',
@@ -295,7 +295,7 @@ export class UnifiedAgentToolSystem {
         status: ToolStatus.ACTIVE
       },
       {
-        id: IdGenerator.generate() as unknown as string,
+        id: ulid(),
         name: AGENT_TOOLS.LIST_TOOLS,
         displayName: 'List Agent Tools',
         description: 'List all tools available to an agent',
@@ -500,7 +500,7 @@ export class UnifiedAgentToolSystem {
     const tools = [
       // Example tool data - in a real scenario, this would come from a registry
       {
-        id: IdGenerator.generateString(),
+        id: ulid(),
         name: AGENT_TOOLS.CHECK_AGENT_HEALTH,
         displayName: 'Check Agent Health',
         description: 'Check health status',
@@ -509,7 +509,7 @@ export class UnifiedAgentToolSystem {
         enabled: true
       },
       {
-        id: IdGenerator.generateString(),
+        id: ulid(),
         name: AGENT_TOOLS.SEND_MESSAGE_TO_AGENT,
         displayName: 'Send Agent Message',
         description: 'Send message to agent',
@@ -566,10 +566,10 @@ export class UnifiedAgentToolSystem {
   }
 
   private createExecutionContext(operation: string, additionalContext?: Record<string, unknown>): ExecutionContext {
-    const traceId = IdGenerator.generateString();
+    const traceId = ulid();
     return {
       traceId: traceId,
-      agentId: IdGenerator.generateString(),
+      agentId: ulid(),
       permissions: [],
       capabilities: [],
       maxExecutionTime: 60000,

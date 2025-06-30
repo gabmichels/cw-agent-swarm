@@ -1,6 +1,7 @@
-import { ChatOpenAI } from '@langchain/openai';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { IdGenerator } from '@/utils/ulid';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { ChatOpenAI } from '@langchain/openai';
+import { FILE_TOOL_NAMES } from '../../../constants/tool-names';
 
 /**
  * Intent classification result
@@ -36,7 +37,7 @@ export interface IntentClassificationOptions {
  */
 export class IntentClassifier {
   private llm: ChatOpenAI;
-  
+
   // Intent hierarchy for better classification
   private intentHierarchy: Map<string, {
     description: string;
@@ -67,7 +68,7 @@ export class IntentClassifier {
     }],
     ['file_management', {
       description: 'Managing files, documents, and resources',
-      childIntents: ['create_file', 'modify_file', 'delete_file', 'search_files'],
+      childIntents: ['create_file', 'modify_file', 'delete_file', FILE_TOOL_NAMES.SEARCH_FILES],
       parameters: ['file_path', 'file_type', 'content', 'search_query'],
       examples: [
         'Create a new configuration file',
@@ -96,14 +97,14 @@ export class IntentClassifier {
       ]
     }]
   ]);
-  
+
   constructor() {
     this.llm = new ChatOpenAI({
       modelName: process.env.OPENAI_MODEL_NAME,
       temperature: 0.2
     });
   }
-  
+
   /**
    * Classify user intent using LLM
    */
@@ -122,7 +123,7 @@ export class IntentClassifier {
         considerContext = true,
         extractParameters = true
       } = options;
-      
+
       // Build system prompt with intent hierarchy
       const systemPrompt = `You are an AI assistant that classifies user intents.
 Your task is to analyze the user's message and identify their primary intent and any alternative intents.
@@ -173,24 +174,24 @@ Respond in JSON format:
         new SystemMessage(systemPrompt),
         new HumanMessage(`Classify the intent in this message: "${message}"`)
       ];
-      
+
       // @ts-ignore - LangChain types may not be up to date
       const response = await this.llm.call(messages);
-      
+
       // Parse response
       const responseContent = response.content.toString();
       const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
-      
+
       if (!jsonMatch) {
         throw new Error('Invalid LLM response format');
       }
-      
+
       const data = JSON.parse(jsonMatch[0]);
-      
+
       if (!data.primary || !data.primary.intent) {
         throw new Error('Missing primary intent in response');
       }
-      
+
       // Create primary intent result
       const primaryIntent: ClassifiedIntent = {
         id: String(IdGenerator.generate('intent')),
@@ -205,10 +206,10 @@ Respond in JSON format:
           source: 'llm_classification'
         }
       };
-      
+
       // Process alternative intents if requested
       let alternativeIntents: ClassifiedIntent[] | undefined;
-      
+
       if (includeAlternatives && data.alternatives) {
         alternativeIntents = data.alternatives
           .filter((alt: any) => alt.confidence >= minConfidence)
@@ -227,18 +228,18 @@ Respond in JSON format:
             }
           }));
       }
-      
+
       return {
         primaryIntent,
         alternativeIntents
       };
-      
+
     } catch (error) {
       console.error('Error classifying intent:', error);
       throw error;
     }
   }
-  
+
   /**
    * Validate an intent classification
    */
@@ -249,9 +250,9 @@ Respond in JSON format:
   }> {
     try {
       // Get intent category data
-      const parentData = intent.parentIntent ? 
+      const parentData = intent.parentIntent ?
         this.intentHierarchy.get(intent.parentIntent) : null;
-      
+
       if (!parentData) {
         return {
           isValid: false,
@@ -259,7 +260,7 @@ Respond in JSON format:
           reason: 'Unknown intent category'
         };
       }
-      
+
       // Check if intent is a valid child intent
       if (!parentData.childIntents.includes(intent.name)) {
         return {
@@ -268,12 +269,12 @@ Respond in JSON format:
           reason: 'Invalid intent for category'
         };
       }
-      
+
       // Validate required parameters
       const missingParams = parentData.parameters.filter(
         param => !(param in intent.parameters)
       );
-      
+
       if (missingParams.length > 0) {
         return {
           isValid: false,
@@ -281,12 +282,12 @@ Respond in JSON format:
           reason: `Missing required parameters: ${missingParams.join(', ')}`
         };
       }
-      
+
       return {
         isValid: true,
         confidence: intent.confidence
       };
-      
+
     } catch (error) {
       console.error('Error validating intent:', error);
       return {
@@ -296,7 +297,7 @@ Respond in JSON format:
       };
     }
   }
-  
+
   /**
    * Get child intents for a parent intent
    */
@@ -304,7 +305,7 @@ Respond in JSON format:
     const data = this.intentHierarchy.get(parentIntent);
     return data?.childIntents || [];
   }
-  
+
   /**
    * Get intent hierarchy data
    */

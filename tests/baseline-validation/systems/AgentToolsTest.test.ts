@@ -14,7 +14,7 @@ import { ToolDiscoveryService } from '../../../src/lib/tools/foundation/services
 import { ToolValidationService } from '../../../src/lib/tools/foundation/services/ToolValidationService';
 import { AGENT_TOOLS } from '../../../src/lib/tools/foundation/constants/ToolConstants';
 import { IdGenerator } from '../../../src/utils/ulid';
-import { ConsoleLogger } from '../../../src/services/logging/ConsoleLogger';
+import { ConsoleLogger } from '../../../src/agents/utils/logging/ConsoleLogger';
 
 describe('Agent Tools System Baseline Validation', () => {
   let foundation: UnifiedToolFoundation;

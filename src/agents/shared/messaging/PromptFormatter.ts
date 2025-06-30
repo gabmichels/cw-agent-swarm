@@ -1,4 +1,10 @@
-import { SystemMessage, HumanMessage, AIMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
+import {
+  CALENDAR_TOOL_NAMES,
+  EMAIL_TOOL_NAMES,
+  FILE_TOOL_NAMES,
+  SPREADSHEET_TOOL_NAMES
+} from '../../../constants/tool-names';
 
 /**
  * Interface for scored memory
@@ -135,35 +141,44 @@ async function discoverAgentTools(agentContext?: AgentContext): Promise<string[]
     // and the agent should know about all its capabilities
     console.log('🔧 PromptFormatter: Adding actual workspace tools to fallback');
 
-    // Add the ACTUAL tool names that exist in the system
+    // Add the ACTUAL tool names that exist in the system - NO STRING LITERALS
     baseTools.push(
-      'send_email',
-      'smart_send_email',
-      'read_specific_email',
-      'find_important_emails',
-      'search_emails',
-      'analyze_emails',
-      'get_emails_needing_attention',
-      'get_email_action_items',
-      'get_email_trends',
-      'reply_to_email',
-      'forward_email',
-      'read_calendar',
-      'find_availability',
-      'summarize_day',
-      'find_events',
-      'schedule_event',
-      'edit_event',
-      'delete_event',
-      'read_spreadsheet',
-      'analyze_spreadsheet_data',
-      'create_spreadsheet',
-      'update_spreadsheet',
-      'search_files',
-      'get_file',
-      'create_file',
-      'share_file',
-      'email_sending_tool' // Legacy name that LLM might look for
+      // Email tools
+      EMAIL_TOOL_NAMES.SEND_EMAIL,
+      EMAIL_TOOL_NAMES.SMART_SEND_EMAIL,
+      EMAIL_TOOL_NAMES.READ_SPECIFIC_EMAIL,
+      EMAIL_TOOL_NAMES.FIND_IMPORTANT_EMAILS,
+      EMAIL_TOOL_NAMES.SEARCH_EMAILS,
+      EMAIL_TOOL_NAMES.ANALYZE_EMAILS,
+      EMAIL_TOOL_NAMES.GET_EMAILS_NEEDING_ATTENTION,
+      EMAIL_TOOL_NAMES.GET_EMAIL_ACTION_ITEMS,
+      EMAIL_TOOL_NAMES.GET_EMAIL_TRENDS,
+      EMAIL_TOOL_NAMES.REPLY_TO_EMAIL,
+      EMAIL_TOOL_NAMES.FORWARD_EMAIL,
+
+      // Calendar tools
+      CALENDAR_TOOL_NAMES.READ_CALENDAR,
+      CALENDAR_TOOL_NAMES.FIND_AVAILABILITY,
+      CALENDAR_TOOL_NAMES.SUMMARIZE_DAY,
+      CALENDAR_TOOL_NAMES.FIND_EVENTS,
+      CALENDAR_TOOL_NAMES.SCHEDULE_EVENT,
+      CALENDAR_TOOL_NAMES.EDIT_EVENT,
+      CALENDAR_TOOL_NAMES.DELETE_EVENT,
+
+      // Spreadsheet tools
+      SPREADSHEET_TOOL_NAMES.READ_SPREADSHEET,
+      SPREADSHEET_TOOL_NAMES.ANALYZE_SPREADSHEET_DATA,
+      SPREADSHEET_TOOL_NAMES.CREATE_SPREADSHEET,
+      SPREADSHEET_TOOL_NAMES.UPDATE_SPREADSHEET,
+
+      // File tools
+      FILE_TOOL_NAMES.SEARCH_FILES,
+      FILE_TOOL_NAMES.GET_FILE,
+      FILE_TOOL_NAMES.CREATE_FILE,
+      FILE_TOOL_NAMES.SHARE_FILE,
+
+      // Legacy name that LLM might look for - TODO: Replace with constant
+      'email_sending_tool'
     );
 
     return baseTools;

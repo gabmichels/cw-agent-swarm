@@ -1,22 +1,8 @@
 import { IdGenerator } from '@/utils/ulid';
-import { ThinkingService } from './ThinkingService';
-import { MemoryRetriever } from './memory/MemoryRetriever';
-import { MemoryConsolidator } from './memory/MemoryConsolidator';
-import { DelegationService } from './delegation/DelegationService';
-import { CollaborativeAgentService } from './delegation/CollaborativeAgentService';
-import { SharedMemoryService } from './delegation/SharedMemoryService';
-import { TaskProgressTracker } from './delegation/TaskProgressTracker';
-import { ToolService } from './tools/ToolService';
-import { ToolFeedbackService } from './tools/ToolFeedbackService';
-import { ToolRegistry } from './tools/ToolRegistry';
-import type { PluginSystem } from './tools/PluginSystem';
-import { QueryEnhancer } from './retrieval/QueryEnhancer';
-import { ResultReranker } from './retrieval/ResultReranker';
-import { ThinkingResult } from './types';
-import { UnifiedAgentService, UnifiedAgentConfig, UnifiedAgentResponse } from './UnifiedAgentService';
+// Note: Using foundation UnifiedToolRegistry instead of legacy ToolRegistry
 import { StructuredId, structuredIdToString } from '@/types/entity-identifier';
+import { UnifiedAgentConfig, UnifiedAgentResponse, UnifiedAgentService } from './UnifiedAgentService';
 import { ThinkingVisualizer } from './visualization/ThinkingVisualizer';
-import type { VisualizationNodeType, VisualizationEdgeType } from './visualization/types';
 
 /**
  * Extended RequestContext with support for StructuredId and startTime
@@ -153,13 +139,13 @@ export class IntegrationService {
     this.visualizationEnabled = options.enableVisualization || false;
     this.abTestingEnabled = options.enableABTesting || false;
     this.parallelProcessingEnabled = options.enableParallelProcessing || false;
-    
+
     // Initialize request handlers
     this.requestHandlers = new Map();
-    
+
     // Initialize parallel processors
     this.parallelProcessors = [];
-    
+
     // Initialize the unified agent service
     if (options.unifiedAgentService) {
       this.unifiedAgentService = options.unifiedAgentService;
@@ -181,19 +167,19 @@ export class IntegrationService {
         this.initializeUnifiedAgentService(options.unifiedAgentConfig || {});
       }
     }
-    
+
     // Initialize visualization service with default storage adapters
     this.visualizer = options.visualizer || new ThinkingVisualizer();
-    
+
     // Initialize request handlers
     this.initializeRequestHandlers();
-    
+
     // Initialize parallel processors if enabled
     if (this.parallelProcessingEnabled) {
       this.initializeParallelProcessors();
     }
   }
-  
+
   /**
    * Initialize the unified agent service with proper dynamic import to avoid browser issues
    */
@@ -227,7 +213,7 @@ export class IntegrationService {
         userId: this.getUserIdString(context.userId)
       });
     });
-    
+
     // Content creation handler
     this.requestHandlers.set('content_creation', async (message, context) => {
       // Specialized handler for content creation requests
@@ -241,7 +227,7 @@ export class IntegrationService {
         }
       });
     });
-    
+
     // Research handler
     this.requestHandlers.set('research', async (message, context) => {
       // Specialized handler for research requests
@@ -255,7 +241,7 @@ export class IntegrationService {
         }
       });
     });
-    
+
     // Code generation handler
     this.requestHandlers.set('code', async (message, context) => {
       // Specialized handler for code-related requests
@@ -287,16 +273,16 @@ export class IntegrationService {
    */
   private extractToolParameters(tool: any, entities: any[]): Record<string, any> {
     const parameters: Record<string, any> = {};
-    
+
     // For each tool parameter, try to find a matching entity
     if (tool.parameters) {
       for (const param of tool.parameters) {
         // Find entity that matches the parameter by type or name
-        const matchingEntity = entities.find(entity => 
+        const matchingEntity = entities.find(entity =>
           entity.type.toLowerCase() === param.name.toLowerCase() ||
           entity.type.toLowerCase() === param.description?.toLowerCase()
         );
-        
+
         if (matchingEntity) {
           // Convert value based on parameter type
           switch (param.type) {
@@ -311,13 +297,13 @@ export class IntegrationService {
           }
         } else if (param.required) {
           // For required parameters, use default value or null
-          parameters[param.name] = param.defaultValue !== undefined 
-            ? param.defaultValue 
+          parameters[param.name] = param.defaultValue !== undefined
+            ? param.defaultValue
             : null;
         }
       }
     }
-    
+
     return parameters;
   }
 
@@ -330,13 +316,13 @@ export class IntegrationService {
    */
   async processMessage(message: string, context: ExtendedRequestContext): Promise<UnifiedAgentResponse> {
     const requestId = IdGenerator.generateString('req');
-    
+
     // Initialize visualization if enabled
     if (this.visualizationEnabled) {
       // Note: Simplified for browser compatibility - just log instead of creating visualization
       console.log(`[Visualization] Creating visualization for request: ${requestId}`);
     }
-    
+
     // Ensure we have a startTime for telemetry
     const contextWithStartTime: ExtendedRequestContext = {
       ...context,
@@ -345,13 +331,13 @@ export class IntegrationService {
         startTime: context.options?.startTime || Date.now()
       }
     };
-    
+
     // Start telemetry if enabled
     if (this.telemetryEnabled) {
       this.recordTelemetry(
-        requestId, 
-        this.getUserIdString(contextWithStartTime.userId), 
-        'start', 
+        requestId,
+        this.getUserIdString(contextWithStartTime.userId),
+        'start',
         {
           message_length: message.length,
           has_files: (contextWithStartTime.attachedFiles?.length || 0) > 0,
@@ -359,34 +345,34 @@ export class IntegrationService {
         }
       );
     }
-    
+
     try {
       // Analyze the message type to determine which handler to use
       const intent = await this.determineMessageIntent(message);
-      
+
       // Get the appropriate handler
       const handler = this.requestHandlers.get(intent) || this.requestHandlers.get('default')!;
-      
+
       // If parallel processing is enabled, use it
       let response: UnifiedAgentResponse;
-      
+
       if (this.parallelProcessingEnabled) {
         response = await this.processInParallel(requestId, message, contextWithStartTime);
       } else {
         response = await handler(message, contextWithStartTime);
       }
-      
+
       // A/B testing if enabled
       if (this.abTestingEnabled) {
         response = await this.applyABTesting(message, contextWithStartTime, response);
       }
-      
+
       // End telemetry if enabled
       if (this.telemetryEnabled) {
         this.recordTelemetry(
-          requestId, 
-          this.getUserIdString(contextWithStartTime.userId), 
-          'end', 
+          requestId,
+          this.getUserIdString(contextWithStartTime.userId),
+          'end',
           {
             response_length: response.response.length,
             thinking_steps: response.thinking?.reasoning?.length || 0,
@@ -395,22 +381,22 @@ export class IntegrationService {
           }
         );
       }
-      
+
       return response;
     } catch (error) {
       // Record error telemetry
       if (this.telemetryEnabled) {
         this.recordTelemetry(
-          requestId, 
-          this.getUserIdString(contextWithStartTime.userId), 
-          'error', 
+          requestId,
+          this.getUserIdString(contextWithStartTime.userId),
+          'error',
           {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined
           }
         );
       }
-      
+
       throw error;
     }
   }
@@ -437,23 +423,23 @@ export class IntegrationService {
   private async determineMessageIntent(message: string): Promise<string> {
     // For now, use a simple approach
     // In a real implementation, this would use a more sophisticated intent classification system
-    
-    if (message.toLowerCase().includes('write') || 
-        message.toLowerCase().includes('create content')) {
+
+    if (message.toLowerCase().includes('write') ||
+      message.toLowerCase().includes('create content')) {
       return 'content_creation';
     }
-    
-    if (message.toLowerCase().includes('research') || 
-        message.toLowerCase().includes('find information')) {
+
+    if (message.toLowerCase().includes('research') ||
+      message.toLowerCase().includes('find information')) {
       return 'research';
     }
-    
-    if (message.toLowerCase().includes('code') || 
-        message.toLowerCase().includes('function') ||
-        message.toLowerCase().includes('program')) {
+
+    if (message.toLowerCase().includes('code') ||
+      message.toLowerCase().includes('function') ||
+      message.toLowerCase().includes('program')) {
       return 'code';
     }
-    
+
     return 'default';
   }
 
@@ -491,7 +477,7 @@ export class IntegrationService {
   ): Promise<UnifiedAgentResponse> {
     // Implement a real A/B testing system
     // For now, we'll just return the original response with A/B test metadata
-    
+
     // Create alternate responses with slight variations (just for demonstration)
     const variations = [
       {
@@ -510,11 +496,11 @@ export class IntegrationService {
         variantType: 'direct'
       }
     ];
-    
+
     // Select a variant (in a real system, this would be based on user assignment)
     const selectedVariantId = `variation_${(Math.floor(Math.random() * 3) + 1)}`;
     const selectedVariant = variations.find(v => v.id === selectedVariantId) || variations[0];
-    
+
     // Update the response with the selected variant
     return {
       ...baseResponse,
@@ -576,5 +562,5 @@ export class IntegrationService {
     }
   }
 
-  
+
 } 
