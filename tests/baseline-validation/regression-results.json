@@ -1,6 +1,6 @@
 {
-  "timestamp": "2025-06-29T16:48:32.361Z",
-  "passed": true,
+  "timestamp": "2025-06-29T17:57:18.456Z",
+  "passed": false,
   "expectedBaselines": {
     "minimumSuccessRate": 52,
     "maxStringLiterals": 45,
@@ -8,13 +8,11 @@
     "systemCount": 17
   },
   "actualResults": {
-    "testResults": {
-      "passed": 2,
-      "total": 3,
-      "successRate": "66.7"
-    },
+    "testResults": null,
     "performance": null,
     "stringLiterals": 45,
-    "regressions": []
+    "regressions": [
+      "Baseline tests failed to execute"
+    ]
   }
 }

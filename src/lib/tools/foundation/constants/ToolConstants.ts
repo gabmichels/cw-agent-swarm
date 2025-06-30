@@ -182,7 +182,175 @@ export const ALL_TOOL_CONSTANTS = {
   ...SOCIAL_MEDIA_TOOLS
 } as const;
 
+// Agent Management Tool Constants
+export const AGENT_TOOLS = {
+  // Agent Registration
+  REGISTER_AGENT: 'register_agent',
+  UNREGISTER_AGENT: 'unregister_agent',
+  UPDATE_AGENT: 'update_agent',
+  GET_AGENT_INFO: 'get_agent_info',
+  LIST_AGENTS: 'list_agents',
+
+  // Agent Health
+  CHECK_AGENT_HEALTH: 'check_agent_health',
+  GET_AGENT_METRICS: 'get_agent_metrics',
+  MONITOR_AGENT: 'monitor_agent',
+
+  // Agent Communication
+  SEND_MESSAGE_TO_AGENT: 'send_message_to_agent',
+  BROADCAST_MESSAGE: 'broadcast_message',
+  COORDINATE_AGENTS: 'coordinate_agents',
+
+  // Tool Discovery
+  DISCOVER_TOOLS_BY_CAPABILITY: 'discover_tools_by_capability',
+
+  // Tool Execution
+  EXECUTE_TOOL_CHAIN: 'execute_tool_chain',
+
+  // Tool Management
+  REGISTER_TOOL: 'register_tool',
+  UNREGISTER_TOOL: 'unregister_tool',
+  LIST_TOOLS: 'list_tools',
+  EXECUTE_TOOL: 'execute_tool',
+
+  // Agent Permissions
+  GRANT_PERMISSION: 'grant_permission',
+  REVOKE_PERMISSION: 'revoke_permission',
+  CHECK_PERMISSION: 'check_permission',
+  LIST_PERMISSIONS: 'list_permissions',
+
+  // Agent Capabilities
+  GET_AGENT_CAPABILITIES: 'get_agent_capabilities',
+  ENABLE_CAPABILITY: 'enable_capability',
+  DISABLE_CAPABILITY: 'disable_capability'
+} as const;
+
 // Tool Constant Arrays for iteration
 export const WORKSPACE_TOOL_NAMES = Object.values(WORKSPACE_TOOLS);
 export const SOCIAL_MEDIA_TOOL_NAMES = Object.values(SOCIAL_MEDIA_TOOLS);
-export const ALL_TOOL_NAMES = Object.values(ALL_TOOL_CONSTANTS); 
+export const AGENT_TOOL_NAMES = Object.values(AGENT_TOOLS);
+
+// External Workflow Tool Constants
+export const EXTERNAL_WORKFLOW_TOOLS = {
+  // N8n Tools
+  N8N_WORKFLOW_EXECUTE: 'n8n_workflow_execute',
+  N8N_WORKFLOW_CREATE: 'n8n_workflow_create',
+  N8N_WORKFLOW_LIST: 'n8n_workflow_list',
+  N8N_WORKFLOW_STATUS: 'n8n_workflow_status',
+  N8N_WORKFLOW_DELETE: 'n8n_workflow_delete',
+  N8N_WORKFLOW_UPDATE: 'n8n_workflow_update',
+
+  // Zapier Tools
+  ZAPIER_ZAP_TRIGGER: 'zapier_zap_trigger',
+  ZAPIER_ZAP_CREATE: 'zapier_zap_create',
+  ZAPIER_ZAP_LIST: 'zapier_zap_list',
+  ZAPIER_ZAP_STATUS: 'zapier_zap_status',
+  ZAPIER_ZAP_DELETE: 'zapier_zap_delete',
+  ZAPIER_ZAP_UPDATE: 'zapier_zap_update',
+
+  // Generic Workflow Tools
+  WORKFLOW_INTEGRATION: 'workflow_integration',
+  WEBHOOK_TRIGGER: 'webhook_trigger',
+  API_CALL: 'api_call',
+  DATA_TRANSFORM: 'data_transform',
+  WORKFLOW_ORCHESTRATE: 'workflow_orchestrate',
+  WORKFLOW_MONITOR: 'workflow_monitor'
+} as const;
+
+export const EXTERNAL_WORKFLOW_TOOL_NAMES = Object.values(EXTERNAL_WORKFLOW_TOOLS);
+
+// Cost Tracking Tool Constants
+export const COST_TRACKING_TOOLS = {
+  // Cost Recording Tools
+  TRACK_API_COST: 'track_api_cost',
+  TRACK_APIFY_COST: 'track_apify_cost',
+  TRACK_OPENAI_COST: 'track_openai_cost',
+  TRACK_WORKFLOW_COST: 'track_workflow_cost',
+  TRACK_RESEARCH_COST: 'track_research_cost',
+
+  // Cost Analysis Tools
+  GET_COST_SUMMARY: 'get_cost_summary',
+  ANALYZE_COST_TRENDS: 'analyze_cost_trends',
+  GET_COST_BREAKDOWN: 'get_cost_breakdown',
+  COMPARE_COSTS: 'compare_costs',
+
+  // Cost Optimization Tools
+  OPTIMIZE_COSTS: 'optimize_costs',
+  GET_OPTIMIZATION_RECOMMENDATIONS: 'get_optimization_recommendations',
+  ESTIMATE_COST: 'estimate_cost',
+  CALCULATE_SAVINGS: 'calculate_savings',
+
+  // Budget Management Tools
+  CREATE_BUDGET: 'create_budget',
+  UPDATE_BUDGET: 'update_budget',
+  CHECK_BUDGET_STATUS: 'check_budget_status',
+  GET_BUDGET_ALERTS: 'get_budget_alerts'
+} as const;
+
+// Tool Response Formatter Constants
+export const TOOL_RESPONSE_FORMATTER_TOOLS = {
+  // Response Formatting Tools
+  FORMAT_TOOL_RESPONSE: 'format_tool_response',
+  FORMAT_ERROR_RESPONSE: 'format_error_response',
+  FORMAT_SUCCESS_RESPONSE: 'format_success_response',
+  FORMAT_PARTIAL_RESPONSE: 'format_partial_response',
+
+  // Style Adaptation Tools
+  ADAPT_RESPONSE_STYLE: 'adapt_response_style',
+  PERSONALIZE_RESPONSE: 'personalize_response',
+  ADJUST_TONE: 'adjust_tone',
+  APPLY_PERSONA: 'apply_persona',
+
+  // Template Management Tools
+  GET_RESPONSE_TEMPLATE: 'get_response_template',
+  CREATE_RESPONSE_TEMPLATE: 'create_response_template',
+  UPDATE_RESPONSE_TEMPLATE: 'update_response_template',
+  DELETE_RESPONSE_TEMPLATE: 'delete_response_template',
+
+  // Context-Aware Formatting Tools
+  FORMAT_WITH_CONTEXT: 'format_with_context',
+  ENHANCE_RESPONSE: 'enhance_response',
+  VALIDATE_RESPONSE_QUALITY: 'validate_response_quality',
+  GET_STYLE_RECOMMENDATIONS: 'get_style_recommendations'
+} as const;
+
+// Approval System Tool Constants
+export const APPROVAL_SYSTEM_TOOLS = {
+  // Approval Request Tools
+  REQUEST_APPROVAL: 'request_approval',
+  SUBMIT_FOR_APPROVAL: 'submit_for_approval',
+  CHECK_APPROVAL_STATUS: 'check_approval_status',
+  GET_APPROVAL_HISTORY: 'get_approval_history',
+
+  // Approval Decision Tools
+  APPROVE_TASK: 'approve_task',
+  REJECT_TASK: 'reject_task',
+  DELEGATE_APPROVAL: 'delegate_approval',
+  ESCALATE_APPROVAL: 'escalate_approval',
+
+  // Approval Configuration Tools
+  CREATE_APPROVAL_RULE: 'create_approval_rule',
+  UPDATE_APPROVAL_RULE: 'update_approval_rule',
+  DELETE_APPROVAL_RULE: 'delete_approval_rule',
+  GET_APPROVAL_RULES: 'get_approval_rules',
+
+  // Approval Workflow Tools
+  GET_PENDING_APPROVALS: 'get_pending_approvals',
+  PROCESS_APPROVAL_DECISION: 'process_approval_decision',
+  SEND_APPROVAL_NOTIFICATION: 'send_approval_notification',
+  TRACK_APPROVAL_METRICS: 'track_approval_metrics'
+} as const;
+
+export const COST_TRACKING_TOOL_NAMES = Object.values(COST_TRACKING_TOOLS);
+export const TOOL_RESPONSE_FORMATTER_TOOL_NAMES = Object.values(TOOL_RESPONSE_FORMATTER_TOOLS);
+export const APPROVAL_SYSTEM_TOOL_NAMES = Object.values(APPROVAL_SYSTEM_TOOLS);
+
+export const ALL_TOOL_NAMES = [
+  ...WORKSPACE_TOOL_NAMES,
+  ...SOCIAL_MEDIA_TOOL_NAMES,
+  ...AGENT_TOOL_NAMES,
+  ...EXTERNAL_WORKFLOW_TOOL_NAMES,
+  ...COST_TRACKING_TOOL_NAMES,
+  ...TOOL_RESPONSE_FORMATTER_TOOL_NAMES,
+  ...APPROVAL_SYSTEM_TOOL_NAMES
+]; 

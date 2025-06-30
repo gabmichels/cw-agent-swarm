@@ -35,6 +35,9 @@ export interface ToolResult {
   readonly success: boolean;
   readonly data?: unknown;
   readonly error?: string;
+  readonly toolId?: ToolId;
+  readonly durationMs?: number;
+  readonly startedAt?: Date;
   readonly metadata?: {
     readonly executionTimeMs: number;
     readonly toolId: ToolId;
@@ -63,7 +66,7 @@ export interface ExecutionContext {
  * Tool parameter schema for validation
  */
 export interface ToolParameterSchema {
-  readonly type?: 'object';
+  readonly type?: 'object' | 'array' | 'string' | 'number' | 'boolean'; // Allow array type at schema root and other basic types
   readonly properties?: {
     readonly [paramName: string]: {
       readonly type: 'string' | 'number' | 'boolean' | 'object' | 'array';
@@ -71,6 +74,11 @@ export interface ToolParameterSchema {
       readonly default?: unknown;
       readonly minLength?: number;
       readonly maxLength?: number;
+      readonly items?: ToolParameterSchema; // Nested schema for array items
+      readonly properties?: { // Added to support nested object schemas
+        readonly [nestedParamName: string]: ToolParameterSchema; // Nested properties for object types
+      };
+      readonly additionalProperties?: boolean | ToolParameterSchema; // For object types, allowing extra properties
       readonly validation?: {
         readonly min?: number;
         readonly max?: number;
@@ -80,6 +88,7 @@ export interface ToolParameterSchema {
     };
   };
   readonly required?: readonly string[];
+  readonly additionalProperties?: boolean | ToolParameterSchema; // For top-level object schemas
 }
 
 /**
@@ -181,10 +190,6 @@ export interface ToolRecommendation {
   readonly reasons: readonly string[];
   readonly category: ToolCategory;
 }
-
-// Removed duplicate interface - using the one below
-
-// Removed duplicate interface - using the one below
 
 /**
  * Tool validation result

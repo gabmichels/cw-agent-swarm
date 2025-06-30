@@ -36,6 +36,7 @@ export enum ToolCategory {
   WEB_SCRAPING = 'web_scraping',
   APIFY = 'apify',
   DATA_EXTRACTION = 'data_extraction',
+  DISCOVERY = 'discovery',
 
   // Workflow and automation tools
   WORKFLOW = 'workflow',
@@ -48,6 +49,8 @@ export enum ToolCategory {
   LLM = 'llm',
   THINKING = 'thinking',
   REASONING = 'reasoning',
+  ANALYSIS = 'analysis',
+  ORCHESTRATION = 'orchestration',
 
   // Agent management tools
   AGENT = 'agent',
@@ -198,7 +201,74 @@ export enum ToolCapability {
   CALENDAR_MANAGEMENT = 'calendar_management',
   DATA_PROCESSING = 'data_processing',
   FILE_MANAGEMENT = 'file_management',
-  WORKSPACE_INTEGRATION = 'workspace_integration'
+
+  // Apify-specific capabilities
+  DATA_EXTRACTION = 'data_extraction',
+  WEB_SCRAPING = 'web_scraping',
+  SOCIAL_MEDIA_ANALYSIS = 'social_media_analysis',
+  TOOL_DISCOVERY = 'tool_discovery',
+  DYNAMIC_EXECUTION = 'dynamic_execution',
+  WORKSPACE_INTEGRATION = 'workspace_integration',
+
+  // Thinking system capabilities
+  REASONING = 'reasoning',
+  WORKFLOW_ORCHESTRATION = 'workflow_orchestration',
+  SEMANTIC_ANALYSIS = 'semantic_analysis',
+  CONTENT_GENERATION = 'content_generation',
+  DECISION_MAKING = 'decision_making',
+  CHAIN_EXECUTION = 'chain_execution',
+  SEARCH = 'search',
+
+  // Agent Management capabilities
+  AGENT_REGISTRATION = 'agent_registration',
+  AGENT_HEALTH_MONITORING = 'agent_health_monitoring',
+  AGENT_COMMUNICATION = 'agent_communication',
+  TOOL_MANAGEMENT = 'tool_management',
+  PERMISSION_MANAGEMENT = 'permission_management',
+  CAPABILITY_MANAGEMENT = 'capability_management',
+  AGENT_COORDINATION = 'agent_coordination',
+
+  // External Workflow capabilities
+  N8N_WORKFLOW_EXECUTE = 'n8n_workflow_execute',
+  N8N_WORKFLOW_CREATE = 'n8n_workflow_create',
+  N8N_WORKFLOW_MANAGE = 'n8n_workflow_manage',
+  ZAPIER_ZAP_TRIGGER = 'zapier_zap_trigger',
+  ZAPIER_ZAP_CREATE = 'zapier_zap_create',
+  ZAPIER_ZAP_MANAGE = 'zapier_zap_manage',
+  WEBHOOK_INTEGRATION = 'webhook_integration',
+  EXTERNAL_API_INTEGRATION = 'external_api_integration',
+  WORKFLOW_AUTOMATION = 'workflow_automation',
+  PLATFORM_INTEGRATION = 'platform_integration',
+
+  // Cost Tracking capabilities
+  COST_TRACKING = 'cost_tracking',
+  COST_ANALYSIS = 'cost_analysis',
+  COST_OPTIMIZATION = 'cost_optimization',
+  BUDGET_MANAGEMENT = 'budget_management',
+  COST_REPORTING = 'cost_reporting',
+  COST_ESTIMATION = 'cost_estimation',
+  COST_MONITORING = 'cost_monitoring',
+  COST_ALERTING = 'cost_alerting',
+
+  // Tool Response Formatter capabilities
+  RESPONSE_FORMATTING = 'response_formatting',
+  STYLE_ADAPTATION = 'style_adaptation',
+  PERSONA_INTEGRATION = 'persona_integration',
+  TEMPLATE_MANAGEMENT = 'template_management',
+  CONTEXT_AWARE_FORMATTING = 'context_aware_formatting',
+  TONE_ADJUSTMENT = 'tone_adjustment',
+  QUALITY_VALIDATION = 'quality_validation',
+  MULTI_STYLE_SUPPORT = 'multi_style_support',
+
+  // Approval System capabilities
+  APPROVAL_WORKFLOW = 'approval_workflow',
+  APPROVAL_DECISION = 'approval_decision',
+  APPROVAL_CONFIGURATION = 'approval_configuration',
+  APPROVAL_TRACKING = 'approval_tracking',
+  APPROVAL_NOTIFICATION = 'approval_notification',
+  APPROVAL_ESCALATION = 'approval_escalation',
+  APPROVAL_AUDIT = 'approval_audit',
+  RULE_BASED_APPROVAL = 'rule_based_approval'
 }
 
 /**
