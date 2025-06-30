@@ -411,6 +411,67 @@ export class WorkspaceAgentIntegration {
           connectionId
         }, context);
 
+      case WorkspaceCommandType.REPLY_EMAIL:
+        // Find the original email first if needed
+        let emailId = entities.emailId;
+        if (!emailId && entities.sender) {
+          // Search for the last email from the specified sender
+          // NOTE: We don't use subject filtering here because ACG can generate subjects
+          // that interfere with finding the original email
+          const searchCriteria: any = {
+            from: entities.sender,
+            connectionId
+          };
+
+          console.log(`Searching for most recent email from ${entities.sender} (subject filtering disabled to avoid ACG interference)`);
+
+
+          const searchResults = await this.workspaceTools.searchEmailsTool.execute(searchCriteria, context);
+          if (searchResults && searchResults.length > 0) {
+            // Filter to ensure we only have emails FROM the specified sender (not TO the sender)
+            let filteredEmails = searchResults.filter((email: any) =>
+              email.from && email.from.toLowerCase().includes(entities.sender.toLowerCase())
+            );
+
+            // Subject filtering is disabled to prevent ACG-generated subjects from interfering with email discovery
+
+            const actualFromSenderEmails = filteredEmails;
+
+            if (actualFromSenderEmails.length > 0) {
+              // Sort by date to get the most recent
+              const sortedEmails = actualFromSenderEmails.sort((a: any, b: any) =>
+                new Date(b.date).getTime() - new Date(a.date).getTime()
+              );
+              emailId = sortedEmails[0].id;
+
+              console.log(`Found ${actualFromSenderEmails.length} emails from ${entities.sender}, using most recent:`, {
+                id: sortedEmails[0].id,
+                subject: sortedEmails[0].subject,
+                from: sortedEmails[0].from,
+                date: sortedEmails[0].date
+              });
+            } else {
+              console.warn(`Search returned ${searchResults.length} results but none are actually FROM ${entities.sender}:`,
+                searchResults.map((e: any) => ({ id: e.id, from: e.from, subject: e.subject }))
+              );
+            }
+          }
+        }
+
+        if (!emailId) {
+          if (entities.sender) {
+            throw new Error(`I couldn't find the last email from ${entities.sender}. Could you check if this email address is correct, or try searching for emails from this sender first?`);
+          } else {
+            throw new Error(`I need more information to reply to an email. Could you specify which email you'd like me to reply to? For example: "reply to the last email from john@example.com" or provide the specific email you want to reply to.`);
+          }
+        }
+
+        return await this.workspaceTools.replyToEmailTool.execute({
+          emailId: emailId,
+          body: entities.body || 'Reply sent by agent',
+          connectionId
+        }, context);
+
       case WorkspaceCommandType.SEARCH_EMAIL:
         return await this.workspaceTools.searchEmailsTool.execute({
           query: entities.keywords?.join(' '),
@@ -433,9 +494,63 @@ export class WorkspaceAgentIntegration {
         }, context);
 
       case WorkspaceCommandType.GET_ACTION_ITEMS:
-        return await this.workspaceTools.analyzeEmailsTool.execute({
-          analysisType: 'action_items',
+        return await this.workspaceTools.getActionItemsTool.execute({
           timeframe: entities.timeframe || 'today',
+          connectionId
+        }, context);
+
+      case WorkspaceCommandType.GET_EMAIL_TRENDS:
+        return await this.workspaceTools.getEmailTrendsTool.execute({
+          timeframe: entities.timeframe || 'this_week',
+          connectionId
+        }, context);
+
+      case WorkspaceCommandType.FORWARD_EMAIL:
+        // Find the original email first if needed
+        let forwardEmailId = entities.emailId;
+        if (!forwardEmailId && entities.sender) {
+          // Search for the last email from the specified sender
+          // NOTE: Subject filtering disabled to prevent ACG interference
+          const searchCriteria: any = {
+            from: entities.sender,
+            connectionId
+          };
+
+          console.log(`Searching for most recent email from ${entities.sender} to forward (subject filtering disabled)`);
+
+          const searchResults = await this.workspaceTools.searchEmailsTool.execute(searchCriteria, context);
+          if (searchResults && searchResults.length > 0) {
+            // Filter to ensure we only have emails FROM the specified sender (not TO the sender)
+            const actualFromSenderEmails = searchResults.filter((email: any) =>
+              email.from && email.from.toLowerCase().includes(entities.sender.toLowerCase())
+            );
+
+            if (actualFromSenderEmails.length > 0) {
+              // Sort by date to get the most recent
+              const sortedEmails = actualFromSenderEmails.sort((a: any, b: any) =>
+                new Date(b.date).getTime() - new Date(a.date).getTime()
+              );
+              forwardEmailId = sortedEmails[0].id;
+            }
+          }
+        }
+
+        if (!forwardEmailId) {
+          if (entities.sender) {
+            throw new Error(`I couldn't find the last email from ${entities.sender} to forward. Could you check if this email address is correct, or try searching for emails from this sender first?`);
+          } else {
+            throw new Error(`I need more information to forward an email. Could you specify which email you'd like me to forward? For example: "forward the last email from john@example.com to jane@company.com" or provide the specific email you want to forward.`);
+          }
+        }
+
+        if (!entities.recipients || entities.recipients.length === 0) {
+          throw new Error('No recipients specified for email forwarding');
+        }
+
+        return await this.workspaceTools.forwardEmailTool.execute({
+          emailId: forwardEmailId,
+          to: entities.recipients,
+          body: entities.body || 'Forwarded by agent',
           connectionId
         }, context);
 

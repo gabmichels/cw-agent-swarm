@@ -24,7 +24,7 @@ export class UserEmailPreferencesService {
       importantSenders: ['boss@company.com', 'billing@services.com', 'accounting@company.com'],
       importantDomains: ['client-company.com', 'bank.com', 'government.gov', 'irs.gov'],
       subjectPatterns: ['action required', 'response needed', 'approval needed', 'meeting declined', 'invoice', 'payment'],
-      priorityLabels: ['IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_PROMOTIONS'],
+      priorityLabels: ['IMPORTANT', 'CATEGORY_PERSONAL'],
       customRules: [
         { rule: 'declined', weight: 0.8, description: 'Meeting declines need attention' },
         { rule: 'invoice', weight: 0.9, description: 'Financial documents are high priority' },

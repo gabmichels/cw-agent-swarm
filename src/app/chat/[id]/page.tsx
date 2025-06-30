@@ -480,29 +480,30 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     e.preventDefault();
     if (!chat?.id || (!inputMessage.trim() && pendingAttachments.length === 0 && !attachedMessage)) return;
 
+    // Save current values to avoid race conditions
+    const currentMessage = inputMessage.trim();
+    const currentAttachments = [...pendingAttachments];
+    const currentAttachedMessage = attachedMessage;
+    
+    // Store current message count to detect when agent responds
+    const currentMessageCount = messages.length;
+    
+    // Create message object for UI update
+    const tempMessageId = `temp_${generateMessageId()}_${Date.now()}`;
+    const messageWithId: MessageWithId = {
+      id: tempMessageId,
+      content: currentMessage,
+      sender: {
+        id: userId,
+        name: 'You',
+        role: 'user' as const
+      },
+      timestamp: new Date(),
+      attachments: currentAttachments,
+      tags: []
+    };
+
     try {
-      // Save current values to avoid race conditions
-      const currentMessage = inputMessage.trim();
-      const currentAttachments = [...pendingAttachments];
-      const currentAttachedMessage = attachedMessage;
-      
-      // Store current message count to detect when agent responds
-      const currentMessageCount = messages.length;
-      
-      // Create message object for UI update
-      const tempMessageId = `temp_${generateMessageId()}_${Date.now()}`;
-      const messageWithId: MessageWithId = {
-        id: tempMessageId,
-        content: currentMessage,
-        sender: {
-          id: userId,
-          name: 'You',
-          role: 'user' as const
-        },
-        timestamp: new Date(),
-        attachments: currentAttachments,
-        tags: []
-      };
 
 
 
@@ -593,6 +594,9 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         throw new Error(data.error || 'Failed to send message');
       }
       
+      // Remove the temporary message and fetch updated messages from server
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessageId));
+      
       // Fetch messages immediately to get the real user message from server, but don't clear loading
       // The thinking bubble will stay until polling detects the agent's response
       await fetchMessages(chat.id, false);
@@ -600,6 +604,10 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
     } catch (error) {
       console.error('Error sending message:', error);
       setIsLoading(false);
+      
+      // Remove the temporary message since sending failed
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessageId));
+      
       // Add error notification to the chat
       setMessages(prev => [
         ...prev, 
@@ -883,20 +891,31 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
         });
         
         // Intelligent message merging: preserve temp messages that aren't on the server yet
-        // BUT remove temp messages if we have a real message with the same content and timestamp (within 5 seconds)
+        // BUT remove temp messages if we have a real message with the same content and sender
         const tempMessages = messages.filter(msg => {
           if (!(msg.id.startsWith('temp_') || msg.id.includes('temp-'))) {
             return false; // Not a temp message
           }
           
-          // Check if there's a real message with same content from same sender within 5 seconds
+          // Check if there's a real message with same content from same sender
           const hasMatchingRealMessage = formattedMessages.some(serverMsg => {
             const contentMatches = serverMsg.content.trim() === msg.content.trim();
             const senderMatches = serverMsg.sender.role === msg.sender.role;
-            const timeDiff = Math.abs(serverMsg.timestamp.getTime() - msg.timestamp.getTime());
-            const withinTimeWindow = timeDiff <= 5000; // 5 seconds
+            // For user messages, be more strict about matching to avoid false positives
+            const isUserMessage = msg.sender.role === 'user';
             
-            return contentMatches && senderMatches && withinTimeWindow;
+            if (isUserMessage) {
+              // For user messages, also check sender name/id and be more lenient with time
+              const senderNameMatches = serverMsg.sender.name === msg.sender.name || 
+                                      serverMsg.sender.id === msg.sender.id;
+              const timeDiff = Math.abs(serverMsg.timestamp.getTime() - msg.timestamp.getTime());
+              const withinTimeWindow = timeDiff <= 10000; // 10 seconds for user messages
+              
+              return contentMatches && senderMatches && senderNameMatches && withinTimeWindow;
+            } else {
+              // For assistant messages, just check content and role
+              return contentMatches && senderMatches;
+            }
           });
           
           // Only preserve temp message if no matching real message found
@@ -1087,6 +1106,7 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
                 onImageClick={memoizedFilePreviewClick}
                 onReplyToMessage={memoizedReplyToMessage}
                 onNavigateToMessage={memoizedNavigateToMessage}
+                onDeleteMessage={memoizedDeleteMessage}
                 highlightedMessageId={highlightedMessageId}
                 showInternalMessages={showInternalMessages}
                 pageSize={20}
@@ -1233,6 +1253,23 @@ export default function ChatPage({ params }: { params: { id?: string } }) {
   const memoizedNavigateToMessage = useCallback((messageId: string) => {
     handleNavigateToMessage(messageId);
   }, [selectedTab]);
+
+  // Handle message deletion - remove from UI state immediately for real-time updates
+  const handleDeleteMessage = useCallback(async (messageId: string): Promise<boolean> => {
+    try {
+      // Remove the message from the UI state immediately for instant feedback
+      setMessages(prevMessages => prevMessages.filter(msg => msg.id !== messageId));
+      return true;
+    } catch (error) {
+      console.error('Error handling message deletion in UI:', error);
+      return false;
+    }
+  }, []);
+
+  // Memoize the delete message handler
+  const memoizedDeleteMessage = useCallback((messageId: string) => {
+    return handleDeleteMessage(messageId);
+  }, [handleDeleteMessage]);
 
   // Memoize the converted pending attachments to prevent recreation
   const memoizedPendingAttachments = useMemo(() => {

@@ -674,7 +674,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private replyToEmailTool: AgentTool<ReplyEmailParams, any> = {
+  public replyToEmailTool: AgentTool<ReplyEmailParams, any> = {
     name: "reply_to_email",
     description: "Reply to an existing email",
     parameters: {
@@ -704,7 +704,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private forwardEmailTool: AgentTool<any, any> = {
+  public forwardEmailTool: AgentTool<any, any> = {
     name: "forward_email",
     description: "Forward an existing email to other recipients",
     parameters: {
@@ -1544,7 +1544,7 @@ export class WorkspaceAgentTools {
     return date.toLocaleDateString();
   }
 
-  private getActionItemsTool: AgentTool<GetActionItemsParams, any> = {
+  public getActionItemsTool: AgentTool<GetActionItemsParams, any> = {
     name: "get_email_action_items",
     description: "Extract action items from emails - replies needed, deadlines, meetings, approvals",
     parameters: {
@@ -1568,7 +1568,7 @@ export class WorkspaceAgentTools {
     }
   };
 
-  private getEmailTrendsTool: AgentTool<GetEmailTrendsParams, any> = {
+  public getEmailTrendsTool: AgentTool<GetEmailTrendsParams, any> = {
     name: "get_email_trends",
     description: "Get email trends and statistics - top senders, volume patterns, response times, categories",
     parameters: {

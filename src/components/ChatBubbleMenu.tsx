@@ -1,17 +1,17 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { Copy, FileText, Star, Database, ThumbsDown, RefreshCw, ChevronLeft, ChevronRight, Trash2, Loader2, Reply, Bookmark } from 'lucide-react';
-import { Message } from '../types';
-import { MessageActionHandler } from '../services/message/MessageActionHandler';
-import { MessageImportance, MessageReliability } from '../services/message/MessageActionService';
+import { Bookmark, ChevronLeft, ChevronRight, Copy, Database, FileText, Loader2, RefreshCw, Reply, Star, ThumbsDown, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Toast } from '../components/ui/toast';
+import { BookmarkService } from '../services/message/BookmarkService';
+import { ExportService } from '../services/message/ExportService';
 import { ImportanceService } from '../services/message/ImportanceService';
 import { KnowledgeService } from '../services/message/KnowledgeService';
+import { MessageActionHandler } from '../services/message/MessageActionHandler';
+import { MessageImportance, MessageReliability } from '../services/message/MessageActionService';
 import { RegenerationService } from '../services/message/RegenerationService';
-import { ExportService } from '../services/message/ExportService';
 import { ReliabilityService } from '../services/message/ReliabilityService';
-import { BookmarkService } from '../services/message/BookmarkService';
-import { Tooltip } from './ui/tooltip';
-import { Toast } from '../components/ui/toast';
+import { Message } from '../types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Tooltip } from './ui/tooltip';
 
 interface ChatBubbleMenuProps {
   message: Message;
@@ -288,10 +288,7 @@ const ChatBubbleMenu: React.FC<ChatBubbleMenuProps> = ({
         });
         document.dispatchEvent(event);
         
-        // Wait a moment, then reload the page to refresh messages
-        setTimeout(() => {
-          window.location.reload();
-        }, 500);
+        // The SSE system will handle real-time UI updates, no need to reload
       } else {
         throw new Error(data.error || 'Failed to delete message');
       }

@@ -7,19 +7,19 @@
  */
 
 import { ulid } from 'ulid';
-import { createLogger } from '../../lib/logging/winston-logger';
-import { OutputFormatter } from '../../agents/shared/processors/OutputProcessingCoordinator';
 import { AgentResponse } from '../../agents/shared/base/AgentBase.interface';
-import { ToolExecutionResult } from '../../lib/tools/types';
 import { PersonaInfo } from '../../agents/shared/messaging/PromptFormatter';
+import { OutputFormatter } from '../../agents/shared/processors/OutputProcessingCoordinator';
+import { createLogger } from '../../lib/logging/winston-logger';
+import { ToolExecutionResult } from '../../lib/tools/types';
 import { LLMToolResponseFormatter } from './LLMToolResponseFormatter';
 import {
-  ToolResponseContext,
-  ToolCategory,
+  IToolResponseConfigService,
   MessagePreferences,
   RecentMessage,
+  ToolCategory,
   ToolResponseConfig,
-  IToolResponseConfigService
+  ToolResponseContext
 } from './types';
 
 /**

@@ -427,12 +427,14 @@ export class WorkspaceNLPProcessor {
         break;
 
       case WorkspaceCommandType.REPLY_EMAIL:
+        entities.sender = this.extractSender(text);
         entities.subject = this.extractEmailSubject(text);
         entities.body = this.extractEmailBody(text);
         entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);
         break;
 
       case WorkspaceCommandType.FORWARD_EMAIL:
+        entities.sender = this.extractSender(text);
         entities.recipients = this.extractEmailAddresses(text);
         entities.body = this.extractEmailBody(text);
         entities.workspaceAccountPreference = this.extractWorkspaceAccountPreference(text);

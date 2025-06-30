@@ -7,6 +7,7 @@
  */
 
 import { ulid } from 'ulid';
+import { createLogger } from '../../../lib/logging/winston-logger';
 import {
   WorkspaceCommand,
   WorkspaceCommandType,
@@ -15,12 +16,10 @@ import {
 import { IContentGenerationService } from '../interfaces/IContentGenerationService';
 import {
   ContentType,
-  GenerationContext,
   GeneratedContent,
+  GenerationContext,
   GenerationRequest
 } from '../types/ContentGenerationTypes';
-import { ContentGenerationError, ACGErrorFactory } from '../errors/ContentGenerationError';
-import { createLogger } from '../../../lib/logging/winston-logger';
 
 export interface ACGEnhancedWorkspaceCommand extends WorkspaceCommand {
   /** Whether content generation was applied */
@@ -405,6 +404,42 @@ export class WorkspaceACGIntegration {
   }
 
   /**
+   * Clean up generated email content to fix common formatting issues
+   */
+  private cleanEmailContent(content: string): string {
+    if (!content) return content;
+
+    let cleaned = content;
+
+    // Remove leading/trailing whitespace
+    cleaned = cleaned.trim();
+
+    // Fix signature placeholder with actual user info
+    const userInfo = this.getUserInfo();
+    const userName = userInfo.firstName || userInfo.displayName || userInfo.username || 'User';
+
+    // Replace common signature placeholders
+    cleaned = cleaned.replace(/\[Your Name\]/gi, userName);
+    cleaned = cleaned.replace(/\[Name\]/gi, userName);
+    cleaned = cleaned.replace(/\[your name\]/gi, userName);
+    cleaned = cleaned.replace(/\[sender name\]/gi, userName);
+
+    // Remove extra leading whitespace from lines (but preserve intentional paragraph breaks)
+    cleaned = cleaned
+      .split('\n')
+      .map(line => line.trimStart()) // Remove leading whitespace from each line
+      .join('\n');
+
+    // Remove excessive blank lines (more than 2 consecutive)
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+
+    // Ensure there's only one space after greeting
+    cleaned = cleaned.replace(/^(\s*Hi\s+\w+,)\s+/i, '$1\n\n');
+
+    return cleaned;
+  }
+
+  /**
    * Apply generated content to the enhanced command
    */
   private applyGeneratedContent(
@@ -425,12 +460,22 @@ export class WorkspaceACGIntegration {
         break;
 
       case ContentType.EMAIL_BODY:
-        command.entities.body = generatedContent.content.text;
+        // Clean up the generated content and fix common issues
+        let cleanedBodyContent = generatedContent.content.text || '';
+        cleanedBodyContent = this.cleanEmailContent(cleanedBodyContent);
+
+        command.entities.body = cleanedBodyContent;
         command.generatedContent.body = generatedContent;
         break;
 
       case ContentType.EMAIL_REPLY:
-        command.entities.body = generatedContent.content.text;
+        // Clean up the generated content and fix common issues
+        let cleanedContent = generatedContent.content.text || '';
+
+        // Fix common formatting issues
+        cleanedContent = this.cleanEmailContent(cleanedContent);
+
+        command.entities.body = cleanedContent;
         command.generatedContent.reply = generatedContent;
         break;
 

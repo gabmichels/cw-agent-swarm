@@ -324,14 +324,28 @@ ${recentContext}
 
 ${stateGuidance}${personaGuidance}
 
-CRITICAL INSTRUCTIONS FOR PRE-FORMATTED CONTENT:
-- **MUST PRESERVE** all tables, data structures, and detailed information EXACTLY as provided
-- **DO NOT SUMMARIZE** or recreate the content - it's already perfectly formatted
-- The content above is structured data that users need to see in full detail
-- You may add a brief, friendly intro (1-2 sentences) or conclusion if helpful
-- **NEVER** truncate tables or remove email details
-- **NEVER** replace the formatted table with a summary
-- **NO LENGTH RESTRICTIONS** - preserve all content regardless of length
+TASK: CREATE A WELL-FORMATTED MARKDOWN TABLE FROM THE PROVIDED DATA
+
+INSTRUCTIONS:
+1. **CREATE A PROPER MARKDOWN TABLE** with | separators and header row
+2. **INCLUDE ALL PROVIDED DATA** - don't omit any emails or information
+3. **SORT THE TABLE INTELLIGENTLY** based on what the user is asking for:
+   - For "important emails": Sort by urgency/priority first
+   - For "attention emails": Put urgent items at top, then by date
+   - For general requests: Sort by relevance to user's specific question
+4. **USE CLEAR COLUMN HEADERS** like Priority, Subject, Sender, Date, etc.
+5. **FORMAT DATA CLEANLY** - truncate long subjects appropriately, format dates clearly
+6. **ADD HELPFUL CONTEXT** above and below the table explaining what you found
+
+EXAMPLE FORMAT:
+Here's what I found in your inbox:
+
+| Priority | Sender | Subject | Date | 
+|----------|--------|---------|------|
+| 🔥 URGENT | John Doe | Important: Meeting Tomorrow | 2h ago |
+| 📧 UNREAD | Newsletter | Weekly Update | 1d ago |
+
+Based on this analysis, I recommend...
 
 ${context.responseConfig.includeEmojis ? 'You may use appropriate emojis.' : 'Do not use emojis.'}
 ${context.responseConfig.includeMetrics ? 'Include relevant performance metrics if helpful.' : 'Focus on outcomes rather than technical metrics.'}`;

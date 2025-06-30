@@ -158,12 +158,15 @@ const ChatMessages: React.FC<ChatMessagesProps> = React.memo(({
     }
   };
 
-  // Watch for deletion events to refresh the UI
+  // Watch for deletion events to update the UI in real-time
   useEffect(() => {
     const handleMessageDeleted = (event: Event) => {
       const customEvent = event as CustomEvent;
-      if (customEvent.detail?.id) {
-        // Message deleted, UI will be refreshed by parent component
+      const deletedMessageId = customEvent.detail?.id;
+      
+      if (deletedMessageId && onDeleteMessage) {
+        // Call the parent's onDeleteMessage handler to update the messages list
+        onDeleteMessage(deletedMessageId).catch(console.error);
       }
     };
 
@@ -171,7 +174,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = React.memo(({
     return () => {
       document.removeEventListener('messageDeleted', handleMessageDeleted);
     };
-  }, []);
+  }, [onDeleteMessage]);
 
   // Add effect to check if specific message (by ID) is present
   useEffect(() => {

@@ -3,7 +3,7 @@ import FormData from 'form-data';
 import { FileService } from '../../../../lib/storage/FileService';
 import { StorageProvider } from '../../../../lib/storage/StorageService';
 import { ZohoWorkspaceProvider } from '../../providers/ZohoWorkspaceProvider';
-import { EmailAttachment, EmailCapabilities, EmailMessage, EmailSearchCriteria, SendEmailParams } from '../EmailCapabilities';
+import { EmailAttachment, EmailCapabilities, EmailMessage, EmailSearchCriteria, ForwardEmailParams, ReplyEmailParams, SendEmailParams } from '../EmailCapabilities';
 import { IEmailCapabilities } from '../interfaces/IEmailCapabilities';
 
 // Local interfaces for Zoho-specific functionality
@@ -149,8 +149,35 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
 
       console.log('Searching Zoho emails with params:', params);
 
-      // Get messages from Zoho Mail using search endpoint
-      const response = await client.get(`/accounts/${accountId}/messages/view`, { params });
+      // Use search endpoint when searching by sender, otherwise use view endpoint
+      let endpoint = `/accounts/${accountId}/messages/view`;
+      let finalParams = { ...params };
+
+      // If searching by sender, use search endpoint instead
+      // NOTE: Zoho subject search is unreliable and causes 400 errors, so we only search by sender
+      if (criteria.from) {
+        endpoint = `/accounts/${accountId}/messages/search`;
+
+        // Search across all folders (don't restrict to Inbox) to find emails in any organized folder
+        // We'll filter out sent emails in post-processing instead
+        finalParams.searchKey = `sender:${criteria.from}`;
+
+        // Remove folder param when using search endpoint to search all folders
+        delete finalParams.folder;
+
+        console.log('Using search endpoint for sender-based search (all folders):', {
+          endpoint,
+          searchKey: finalParams.searchKey,
+          fromCriteria: criteria.from,
+          subjectWillBeFilteredAfter: !!criteria.subject,
+          note: 'Searching all folders, will filter out sent emails in post-processing'
+        });
+      }
+
+      console.log('Zoho API call:', { endpoint, params: finalParams });
+
+      // Get messages from Zoho Mail
+      const response = await client.get(endpoint, { params: finalParams });
 
       if (response.data.status?.code !== 200) {
         throw new Error(response.data.status?.description || 'Failed to search emails');
@@ -159,9 +186,54 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       const messages = response.data.data || [];
 
       // Convert Zoho messages to EmailMessage format
-      const emails: EmailMessage[] = await Promise.all(
+      let emails: EmailMessage[] = await Promise.all(
         messages.map(async (msg: any) => this.convertZohoToEmailMessage(msg))
       );
+
+      // Filter out emails from sent/drafts/spam/trash folders (keep only received emails)
+      if (criteria.from) {
+        const originalCount = emails.length;
+        const excludedFolders = ['sent', 'drafts', 'spam', 'trash', 'outbox', 'scheduled'];
+
+        emails = emails.filter(email => {
+          const folder = (email.labels?.[0] || '').toLowerCase();
+          const isExcludedFolder = excludedFolders.some(excluded => folder.includes(excluded));
+
+          if (isExcludedFolder) {
+            console.log(`Excluding email from ${folder} folder:`, { id: email.id, subject: email.subject });
+            return false;
+          }
+          return true;
+        });
+
+        console.log(`Folder post-filter: ${originalCount} -> ${emails.length} emails (excluded sent/drafts/spam/trash folders)`);
+      }
+
+      // Apply subject filtering in post-processing if needed
+      if (criteria.subject) {
+        const originalCount = emails.length;
+        emails = emails.filter(email =>
+          email.subject && email.subject.toLowerCase().includes(criteria.subject!.toLowerCase())
+        );
+        console.log(`Subject post-filter: ${originalCount} -> ${emails.length} emails (filtered by "${criteria.subject}")`);
+      }
+
+      // Debug logging for searches
+      if (criteria.from || criteria.subject) {
+        const searchDesc = [];
+        if (criteria.from) searchDesc.push(`from: ${criteria.from}`);
+        if (criteria.subject) searchDesc.push(`subject: ${criteria.subject}`);
+
+        console.log(`Found ${emails.length} emails matching ${searchDesc.join(' and ')}:`,
+          emails.map(e => ({
+            id: e.id,
+            subject: e.subject,
+            from: e.from,
+            date: e.date,
+            folder: e.labels?.[0]
+          }))
+        );
+      }
 
       return emails;
     } catch (error) {
@@ -360,21 +432,76 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
 
   /**
    * Get specific email by ID
+   * Note: For Zoho, we need both emailId and folderId to fetch email details
    */
-  async getEmail(emailId: string): Promise<Email> {
+  async getEmail(emailId: string, folderId?: string): Promise<Email> {
     try {
       const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
 
       // Get account ID first
       const accountId = await this.getAccountId(client);
 
-      const response = await client.get(`/accounts/${accountId}/messages/${emailId}`);
+      // If no folderId provided, try common folders
+      const foldersToTry = folderId ? [folderId] : [
+        '9000000002014', // Inbox
+        '9000000002015', // Sent
+        '9000000002016', // Drafts
+        '9000000002017', // Spam
+        '9000000002018'  // Trash
+      ];
 
-      if (response.data.status?.code !== 200) {
-        throw new Error(response.data.status?.description || 'Failed to fetch email');
+      let emailDetails, emailContent, emailHeaders;
+      let lastError;
+
+      for (const currentFolderId of foldersToTry) {
+        try {
+          console.log('Trying to fetch Zoho email:', { accountId, folderId: currentFolderId, emailId });
+
+          // Get email details using the correct Zoho API endpoint
+          const detailsResponse = await client.get(`/accounts/${accountId}/folders/${currentFolderId}/messages/${emailId}/details`);
+
+          if (detailsResponse.data.status?.code === 200) {
+            emailDetails = detailsResponse.data.data;
+
+            // Get email content separately
+            const contentResponse = await client.get(`/accounts/${accountId}/folders/${currentFolderId}/messages/${emailId}/content`);
+
+            if (contentResponse.data.status?.code === 200) {
+              emailContent = contentResponse.data.data;
+
+              // Get email headers for reply threading
+              try {
+                const headersResponse = await client.get(`/accounts/${accountId}/folders/${currentFolderId}/messages/${emailId}/header`);
+                emailHeaders = headersResponse.data.data;
+              } catch (headerError) {
+                console.warn('Failed to get headers, continuing without them:', headerError);
+                emailHeaders = { headerContent: {} };
+              }
+
+              // Success! Break out of the loop
+              console.log('Successfully found email in folder:', currentFolderId);
+              break;
+            }
+          }
+        } catch (error) {
+          lastError = error;
+          console.log(`Email not found in folder ${currentFolderId}, trying next...`);
+          continue;
+        }
       }
 
-      return this.convertZohoMessageToEmail(client, response.data.data);
+      if (!emailDetails || !emailContent) {
+        throw new Error(`Email ${emailId} not found in any folder. Last error: ${lastError instanceof Error ? lastError.message : 'Unknown error'}`);
+      }
+
+      // Combine all the information into a single email object
+      const combinedEmail = {
+        ...emailDetails,
+        content: emailContent.content || '',
+        headers: emailHeaders?.headerContent || {}
+      };
+
+      return this.convertZohoMessageToEmail(client, combinedEmail);
     } catch (error) {
       console.error('Zoho get email error:', error);
       throw new Error(`Failed to get email from Zoho Mail: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -385,6 +512,37 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
    * Convert Zoho message format to our Email format
    */
   private async convertZohoMessageToEmail(client: AxiosInstance, zohoMsg: any): Promise<Email> {
+    // Start with basic headers
+    const headers = [
+      { name: 'From', value: zohoMsg.fromAddress || zohoMsg.sender || '' },
+      { name: 'To', value: zohoMsg.toAddress || zohoMsg.recipient || '' },
+      { name: 'Subject', value: zohoMsg.subject || '' },
+      { name: 'Date', value: zohoMsg.receivedTime || zohoMsg.sentTime || new Date().toISOString() }
+    ];
+
+    // Add CC and BCC if present
+    if (zohoMsg.ccAddress) {
+      headers.push({ name: 'Cc', value: zohoMsg.ccAddress });
+    }
+    if (zohoMsg.bccAddress) {
+      headers.push({ name: 'Bcc', value: zohoMsg.bccAddress });
+    }
+
+    // If we have detailed headers from the API call, parse and add them
+    if (zohoMsg.headers) {
+      const parsedHeaders = this.parseZohoHeaders(zohoMsg.headers);
+      // Add important headers for email threading
+      if (parsedHeaders['Message-Id']) {
+        headers.push({ name: 'Message-ID', value: parsedHeaders['Message-Id'] });
+      }
+      if (parsedHeaders['References']) {
+        headers.push({ name: 'References', value: parsedHeaders['References'] });
+      }
+      if (parsedHeaders['In-Reply-To']) {
+        headers.push({ name: 'In-Reply-To', value: parsedHeaders['In-Reply-To'] });
+      }
+    }
+
     const email: Email = {
       id: zohoMsg.messageId || zohoMsg.mid,
       threadId: zohoMsg.conversationId || zohoMsg.cid,
@@ -394,12 +552,7 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
         partId: '',
         mimeType: zohoMsg.mailFormat === 'html' ? 'text/html' : 'text/plain',
         filename: '',
-        headers: [
-          { name: 'From', value: zohoMsg.fromAddress || zohoMsg.sender },
-          { name: 'To', value: zohoMsg.toAddress || zohoMsg.recipient },
-          { name: 'Subject', value: zohoMsg.subject || '' },
-          { name: 'Date', value: zohoMsg.receivedTime || zohoMsg.sentTime || new Date().toISOString() }
-        ],
+        headers: headers,
         body: {
           size: zohoMsg.content?.length || 0,
           data: zohoMsg.content || ''
@@ -410,14 +563,6 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
       historyId: zohoMsg.messageId || zohoMsg.mid,
       internalDate: zohoMsg.receivedTime || zohoMsg.sentTime || new Date().toISOString()
     };
-
-    // Add CC and BCC if present
-    if (zohoMsg.ccAddress) {
-      email.payload.headers.push({ name: 'Cc', value: zohoMsg.ccAddress });
-    }
-    if (zohoMsg.bccAddress) {
-      email.payload.headers.push({ name: 'Bcc', value: zohoMsg.bccAddress });
-    }
 
     // Handle attachments
     if (zohoMsg.attachments && zohoMsg.attachments.length > 0) {
@@ -437,6 +582,41 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
     }
 
     return email;
+  }
+
+  /**
+   * Parse Zoho headers from raw header string or object format
+   */
+  private parseZohoHeaders(headers: any): Record<string, string> {
+    if (typeof headers === 'string') {
+      // Parse raw header string
+      const headerMap: Record<string, string> = {};
+      const lines = headers.split('\r\n');
+
+      for (const line of lines) {
+        const colonIndex = line.indexOf(':');
+        if (colonIndex > 0) {
+          const name = line.substring(0, colonIndex).trim();
+          const value = line.substring(colonIndex + 1).trim();
+          headerMap[name] = value;
+        }
+      }
+
+      return headerMap;
+    } else if (typeof headers === 'object' && headers !== null) {
+      // Headers are already in object format
+      const headerMap: Record<string, string> = {};
+      for (const [key, value] of Object.entries(headers)) {
+        if (Array.isArray(value)) {
+          headerMap[key] = value[0] || '';
+        } else {
+          headerMap[key] = String(value || '');
+        }
+      }
+      return headerMap;
+    }
+
+    return {};
   }
 
   /**
@@ -596,6 +776,192 @@ export class ZohoEmailCapabilities extends EmailCapabilities implements IEmailCa
     } catch (error) {
       console.warn('Failed to get default from address:', error);
       return '';
+    }
+  }
+
+  /**
+   * Reply to an existing email via Zoho Mail API
+   * Uses the proper Zoho reply endpoint: POST /accounts/{accountId}/messages/{messageId}
+   */
+  async replyToEmail(params: ReplyEmailParams, connectionId: string, agentId: string): Promise<EmailMessage> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
+      const accountId = await this.getAccountId(client);
+
+      // Get the original email to extract reply information
+      const originalEmail = await this.getEmail(params.originalEmailId);
+
+      // Extract original email information for reply
+      const originalHeaders = originalEmail.payload.headers;
+      const getOriginalHeader = (name: string) =>
+        originalHeaders.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+      const originalSubject = getOriginalHeader('Subject');
+      const originalFrom = getOriginalHeader('From');
+
+      // Build reply subject (add "Re: " if not already present)
+      const replySubject = originalSubject.toLowerCase().startsWith('re:')
+        ? originalSubject
+        : `Re: ${originalSubject}`;
+
+      // Build reply content
+      let replyBody = params.body;
+      if (params.includeOriginal) {
+        replyBody += '\n\n--- Original Message ---\n';
+        replyBody += originalEmail.payload.body.data || '';
+      }
+
+      // Build email data for Zoho Reply API - following the exact structure from documentation
+      const replyData: Record<string, any> = {
+        fromAddress: await this.getDefaultFromAddress(client, accountId),
+        toAddress: originalFrom,
+        subject: replySubject,
+        content: replyBody, // Zoho uses 'content' not 'body'
+        action: 'reply', // REQUIRED for Zoho reply endpoint
+        mailFormat: params.htmlBody ? 'html' : 'plaintext',
+        askReceipt: 'no'
+      };
+
+      // Use the proper Zoho reply endpoint: POST /accounts/{accountId}/messages/{messageId}
+      const replyEndpoint = `/accounts/${accountId}/messages/${params.originalEmailId}`;
+
+      console.log('Using proper Zoho reply endpoint:', {
+        method: 'POST',
+        endpoint: replyEndpoint,
+        fullURL: `${client.defaults.baseURL}${replyEndpoint}`,
+        accountId,
+        messageId: params.originalEmailId,
+        fromAddress: replyData.fromAddress,
+        toAddress: replyData.toAddress,
+        subject: replyData.subject,
+        action: replyData.action
+      });
+
+      console.log('Zoho reply payload:', replyData);
+
+      const response = await client.post(replyEndpoint, replyData);
+
+      console.log('Zoho reply response:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data
+      });
+
+      if (response.data.status?.code === 200 || response.data.data) {
+        // Convert to EmailMessage format
+        return {
+          id: response.data.data?.messageId || response.data.messageId || 'reply-' + Date.now(),
+          threadId: originalEmail.threadId,
+          from: replyData.fromAddress,
+          to: [originalFrom],
+          subject: replySubject,
+          body: replyBody,
+          date: new Date(),
+          isRead: false,
+          isImportant: false,
+          labels: ['SENT'],
+          attachments: []
+        };
+      } else {
+        throw new Error(response.data.status?.description || 'Failed to send reply');
+      }
+    } catch (error: any) {
+      console.error('Zoho email reply error:', error);
+
+      // Log detailed error response for debugging
+      if (error.response) {
+        console.error('Zoho reply error details:', {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data,
+          headers: error.response.headers,
+          config: {
+            url: error.config?.url,
+            method: error.config?.method,
+            baseURL: error.config?.baseURL,
+            data: error.config?.data
+          }
+        });
+      }
+
+      throw new Error(`Failed to reply to email via Zoho Mail: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Forward an existing email via Zoho Mail API
+   */
+  async forwardEmail(params: ForwardEmailParams, connectionId: string, agentId: string): Promise<EmailMessage> {
+    try {
+      const client = await this.zohoProvider.getServiceClient(this.connectionId, 'mail');
+      const accountId = await this.getAccountId(client);
+
+      // Get the original email to extract forwarding information
+      const originalEmail = await this.getEmail(params.originalEmailId);
+
+      // Extract original email information for forward
+      const originalHeaders = originalEmail.payload.headers;
+      const getOriginalHeader = (name: string) =>
+        originalHeaders.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+      const originalSubject = getOriginalHeader('Subject');
+      const originalFrom = getOriginalHeader('From');
+
+      // Build forward subject (add "Fwd: " if not already present)
+      const forwardSubject = originalSubject.toLowerCase().startsWith('fwd:') || originalSubject.toLowerCase().startsWith('fw:')
+        ? originalSubject
+        : `Fwd: ${originalSubject}`;
+
+      // Build forward content
+      let forwardBody = params.body || '';
+      forwardBody += '\n\n---------- Forwarded message ----------\n';
+      forwardBody += `From: ${originalFrom}\n`;
+      forwardBody += `Subject: ${originalSubject}\n`;
+      forwardBody += `\n${originalEmail.payload.body.data || ''}`;
+
+      // Build email data for Zoho API
+      const emailData: Record<string, any> = {
+        fromAddress: await this.getDefaultFromAddress(client, accountId),
+        toAddress: Array.isArray(params.to) ? params.to.join(',') : params.to,
+        ccAddress: params.cc ? (Array.isArray(params.cc) ? params.cc.join(',') : params.cc) : undefined,
+        subject: forwardSubject,
+        content: forwardBody,
+        mailFormat: params.htmlBody ? 'html' : 'plaintext',
+        askReceipt: 'no'
+      };
+
+      // Remove undefined fields
+      Object.keys(emailData).forEach(key => {
+        if (emailData[key] === undefined) {
+          delete emailData[key];
+        }
+      });
+
+      // Send the forward
+      const response = await client.post(`/accounts/${accountId}/messages`, emailData);
+
+      if (response.data.status?.code === 200 || response.data.data) {
+        // Convert to EmailMessage format
+        return {
+          id: response.data.data?.messageId || response.data.messageId || 'unknown',
+          threadId: 'forward-' + Date.now(), // New thread for forwards
+          from: emailData.fromAddress,
+          to: params.to,
+          cc: params.cc,
+          subject: forwardSubject,
+          body: forwardBody,
+          date: new Date(),
+          isRead: false,
+          isImportant: false,
+          labels: ['SENT'],
+          attachments: []
+        };
+      } else {
+        throw new Error(response.data.status?.description || 'Failed to send forward');
+      }
+    } catch (error) {
+      console.error('Zoho email forward error:', error);
+      throw new Error(`Failed to forward email via Zoho Mail: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 }

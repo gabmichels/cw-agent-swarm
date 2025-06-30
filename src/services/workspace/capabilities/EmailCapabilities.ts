@@ -478,20 +478,28 @@ export class EmailCapabilities {
       searchAllFolders: true // Search across all Gmail folders/labels, not just inbox
     }, connectionId, agentId);
 
-    // Analyze the unread emails for attention patterns using user preferences
-    const urgentEmails = emails.filter(email => this.isUrgent(email, userCriteria));
+    // First pass: Analyze emails for attention patterns using user preferences
+    const initialUrgentEmails = emails.filter(email => this.isUrgent(email, userCriteria));
     const overdueReplies = emails.filter(email => this.isOverdueReply(email));
 
-    // ALL unread emails need attention by definition
+    console.log(`📧 BEFORE newsletter filtering: ${initialUrgentEmails.length} urgent emails, ${overdueReplies.length} overdue`);
+
+    // Second pass: Apply newsletter/promotional filtering to downgrade automated content
+    const urgentEmails = this.applyNewsletterFiltering(initialUrgentEmails);
+    const filteredOverdueReplies = this.applyNewsletterFiltering(overdueReplies);
+
+    console.log(`📧 AFTER newsletter filtering: ${urgentEmails.length} urgent emails, ${filteredOverdueReplies.length} overdue`);
+
+    // ALL unread emails need attention by definition, but newsletters get lower priority in display
     const needsAttention = emails;
 
     const analysis: AttentionAnalysis = {
       needsAttention,
       urgentCount: urgentEmails.length,
       unreadCount: emails.length,
-      overdueReplies,
+      overdueReplies: filteredOverdueReplies,
       upcomingDeadlines: await this.extractDeadlines(emails),
-      summary: this.generateAttentionSummary(urgentEmails.length, emails.length, overdueReplies.length)
+      summary: this.generateAttentionSummary(urgentEmails.length, emails.length, filteredOverdueReplies.length)
     };
 
     return analysis;
@@ -658,6 +666,15 @@ export class EmailCapabilities {
       for (const part of payload.parts) {
         if (part.mimeType === 'text/plain' && part.body?.data) {
           return Buffer.from(part.body.data, 'base64').toString();
+        }
+      }
+
+      // If no text/plain found, try to extract text from HTML as fallback
+      for (const part of payload.parts) {
+        if (part.mimeType === 'text/html' && part.body?.data) {
+          const htmlContent = Buffer.from(part.body.data, 'base64').toString();
+          // Basic HTML stripping for text fallback
+          return htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
         }
       }
     }
@@ -1191,5 +1208,147 @@ export class EmailCapabilities {
     }
 
     return items;
+  }
+
+  /**
+   * Apply newsletter/promotional filtering to downgrade automated content
+   * This is a second-pass filter that removes emails with newsletter characteristics from urgent lists
+   */
+  private applyNewsletterFiltering(emails: EmailMessage[]): EmailMessage[] {
+    const filtered = emails.filter(email => !this.isNewsletterOrPromotional(email));
+
+    if (filtered.length !== emails.length) {
+      console.log(`Newsletter filtering: ${emails.length - filtered.length} newsletters removed from ${emails.length} emails`);
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Detect if an email is a newsletter, promotional content, or automated message
+   * Uses multiple signals to identify non-actionable content
+   */
+  private isNewsletterOrPromotional(email: EmailMessage): boolean {
+    const subject = email.subject.toLowerCase();
+    const body = email.body.toLowerCase();
+    const htmlBody = (email.htmlBody || '').toLowerCase();
+    const from = email.from.toLowerCase();
+
+    // Debug specific emails we're interested in
+    const isTargetEmail = subject.includes('messari') || subject.includes('revolut') || from.includes('messari') || from.includes('revolut');
+    if (isTargetEmail) {
+      console.log(`🔍 ANALYZING: "${email.subject}" from ${email.from}`);
+      console.log(`   Text body length: ${body.length}, HTML body length: ${htmlBody.length}`);
+      console.log(`   Text body preview: "${body.substring(0, 200)}..."`);
+      console.log(`   HTML body preview: "${htmlBody.substring(0, 200)}..."`);
+    }
+
+    // Primary indicator: presence of "unsubscribe" in body content (check both text and HTML)
+    const hasUnsubscribeInText = body.includes('unsubscribe');
+    const hasUnsubscribeInHTML = htmlBody.includes('unsubscribe');
+
+    if (hasUnsubscribeInText || hasUnsubscribeInHTML) {
+      if (isTargetEmail) {
+        console.log(`   ✅ UNSUBSCRIBE FOUND: text=${hasUnsubscribeInText}, html=${hasUnsubscribeInHTML}`);
+      }
+      return true;
+    }
+
+    // Secondary indicators for newsletter/promotional content
+    const newsletterIndicators = [
+      // Unsubscribe variations
+      'click here to unsubscribe',
+      'unsubscribe link',
+      'opt out',
+      'stop receiving',
+      'manage preferences',
+      'email preferences',
+
+      // Newsletter-specific content
+      'this email was sent to',
+      'you are receiving this email because',
+      'you subscribed to',
+      'newsletter',
+      'weekly digest',
+      'daily digest',
+      'monthly update',
+
+      // Marketing/promotional indicators
+      'promotional email',
+      'marketing communication',
+      'this is a promotional email',
+      'advertisement',
+
+      // Common newsletter footers
+      'sent via',
+      'powered by mailchimp',
+      'constant contact',
+      'sendgrid',
+      'if you no longer wish to receive'
+    ];
+
+    // Check if email contains multiple newsletter indicators
+    const indicatorCount = newsletterIndicators.filter(indicator =>
+      body.includes(indicator) || htmlBody.includes(indicator) || subject.includes(indicator)
+    ).length;
+
+    if (indicatorCount >= 2) {
+      return true;
+    }
+
+    // Check sender patterns that indicate automated/marketing emails
+    const automatedSenderPatterns = [
+      'noreply',
+      'no-reply',
+      'donotreply',
+      'newsletter',
+      'marketing',
+      'notifications',
+      'updates',
+      'digest',
+      'alerts@',
+      'newsletter@',
+      'news@'
+    ];
+
+    const hasAutomatedSender = automatedSenderPatterns.some(pattern =>
+      from.includes(pattern)
+    );
+
+    // Check for Gmail promotional labels
+    const hasPromotionalLabel = email.labels.includes('CATEGORY_PROMOTIONS') ||
+      email.labels.includes('CATEGORY_UPDATES');
+
+    // Combine signals: automated sender + promotional label = likely newsletter
+    if (hasAutomatedSender && hasPromotionalLabel) {
+      return true;
+    }
+
+    // Subject line patterns that indicate newsletters
+    const newsletterSubjectPatterns = [
+      /weekly\s+digest/i,
+      /daily\s+(update|digest|brief)/i,
+      /newsletter/i,
+      /\[\w+\]\s+/i, // [Company] Subject format common in newsletters
+      /issue\s+#?\d+/i, // Issue #123 format
+      /vol\.\s+\d+/i, // Vol. 1 format
+    ];
+
+    const hasNewsletterSubject = newsletterSubjectPatterns.some(pattern =>
+      pattern.test(subject)
+    );
+
+    if (hasNewsletterSubject) {
+      if (isTargetEmail) {
+        console.log(`   ✅ NEWSLETTER SUBJECT PATTERN FOUND`);
+      }
+      return true;
+    }
+
+    if (isTargetEmail) {
+      console.log(`   ❌ NOT DETECTED AS NEWSLETTER - will remain in urgent list`);
+    }
+
+    return false;
   }
 } 
