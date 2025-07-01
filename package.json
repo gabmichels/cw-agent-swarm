@@ -127,6 +127,7 @@
     "cron": "4.3.0",
     "crypto-browserify": "^3.12.1",
     "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
     "discord.js": "14.14.1",
     "dotenv": "^16.5.0",
     "events": "^3.3.0",

@@ -3518,12 +3518,20 @@ Task scheduled successfully (ID: ${safeTaskId})`;
 
     // Calendar response
     if (data.events !== undefined || data.summary) {
+      // Check if the new formatCalendarResponse has already provided a formatted response
+      if (data.formattedSummary) {
+        // Use the new table format from WorkspaceAgentTools.formatCalendarResponse()
+        return data.formattedSummary;
+      }
+
+      // Fallback to original formatting logic for backward compatibility
       if (Array.isArray(data.events)) {
         const eventCount = data.events.length;
         if (eventCount === 0) {
-          return "Your calendar is clear - no events scheduled for the requested time period.";
+          return "📅 **Your calendar is clear** - no events scheduled for the requested time period.";
         } else {
-          return `I found ${eventCount} event${eventCount > 1 ? 's' : ''} on your calendar. ${data.summary || ''}`;
+          // Simple fallback format - the proper table formatting is now handled in WorkspaceAgentTools
+          return `📅 Found ${eventCount} calendar event${eventCount > 1 ? 's' : ''}.${data.summary ? ` ${data.summary}` : ''}`;
         }
       }
       return data.summary || "I've checked your calendar for you.";

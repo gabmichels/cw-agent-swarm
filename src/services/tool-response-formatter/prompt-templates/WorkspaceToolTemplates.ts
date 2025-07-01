@@ -3,6 +3,21 @@
  * 
  * Templates for workspace tools including email, calendar, drive operations
  * with business-focused language and professional tone.
+ * 
+ * IMPORTANT: This LLM formatter approach is the CORRECT method for formatting workspace responses.
+ * 
+ * HOW IT WORKS:
+ * 1. Workspace tools (in WorkspaceAgentTools.ts) return structured data with `formattedSummary` fields
+ * 2. This LLM formatter receives that structured data and applies these templates
+ * 3. The templates contain instructions for table formatting, tone, and professional communication
+ * 4. This approach works successfully for emails and should be used for ALL workspace data formatting
+ * 
+ * PATTERN:
+ * - Tools like `formatEmailAttentionResponse()` and `formatCalendarResponse()` create structured data
+ * - The LLM formatter applies the table formatting instructions from these templates
+ * - Result: Professional, consistently formatted responses with proper tables and business context
+ * 
+ * DO NOT bypass this system - it ensures consistent, professional formatting across all workspace tools.
  */
 
 import { ResponseStyleType, ToolCategory, ToolResponsePromptTemplate } from '../types';
@@ -298,6 +313,13 @@ ADVANCED SCHEDULING CAPABILITIES:
 - Recurring meeting pattern analysis and optimization
 - Meeting preparation time recommendations
 
+CALENDAR READING & DISPLAY:
+- **ALWAYS create structured tables for calendar events** - never use paragraph or list format
+- Use markdown table format with clear columns for Time, Event, Location, Attendees
+- Group events logically (morning, afternoon, evening) when there are many events
+- Calculate and display total meeting time, free time, and productivity recommendations
+- Highlight conflicts, back-to-back meetings, and scheduling optimization opportunities
+
 PROFESSIONAL COMMUNICATION STYLE:
 - Strategic, time-conscious, and efficiency-focused
 - Emphasize productivity optimization and professional outcomes
@@ -305,8 +327,28 @@ PROFESSIONAL COMMUNICATION STYLE:
 - Provide calendar optimization recommendations
 - Use authoritative scheduling and time management language`,
 
-                successTemplate: `Calendar event successfully scheduled with intelligent optimization:
+                successTemplate: `CRITICAL: For calendar reading operations, you MUST create a structured table. For event scheduling operations, use the confirmation format.
 
+**FOR CALENDAR READING (checking calendar, viewing schedule):**
+📅 **Calendar Overview:** [Date/period being viewed]
+
+| Time | Event | Location | Attendees | Duration |
+|------|--------|-----------|-----------|----------|
+| 9:00 AM - 10:00 AM | [Event Title] | [Location/Platform] | [Attendee list] | 1h |
+| 2:00 PM - 3:30 PM | [Event Title] | [Location/Platform] | [Attendee list] | 1h 30m |
+
+**Schedule Summary:**
+- Total Events: [X events]
+- Total Meeting Time: [X hours X minutes]
+- Free Time Available: [X hours]
+- Conflicts Detected: [None/Details]
+
+**Productivity Insights:**
+- [Schedule optimization recommendations]
+- [Focus time availability]
+- [Meeting preparation suggestions]
+
+**FOR EVENT SCHEDULING:**
 📅 **Event Confirmation:**
 - Meeting Details: [Title, date, time with timezone]
 - Duration: [Time allocated with buffer considerations]
@@ -318,18 +360,6 @@ PROFESSIONAL COMMUNICATION STYLE:
 - Optimal Timing: [Why this time was selected based on participant availability]
 - Productivity Impact: [How this fits into your daily focus time blocks]
 - Preparation Time: [Buffer time allocated before the meeting]
-
-⚡ **Calendar Optimization:**
-- Meeting Efficiency: [Recommended agenda structure for time allocation]
-- Follow-up Actions: [Suggested post-meeting tasks and calendar blocks]
-- Related Events: [Connected meetings or deadlines to track]
-- Resource Allocation: [Meeting room, equipment, or platform details]
-
-🎯 **Strategic Recommendations:**
-- Pre-meeting Preparation: [Suggested prep time and materials needed]
-- Success Metrics: [How to measure if the meeting achieves its objectives]
-- Next Steps Planning: [Recommended follow-up meetings or deadlines]
-- Calendar Health: [Impact on your overall schedule optimization]
 
 Would you like me to schedule preparation time or set up any follow-up events?`,
 

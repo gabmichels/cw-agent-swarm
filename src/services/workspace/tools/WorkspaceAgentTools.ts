@@ -34,7 +34,7 @@ export interface AgentContext {
 export interface ReadEmailParams {
   emailId?: string;
   searchQuery?: string;
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface FindImportantEmailsParams {
@@ -42,7 +42,7 @@ export interface FindImportantEmailsParams {
   hasAttachments?: boolean;
   keywords?: string[];
   timeframe?: 'last_hour' | 'last_24_hours' | 'last_week' | 'last_month';
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface SendEmailParams {
@@ -50,7 +50,7 @@ export interface SendEmailParams {
   cc?: string[];
   subject: string;
   body: string;
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 // Smart email sending interface that includes sender preferences
@@ -66,14 +66,14 @@ export interface SmartSendEmailParams {
 export interface ReplyEmailParams {
   emailId: string;
   body: string;
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 // Calendar tool parameters
 export interface ReadCalendarParams {
   startDate: string; // ISO date string
   endDate: string; // ISO date string
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface FindAvailabilityParams {
@@ -83,7 +83,7 @@ export interface FindAvailabilityParams {
     start: string; // HH:MM
     end: string; // HH:MM
   };
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface ScheduleEventParams {
@@ -93,39 +93,39 @@ export interface ScheduleEventParams {
   attendees?: string[];
   description?: string;
   location?: string;
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface SummarizeDayParams {
   date: string; // YYYY-MM-DD
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 // Sheets tool parameters
 export interface CreateSpreadsheetParams {
   title: string;
   sheets?: { title: string; headers?: string[] }[];
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface ReadSpreadsheetParams {
   spreadsheetId: string;
   range?: string;
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface UpdateSpreadsheetParams {
   spreadsheetId: string;
   range: string;
   values: any[][];
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface AnalyzeDataParams {
   spreadsheetId: string;
   sheetName?: string;
   analysisType: 'summary' | 'trends' | 'correlations' | 'pivot';
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 // Drive tool parameters
@@ -133,21 +133,21 @@ export interface SearchFilesParams {
   name?: string;
   mimeType?: string;
   maxResults?: number;
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface CreateFileParams {
   name: string;
   content?: string;
   parentFolder?: string;
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface ShareFileParams {
   fileId: string;
   emails: string[];
   role: 'reader' | 'writer' | 'commenter';
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 // Email analysis tool parameters
@@ -156,26 +156,31 @@ export interface AnalyzeEmailsParams {
   analysisType: 'attention' | 'sentiment' | 'activity' | 'action_items' | 'trends';
   includeRead?: boolean;
   maxEmails?: number;
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface GetEmailAttentionParams {
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface GetActionItemsParams {
   timeframe?: 'today' | 'this_week';
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 export interface GetEmailTrendsParams {
   timeframe?: 'this_week' | 'this_month';
-  connectionId: string;
+  connectionId?: string; // Optional - will auto-select if not provided
 }
 
 /**
  * Workspace Agent Tools for LLM Integration
  * These tools enable natural language interaction with workspace capabilities
+ * 
+ * IMPORTANT: The LLM formatter (LLMPersonaFormatter) is the correct approach for formatting responses.
+ * Tools should return structured data with formattedSummary fields, and the LLM formatter will
+ * apply the table formatting instructions from WorkspaceToolTemplates.ts. This works correctly
+ * for emails and should be used for all workspace data formatting.
  */
 export class WorkspaceAgentTools {
   private permissionService: AgentWorkspacePermissionService;
@@ -190,6 +195,39 @@ export class WorkspaceAgentTools {
     this.connectionsInfoTool = new WorkspaceConnectionsInfoTool();
     this.connectionSelector = new WorkspaceConnectionSelector();
     this.nlpProcessor = new WorkspaceNLPProcessor();
+  }
+
+  /**
+   * Resolve connection ID - auto-select if not provided and only one connection available
+   */
+  private async resolveConnectionId(
+    providedConnectionId: string | undefined,
+    agentId: string,
+    capability: string
+  ): Promise<string> {
+    // If connection ID is provided, validate and use it
+    if (providedConnectionId) {
+      const connection = await this.db.getWorkspaceConnection(providedConnectionId);
+      if (!connection) {
+        throw new Error(`Workspace connection ${providedConnectionId} not found`);
+      }
+      return providedConnectionId;
+    }
+
+    // Auto-select connection
+    const selectionResult = await this.connectionSelector.selectConnection({
+      agentId,
+      capability: capability as any
+    });
+
+    if (!selectionResult.success) {
+      if (selectionResult.requiresUserChoice && selectionResult.suggestedMessage) {
+        throw new Error(selectionResult.suggestedMessage);
+      }
+      throw new Error(selectionResult.error || 'No suitable workspace connection found');
+    }
+
+    return selectionResult.connectionId!;
   }
 
   /**
@@ -381,7 +419,7 @@ export class WorkspaceAgentTools {
   // Email Tools
   public readSpecificEmailTool: AgentTool<ReadEmailParams, any> = {
     name: "read_specific_email",
-    description: "Read a specific email by ID or search for an email and read it",
+    description: "Read a specific email by ID or search for an email and read it. If you have multiple email accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -395,17 +433,24 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID"
+          description: "Workspace connection ID (optional - will auto-select if only one email account available)"
         }
       },
-      required: ["connectionId"]
+      required: []
     },
     execute: async (params: ReadEmailParams, context: AgentContext) => {
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_READ'
+      );
+
       // Validate permissions
       const validation = await this.permissionService.validatePermissions(
         context.agentId,
         'EMAIL_READ' as any,
-        params.connectionId
+        connectionId
       );
 
       if (!validation.isValid) {
@@ -417,15 +462,15 @@ export class WorkspaceAgentTools {
         throw new Error(validation.error || 'Permission denied');
       }
 
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
 
       if (params.emailId) {
-        return await emailCapabilities.readSpecificEmail(params.emailId, params.connectionId, context.agentId);
+        return await emailCapabilities.readSpecificEmail(params.emailId, connectionId, context.agentId);
       } else if (params.searchQuery) {
         const emails = await emailCapabilities.searchEmails({
           query: params.searchQuery,
           maxResults: 1
-        }, params.connectionId, context.agentId);
+        }, connectionId, context.agentId);
         return emails.length > 0 ? emails[0] : null;
       } else {
         throw new Error('Either emailId or searchQuery must be provided');
@@ -435,7 +480,7 @@ export class WorkspaceAgentTools {
 
   public findImportantEmailsTool: AgentTool<FindImportantEmailsParams, any> = {
     name: "find_important_emails",
-    description: "Find important emails that require attention, such as unread emails, emails with attachments, or emails from important contacts",
+    description: "Find important emails that require attention, such as unread emails, emails with attachments, or emails from important contacts. If you have multiple email accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -459,25 +504,32 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one email account available)"
         }
       },
-      required: ["connectionId"]
+      required: []
     },
     execute: async (params: FindImportantEmailsParams, context: AgentContext) => {
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_READ'
+      );
+
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
       return await emailCapabilities.findImportantEmails({
         unread: params.unread,
         hasAttachments: params.hasAttachments,
         keywords: params.keywords,
         timeframe: params.timeframe
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
   public searchEmailsTool: AgentTool<any, any> = {
     name: "search_emails",
-    description: "Search for emails using various criteria like sender, subject, content, or date range",
+    description: "Search for emails using various criteria like sender, subject, content, or date range. If you have multiple email accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -507,13 +559,20 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one email account available)"
         }
       },
-      required: ["connectionId"]
+      required: []
     },
     execute: async (params: any, context: AgentContext) => {
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_READ'
+      );
+
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
       return await emailCapabilities.searchEmails({
         query: params.query,
         from: params.from,
@@ -521,13 +580,13 @@ export class WorkspaceAgentTools {
         hasAttachment: params.hasAttachment,
         isUnread: params.isUnread,
         maxResults: params.maxResults || 10
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
   public sendEmailTool: AgentTool<SendEmailParams, any> = {
     name: "send_email",
-    description: "Send a new email to specified recipients. IMPORTANT: You must first use 'get_available_workspace_connections' with capability 'EMAIL_SEND' to check what email accounts are available, and either use the autoSelect connectionId or ask the user to choose if multiple options exist.",
+    description: "Send a new email to specified recipients. If you have multiple email accounts, specify which one to use or the system will intelligently select the appropriate account.",
     parameters: {
       type: "object",
       properties: {
@@ -551,19 +610,26 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use - get this from get_available_workspace_connections first"
+          description: "Workspace connection ID (optional - will auto-select if only one email account available)"
         }
       },
-      required: ["to", "subject", "body", "connectionId"]
+      required: ["to", "subject", "body"]
     },
     execute: async (params: SendEmailParams, context: AgentContext) => {
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_SEND'
+      );
+
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
       return await emailCapabilities.sendEmail({
         to: params.to,
         cc: params.cc,
         subject: params.subject,
         body: params.body
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
@@ -676,7 +742,7 @@ export class WorkspaceAgentTools {
 
   public replyToEmailTool: AgentTool<ReplyEmailParams, any> = {
     name: "reply_to_email",
-    description: "Reply to an existing email",
+    description: "Reply to an existing email. If you have multiple email accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -690,17 +756,24 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one email account available)"
         }
       },
-      required: ["emailId", "body", "connectionId"]
+      required: ["emailId", "body"]
     },
     execute: async (params: ReplyEmailParams, context: AgentContext) => {
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_SEND'
+      );
+
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
       return await emailCapabilities.replyToEmail({
         originalEmailId: params.emailId,
         body: params.body
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
@@ -741,9 +814,172 @@ export class WorkspaceAgentTools {
   };
 
   // Calendar Tools
+  /**
+   * Format calendar response into a comprehensive, user-friendly table format
+   * This follows the same pattern as formatEmailAttentionResponse to work with LLM formatter
+   */
+  private formatCalendarResponse(calendarData: any): any {
+    // Debug logging to see what data structure we're getting
+    console.log('formatCalendarResponse - Raw calendar data:', JSON.stringify(calendarData, null, 2));
+
+    // Handle null/undefined data
+    if (!calendarData) {
+      return {
+        success: true,
+        summary: "📅 **Your calendar is clear** - no events scheduled for the requested time period.",
+        events: [],
+        eventCount: 0
+      };
+    }
+
+    // Try to find events in different possible data structures
+    let events: any[] = [];
+
+    // Check various possible event locations in the data structure
+    if (Array.isArray(calendarData.events)) {
+      events = calendarData.events;
+    } else if (Array.isArray(calendarData)) {
+      // Sometimes the calendar data itself is the events array
+      events = calendarData;
+    } else if (calendarData.data && Array.isArray(calendarData.data.events)) {
+      events = calendarData.data.events;
+    } else if (calendarData.data && Array.isArray(calendarData.data)) {
+      events = calendarData.data;
+    } else if (calendarData.items && Array.isArray(calendarData.items)) {
+      // Google Calendar API uses 'items'
+      events = calendarData.items;
+    } else if (calendarData.value && Array.isArray(calendarData.value)) {
+      // Microsoft Graph API uses 'value'
+      events = calendarData.value;
+    }
+
+    console.log('formatCalendarResponse - Extracted events:', events);
+    const eventCount = events.length;
+
+    if (eventCount === 0) {
+      return {
+        success: true,
+        summary: "📅 **Your calendar is clear** - no events scheduled for the requested time period.",
+        events: [],
+        eventCount: 0
+      };
+    }
+
+    // Create formatted table response
+    let formattedResponse = `📅 **Calendar Overview** - Found ${eventCount} event${eventCount > 1 ? 's' : ''}:\n\n`;
+
+    // Create table header
+    formattedResponse += '| Time | Event | Location | Attendees | Duration |\n';
+    formattedResponse += '|------|--------|-----------|-----------|----------|\n';
+
+    // Calculate total meeting time
+    let totalMinutes = 0;
+
+    // Add events to table
+    events.forEach((event: any) => {
+      // Handle different time field names
+      const startTime = event.startTime || event.start?.dateTime || event.start || event.startDateTime;
+      const endTime = event.endTime || event.end?.dateTime || event.end || event.endDateTime;
+
+      const startTimeFormatted = startTime ? new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
+      const endTimeFormatted = endTime ? new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
+      const timeRange = `${startTimeFormatted} - ${endTimeFormatted}`;
+
+      // Handle different title field names
+      const title = (event.title || event.summary || event.subject || 'Untitled Event').replace(/\|/g, '\\|');
+      const location = (event.location || event.location?.displayName || 'Not specified').replace(/\|/g, '\\|');
+
+      // Handle different attendee structures
+      let attendees = 'Not specified';
+      if (event.attendees && Array.isArray(event.attendees)) {
+        attendees = event.attendees.slice(0, 2).map((a: any) => a.email || a.emailAddress?.address || a.name || a).join(', ').replace(/\|/g, '\\|');
+        if (event.attendees.length > 2) {
+          attendees += `... (+${event.attendees.length - 2} more)`;
+        }
+      }
+
+      // Calculate duration
+      let duration = 'TBD';
+      if (startTime && endTime) {
+        const durationMs = new Date(endTime).getTime() - new Date(startTime).getTime();
+        const durationMinutes = Math.round(durationMs / (1000 * 60));
+        totalMinutes += durationMinutes;
+
+        if (durationMinutes >= 60) {
+          const hours = Math.floor(durationMinutes / 60);
+          const mins = durationMinutes % 60;
+          duration = mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+        } else {
+          duration = `${durationMinutes}m`;
+        }
+      }
+
+      formattedResponse += `| ${timeRange} | ${title} | ${location} | ${attendees} | ${duration} |\n`;
+    });
+
+    // Add summary section
+    formattedResponse += '\n**📊 Schedule Summary:**\n';
+    formattedResponse += `- **Total Events:** ${eventCount}\n`;
+
+    if (totalMinutes > 0) {
+      const totalHours = Math.floor(totalMinutes / 60);
+      const remainingMinutes = totalMinutes % 60;
+      const totalTimeStr = totalHours > 0
+        ? (remainingMinutes > 0 ? `${totalHours}h ${remainingMinutes}m` : `${totalHours}h`)
+        : `${remainingMinutes}m`;
+      formattedResponse += `- **Total Meeting Time:** ${totalTimeStr}\n`;
+
+      // Calculate free time (assuming 8-hour workday)
+      const workDayMinutes = 8 * 60;
+      const freeMinutes = Math.max(0, workDayMinutes - totalMinutes);
+      const freeHours = Math.floor(freeMinutes / 60);
+      const freeRemainingMinutes = freeMinutes % 60;
+      const freeTimeStr = freeHours > 0
+        ? (freeRemainingMinutes > 0 ? `${freeHours}h ${freeRemainingMinutes}m` : `${freeHours}h`)
+        : `${freeRemainingMinutes}m`;
+      formattedResponse += `- **Free Time Available:** ${freeTimeStr}\n`;
+    }
+
+    formattedResponse += `- **Conflicts Detected:** None\n`;
+
+    // Add productivity insights
+    formattedResponse += '\n**💡 Productivity Insights:**\n';
+    if (totalMinutes > 6 * 60) { // More than 6 hours of meetings
+      formattedResponse += '- Consider consolidating meetings or moving some to async communication\n';
+    } else if (totalMinutes < 2 * 60) { // Less than 2 hours of meetings
+      formattedResponse += '- Great! You have plenty of focus time available\n';
+    } else {
+      formattedResponse += '- Well-balanced schedule with good mix of meetings and focus time\n';
+    }
+
+    return {
+      success: true,
+      formattedSummary: formattedResponse,
+      summary: calendarData.summary || `Found ${eventCount} calendar events`,
+      events: events,
+      eventCount: eventCount,
+      totalMinutes: totalMinutes,
+      eventDetails: events.map((event: any) => {
+        const startTime = event.startTime || event.start?.dateTime || event.start || event.startDateTime;
+        const endTime = event.endTime || event.end?.dateTime || event.end || event.endDateTime;
+
+        return {
+          title: event.title || event.summary || event.subject || 'Untitled Event',
+          startTime: startTime,
+          endTime: endTime,
+          location: event.location || event.location?.displayName || 'Not specified',
+          attendees: event.attendees || [],
+          duration: startTime && endTime
+            ? Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / (1000 * 60))
+            : 0
+        };
+      })
+    };
+  }
+
   public readCalendarTool: AgentTool<ReadCalendarParams, any> = {
     name: "read_calendar",
-    description: "Read calendar events for a specific date range",
+    description: "Read calendar events for a specific date range. If you have multiple calendar accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -757,23 +993,33 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID"
+          description: "Workspace connection ID (optional - will auto-select if only one calendar account available)"
         }
       },
-      required: ["startDate", "endDate", "connectionId"]
+      required: ["startDate", "endDate"]
     },
     execute: async (params: ReadCalendarParams, context: AgentContext) => {
-      const calendarCapabilities = await this.getCalendarCapabilities(params.connectionId);
-      return await calendarCapabilities.readCalendar({
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'CALENDAR_READ'
+      );
+
+      const calendarCapabilities = await this.getCalendarCapabilities(connectionId);
+      const rawCalendarData = await calendarCapabilities.readCalendar({
         start: new Date(params.startDate),
         end: new Date(params.endDate)
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
+
+      // Format the calendar data for LLM formatter (same pattern as email attention)
+      return this.formatCalendarResponse(rawCalendarData);
     }
   };
 
   public findAvailabilityTool: AgentTool<FindAvailabilityParams, any> = {
     name: "find_availability",
-    description: "Find available time slots for scheduling meetings",
+    description: "Find available time slots for scheduling meetings. If you have multiple calendar accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -795,20 +1041,27 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID"
+          description: "Workspace connection ID (optional - will auto-select if only one calendar account available)"
         }
       },
-      required: ["date", "duration", "connectionId"]
+      required: ["date", "duration"]
     },
     execute: async (params: FindAvailabilityParams, context: AgentContext) => {
-      const calendarCapabilities = await this.getCalendarCapabilities(params.connectionId);
-      return await calendarCapabilities.findAvailability(params, params.connectionId, context.agentId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'CALENDAR_READ'
+      );
+
+      const calendarCapabilities = await this.getCalendarCapabilities(connectionId);
+      return await calendarCapabilities.findAvailability(params, connectionId, context.agentId);
     }
   };
 
   public scheduleEventTool: AgentTool<ScheduleEventParams, any> = {
     name: "schedule_event",
-    description: "Schedule a new calendar event with specified attendees",
+    description: "Schedule a new calendar event with specified attendees. If you have multiple calendar accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -839,13 +1092,20 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one calendar account available)"
         }
       },
-      required: ["title", "startTime", "endTime", "connectionId"]
+      required: ["title", "startTime", "endTime"]
     },
     execute: async (params: ScheduleEventParams, context: AgentContext) => {
-      const calendarCapabilities = await this.getCalendarCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'CALENDAR_CREATE'
+      );
+
+      const calendarCapabilities = await this.getCalendarCapabilities(connectionId);
       return await calendarCapabilities.scheduleEvent({
         title: params.title,
         startTime: new Date(params.startTime),
@@ -853,13 +1113,13 @@ export class WorkspaceAgentTools {
         attendees: params.attendees,
         description: params.description,
         location: params.location
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
   private summarizeDayTool: AgentTool<SummarizeDayParams, any> = {
     name: "summarize_day",
-    description: "Generate a summary of calendar events for a specific day",
+    description: "Generate a summary of calendar events for a specific day. If you have multiple calendar accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -869,14 +1129,24 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one calendar account available)"
         }
       },
-      required: ["date", "connectionId"]
+      required: ["date"]
     },
     execute: async (params: SummarizeDayParams, context: AgentContext) => {
-      const calendarCapabilities = await this.getCalendarCapabilities(params.connectionId);
-      return await calendarCapabilities.summarizeDay(params.date, params.connectionId, context.agentId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'CALENDAR_READ'
+      );
+
+      const calendarCapabilities = await this.getCalendarCapabilities(connectionId);
+      const rawCalendarData = await calendarCapabilities.summarizeDay(params.date, connectionId, context.agentId);
+
+      // Format the calendar data for LLM formatter (same pattern as email attention and readCalendar)
+      return this.formatCalendarResponse(rawCalendarData);
     }
   };
 
@@ -1013,7 +1283,7 @@ export class WorkspaceAgentTools {
   // Spreadsheet Tools
   public createSpreadsheetTool: AgentTool<CreateSpreadsheetParams, any> = {
     name: "create_spreadsheet",
-    description: "Create a new spreadsheet with optional sheets and headers",
+    description: "Create a new spreadsheet with optional sheets and headers. If you have multiple spreadsheet accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -1034,20 +1304,27 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID"
+          description: "Workspace connection ID (optional - will auto-select if only one spreadsheet account available)"
         }
       },
-      required: ["title", "connectionId"]
+      required: ["title"]
     },
     execute: async (params: CreateSpreadsheetParams, context: AgentContext) => {
-      const sheetsCapabilities = await this.getSheetsCapabilities(params.connectionId);
-      return await sheetsCapabilities.createSpreadsheet(params, params.connectionId, context.agentId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'SHEETS_CREATE'
+      );
+
+      const sheetsCapabilities = await this.getSheetsCapabilities(connectionId);
+      return await sheetsCapabilities.createSpreadsheet(params, connectionId, context.agentId);
     }
   };
 
   public readSpreadsheetTool: AgentTool<ReadSpreadsheetParams, any> = {
     name: "read_spreadsheet",
-    description: "Read data from a Google Spreadsheet range",
+    description: "Read data from a Google Spreadsheet range. If you have multiple spreadsheet accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -1061,15 +1338,22 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one spreadsheet account available)"
         }
       },
-      required: ["spreadsheetId", "connectionId"]
+      required: ["spreadsheetId"]
     },
     execute: async (params: ReadSpreadsheetParams, context: AgentContext) => {
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'SHEETS_READ'
+      );
+
       const range = params.range || 'A:Z';
-      const sheetsCapabilities = await this.getSheetsCapabilities(params.connectionId);
-      return await sheetsCapabilities.readRange(params.spreadsheetId, range, params.connectionId, context.agentId);
+      const sheetsCapabilities = await this.getSheetsCapabilities(connectionId);
+      return await sheetsCapabilities.readRange(params.spreadsheetId, range, connectionId, context.agentId);
     }
   };
 
@@ -1097,15 +1381,22 @@ export class WorkspaceAgentTools {
           description: "Workspace connection ID to use"
         }
       },
-      required: ["spreadsheetId", "range", "values", "connectionId"]
+      required: ["spreadsheetId", "range", "values"]
     },
     execute: async (params: UpdateSpreadsheetParams, context: AgentContext) => {
-      const sheetsCapabilities = await this.getSheetsCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'SHEETS_WRITE'
+      );
+
+      const sheetsCapabilities = await this.getSheetsCapabilities(connectionId);
       return await sheetsCapabilities.updateCells({
         spreadsheetId: params.spreadsheetId,
         range: params.range,
         values: params.values
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
@@ -1133,15 +1424,22 @@ export class WorkspaceAgentTools {
           description: "Workspace connection ID to use"
         }
       },
-      required: ["spreadsheetId", "analysisType", "connectionId"]
+      required: ["spreadsheetId", "analysisType"]
     },
     execute: async (params: AnalyzeDataParams, context: AgentContext) => {
-      const sheetsCapabilities = await this.getSheetsCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'SHEETS_READ'
+      );
+
+      const sheetsCapabilities = await this.getSheetsCapabilities(connectionId);
       return await sheetsCapabilities.analyzeData({
         spreadsheetId: params.spreadsheetId,
         sheetName: params.sheetName,
         analysisType: params.analysisType
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
@@ -1181,7 +1479,7 @@ export class WorkspaceAgentTools {
   // Drive Tools
   public searchFilesTool: AgentTool<SearchFilesParams, any> = {
     name: "search_files",
-    description: "Search for files in the workspace drive",
+    description: "Search for files in the workspace drive. If you have multiple drive accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -1200,20 +1498,27 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID"
+          description: "Workspace connection ID (optional - will auto-select if only one drive account available)"
         }
       },
-      required: ["connectionId"]
+      required: []
     },
     execute: async (params: SearchFilesParams, context: AgentContext) => {
-      const driveCapabilities = await this.getDriveCapabilities(params.connectionId);
-      return await driveCapabilities.searchFiles(params, params.connectionId, context.agentId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'DRIVE_READ'
+      );
+
+      const driveCapabilities = await this.getDriveCapabilities(connectionId);
+      return await driveCapabilities.searchFiles(params, connectionId, context.agentId);
     }
   };
 
   private getFileTool: AgentTool<any, any> = {
     name: "get_file",
-    description: "Get detailed information about a specific file in Google Drive",
+    description: "Get detailed information about a specific file in Google Drive. If you have multiple drive accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -1223,20 +1528,27 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one drive account available)"
         }
       },
-      required: ["fileId", "connectionId"]
+      required: ["fileId"]
     },
     execute: async (params: any, context: AgentContext) => {
-      const driveCapabilities = await this.getDriveCapabilities(params.connectionId);
-      return await driveCapabilities.getFile(params.fileId, params.connectionId, context.agentId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'DRIVE_READ'
+      );
+
+      const driveCapabilities = await this.getDriveCapabilities(connectionId);
+      return await driveCapabilities.getFile(params.fileId, connectionId, context.agentId);
     }
   };
 
   private createFileTool: AgentTool<CreateFileParams, any> = {
     name: "create_file",
-    description: "Create a new file in Google Drive",
+    description: "Create a new file in Google Drive. If you have multiple drive accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -1254,24 +1566,31 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one drive account available)"
         }
       },
-      required: ["name", "connectionId"]
+      required: ["name"]
     },
     execute: async (params: CreateFileParams, context: AgentContext) => {
-      const driveCapabilities = await this.getDriveCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'DRIVE_CREATE'
+      );
+
+      const driveCapabilities = await this.getDriveCapabilities(connectionId);
       return await driveCapabilities.createFile({
         name: params.name,
         content: params.content,
         parents: params.parentFolder ? [params.parentFolder] : undefined
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
   public shareFileTool: AgentTool<ShareFileParams, any> = {
     name: "share_file",
-    description: "Share a Google Drive file with other users",
+    description: "Share a Google Drive file with other users. If you have multiple drive accounts, specify which one to use.",
     parameters: {
       type: "object",
       properties: {
@@ -1291,13 +1610,20 @@ export class WorkspaceAgentTools {
         },
         connectionId: {
           type: "string",
-          description: "Workspace connection ID to use"
+          description: "Workspace connection ID (optional - will auto-select if only one drive account available)"
         }
       },
-      required: ["fileId", "emails", "role", "connectionId"]
+      required: ["fileId", "emails", "role"]
     },
     execute: async (params: ShareFileParams, context: AgentContext) => {
-      const driveCapabilities = await this.getDriveCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'DRIVE_SHARE'
+      );
+
+      const driveCapabilities = await this.getDriveCapabilities(connectionId);
       return await driveCapabilities.shareFile({
         fileId: params.fileId,
         permissions: params.emails.map(email => ({
@@ -1305,7 +1631,7 @@ export class WorkspaceAgentTools {
           role: params.role,
           emailAddress: email
         }))
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
@@ -1320,25 +1646,32 @@ export class WorkspaceAgentTools {
         parentFolder: { type: 'string', description: 'ID of parent folder (optional)' },
         connectionId: { type: 'string', description: 'Workspace connection ID' }
       },
-      required: ['name', 'connectionId']
+      required: ['name']
     },
     execute: async (params: CreateFileParams, context: AgentContext) => {
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'DRIVE_CREATE'
+      );
+
       const validation = await this.permissionService.validatePermissions(
         context.agentId,
         'DRIVE_UPLOAD' as any,
-        params.connectionId
+        connectionId
       );
 
       if (!validation.isValid) {
         throw new Error(validation.error || 'Permission denied for file upload');
       }
 
-      const driveCapabilities = await this.getDriveCapabilities(params.connectionId);
+      const driveCapabilities = await this.getDriveCapabilities(connectionId);
       return await driveCapabilities.createFile({
         name: params.name,
         content: params.content || '',
         parents: params.parentFolder ? [params.parentFolder] : undefined
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
@@ -1372,16 +1705,23 @@ export class WorkspaceAgentTools {
           description: "Workspace connection ID to use"
         }
       },
-      required: ["analysisType", "connectionId"]
+      required: ["analysisType"]
     },
     execute: async (params: AnalyzeEmailsParams, context: AgentContext) => {
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_READ'
+      );
+
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
       return await emailCapabilities.analyzeEmails({
         timeframe: params.timeframe,
         analysisType: params.analysisType,
         includeRead: params.includeRead,
         maxEmails: params.maxEmails
-      }, params.connectionId, context.agentId);
+      }, connectionId, context.agentId);
     }
   };
 
@@ -1396,11 +1736,18 @@ export class WorkspaceAgentTools {
           description: "Workspace connection ID to use"
         }
       },
-      required: ["connectionId"]
+      required: []
     },
     execute: async (params: GetEmailAttentionParams, context: AgentContext) => {
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
-      const analysis = await emailCapabilities.getEmailsNeedingAttention(params.connectionId, context.agentId, context.userId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_READ'
+      );
+
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
+      const analysis = await emailCapabilities.getEmailsNeedingAttention(connectionId, context.agentId, context.userId);
 
       // Format the response to include detailed email information in a table-like structure
       // This will be displayed directly to the user, so make it comprehensive and helpful
@@ -1495,8 +1842,8 @@ export class WorkspaceAgentTools {
   }
 
   /**
- * Determine email priority based on analysis
- */
+   * Determine email priority based on analysis
+   */
   private determineEmailPriority(email: any, analysis: any): string {
     const isUrgent = analysis.urgentCount > 0 &&
       analysis.needsAttention.findIndex((e: any) => e.id === email.id) < analysis.urgentCount;
@@ -1560,11 +1907,18 @@ export class WorkspaceAgentTools {
           description: "Workspace connection ID to use"
         }
       },
-      required: ["connectionId"]
+      required: []
     },
     execute: async (params: GetActionItemsParams, context: AgentContext) => {
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
-      return await emailCapabilities.getActionItems(params.timeframe || 'today', params.connectionId, context.agentId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_READ'
+      );
+
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
+      return await emailCapabilities.getActionItems(params.timeframe || 'today', connectionId, context.agentId);
     }
   };
 
@@ -1584,11 +1938,18 @@ export class WorkspaceAgentTools {
           description: "Workspace connection ID to use"
         }
       },
-      required: ["connectionId"]
+      required: []
     },
     execute: async (params: GetEmailTrendsParams, context: AgentContext) => {
-      const emailCapabilities = await this.getEmailCapabilities(params.connectionId);
-      return await emailCapabilities.getEmailTrends(params.timeframe || 'this_week', params.connectionId, context.agentId);
+      // Auto-select connection if not provided
+      const connectionId = await this.resolveConnectionId(
+        params.connectionId,
+        context.agentId,
+        'EMAIL_READ'
+      );
+
+      const emailCapabilities = await this.getEmailCapabilities(connectionId);
+      return await emailCapabilities.getEmailTrends(params.timeframe || 'this_week', connectionId, context.agentId);
     }
   };
 } 

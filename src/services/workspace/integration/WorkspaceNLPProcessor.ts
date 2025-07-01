@@ -990,6 +990,18 @@ Return only the title, nothing else.`;
       { pattern: /access.*my/i, confidence: 0.8 },
       { pattern: /share.*from.*my/i, confidence: 0.8 },
 
+      // Calendar and schedule operation patterns
+      { pattern: /check.*my.*calendar/i, confidence: 0.85 },
+      { pattern: /look.*at.*my.*calendar/i, confidence: 0.85 },
+      { pattern: /show.*my.*calendar/i, confidence: 0.85 },
+      { pattern: /access.*my.*calendar/i, confidence: 0.85 },
+      { pattern: /view.*my.*calendar/i, confidence: 0.85 },
+      { pattern: /check.*my.*schedule/i, confidence: 0.85 },
+      { pattern: /look.*at.*my.*schedule/i, confidence: 0.85 },
+      { pattern: /show.*my.*schedule/i, confidence: 0.85 },
+      { pattern: /access.*my.*schedule/i, confidence: 0.85 },
+      { pattern: /view.*my.*schedule/i, confidence: 0.85 },
+
       // Generic preference indicators
       { pattern: /make.*sure.*to.*use/i, confidence: 0.7 },
       { pattern: /please.*use/i, confidence: 0.7 },
@@ -1112,7 +1124,11 @@ Return only the title, nothing else.`;
           'work account', 'business account', 'corporate account', 'professional email',
           'job email', 'employer email', 'work mail', 'business mail', 'company mail',
           'official email', 'work address', 'business address', 'company address',
-          'organization email', 'org email', 'enterprise email', 'workplace email'
+          'organization email', 'org email', 'enterprise email', 'workplace email',
+          // Calendar-specific patterns
+          'work calendar', 'business calendar', 'office calendar', 'company calendar',
+          'corporate calendar', 'work schedule', 'business schedule', 'office schedule',
+          'company schedule', 'corporate schedule', 'professional calendar', 'job calendar'
         ],
         category: 'work'
       },
@@ -1122,7 +1138,11 @@ Return only the title, nothing else.`;
           'personal email', 'private email', 'personal account', 'my personal', 'home email',
           'private account', 'personal mail', 'private mail', 'home mail', 'personal address',
           'private address', 'home address', 'individual email', 'own email', 'my own',
-          'private personal', 'personal stuff'
+          'private personal', 'personal stuff',
+          // Calendar-specific patterns
+          'private calendar', 'personal calendar', 'my private calendar', 'my personal calendar',
+          'home calendar', 'private schedule', 'personal schedule', 'my private schedule',
+          'my personal schedule', 'home schedule'
         ],
         category: 'personal'
       },
@@ -1224,21 +1244,26 @@ Return only the title, nothing else.`;
 
     // 5. "From" keyword patterns (lower confidence) - expanded patterns
     const fromPatterns = [
-      /from\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
-      /using\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
-      /use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
+      /from\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
+      /using\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
+      /use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
       /send\s+from\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
       /my\s+([\w\s]+?)\s+email\s+account/i,
       /my\s+(work|personal|business|main|primary|default)\s+email/i,
-      /with\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
-      /via\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
-      /through\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
+      /my\s+(work|personal|business|main|primary|default|private)\s+calendar/i,
+      /my\s+(work|personal|business|main|primary|default|private)\s+schedule/i,
+      /check\s+my\s+([\w\s]+?)(?:\s+calendar|\s+schedule|$)/i,
+      /access\s+my\s+([\w\s]+?)(?:\s+calendar|\s+schedule|$)/i,
+      /look\s+at\s+my\s+([\w\s]+?)(?:\s+calendar|\s+schedule|$)/i,
+      /with\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
+      /via\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
+      /through\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
       /send\s+with\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
-      /please\s+use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
-      /make\s+sure\s+to\s+use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
-      /i\s+want\s+to\s+use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
+      /please\s+use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
+      /make\s+sure\s+to\s+use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
+      /i\s+want\s+to\s+use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i,
       /send\s+it\s+from\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i,
-      /can\s+you\s+use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|$)/i
+      /can\s+you\s+use\s+my\s+([\w\s]+?)(?:\s+account|\s+email|\s+calendar|\s+schedule|$)/i
     ];
 
     for (const pattern of fromPatterns) {

@@ -9,6 +9,12 @@ import { AgentBase } from '../../../agents/shared/base/AgentBase.interface';
 import { ManagerType } from '../../../agents/shared/base/managers/ManagerType';
 import { ToolManager } from '../../../agents/shared/base/managers/ToolManager.interface';
 import { logger } from '../../../lib/logging';
+import {
+  getCurrentUser,
+  getTodayInUserTimezone,
+  getTomorrowInUserTimezone,
+  getUserTimezone
+} from '../../../lib/user/types';
 import { WorkspaceCapabilityType } from '../../database/types';
 import { AgentWorkspacePermissionService } from '../AgentWorkspacePermissionService';
 import { WorkspaceAgentTools } from '../tools/WorkspaceAgentTools';
@@ -566,31 +572,62 @@ export class WorkspaceAgentIntegration {
         }, context);
 
       case WorkspaceCommandType.CHECK_CALENDAR:
-        const today = new Date();
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        // Use user's timezone for accurate date calculation
+        const currentUser = getCurrentUser();
+        const userTimezone = getUserTimezone(currentUser);
+        const todayInUserTz = getTodayInUserTimezone(userTimezone);
+        const tomorrowInUserTz = getTomorrowInUserTimezone(userTimezone);
+
+        logger.debug('Calendar date calculation using user timezone', {
+          agentId,
+          userTimezone,
+          todayDate: todayInUserTz,
+          tomorrowDate: tomorrowInUserTz
+        });
 
         return await this.workspaceTools.readCalendarTool.execute({
-          startDate: today.toISOString().split('T')[0],
-          endDate: tomorrow.toISOString().split('T')[0],
+          startDate: todayInUserTz,
+          endDate: tomorrowInUserTz,
           connectionId
         }, context);
 
       case WorkspaceCommandType.FIND_AVAILABILITY:
+        // Use user's timezone for accurate availability calculation
+        const availabilityDate = entities.date || (() => {
+          const currentUserForAvailability = getCurrentUser();
+          const userTimezoneForAvailability = getUserTimezone(currentUserForAvailability);
+          const todayForAvailability = getTodayInUserTimezone(userTimezoneForAvailability);
+
+          logger.debug('Availability date calculation using user timezone', {
+            agentId,
+            userTimezone: userTimezoneForAvailability,
+            availabilityDate: todayForAvailability
+          });
+
+          return todayForAvailability;
+        })();
+
         return await this.workspaceTools.findAvailabilityTool.execute({
-          date: entities.date || new Date().toISOString().split('T')[0],
+          date: availabilityDate,
           duration: entities.duration || 30,
           connectionId
         }, context);
 
       case WorkspaceCommandType.SUMMARIZE_DAY:
-        const dayStart = new Date();
-        const dayEnd = new Date();
-        dayEnd.setHours(23, 59, 59, 999);
+        // Use user's timezone for accurate day summary
+        const currentUserForSummary = getCurrentUser();
+        const userTimezoneForSummary = getUserTimezone(currentUserForSummary);
+        const dayInUserTz = getTodayInUserTimezone(userTimezoneForSummary);
+
+        logger.debug('Day summary date calculation using user timezone', {
+          agentId,
+          userTimezone: userTimezoneForSummary,
+          dayDate: dayInUserTz
+        });
 
         return await this.workspaceTools.readCalendarTool.execute({
-          startDate: dayStart.toISOString().split('T')[0],
-          endDate: dayEnd.toISOString().split('T')[0],
+          startDate: dayInUserTz,
+          endDate: dayInUserTz,
           connectionId
         }, context);
 
