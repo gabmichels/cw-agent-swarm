@@ -1,7 +1,7 @@
 /**
  * User type definitions
  */
-import { addDays } from 'date-fns';
+import { addDays, addMonths, addWeeks, endOfMonth, endOfWeek, startOfMonth, startOfWeek, subDays, subMonths, subWeeks } from 'date-fns';
 import { format, toZonedTime } from 'date-fns-tz';
 import { createUserId } from '../../utils/ulid';
 
@@ -181,4 +181,92 @@ export function getTodayDateRange(timezone: string = getBrowserTimezone()): { st
   const start = new Date(`${todayString}T00:00:00`);
   const end = new Date(`${todayString}T23:59:59`);
   return { start, end };
+}
+
+/**
+ * Calculate date range based on timeframe using date-fns
+ * Returns start and end dates in YYYY-MM-DD format for the user's timezone
+ */
+export function getDateRangeForTimeframe(
+  timeframe: string | undefined,
+  timezone: string = getBrowserTimezone()
+): { startDate: string; endDate: string } {
+  const now = new Date();
+  const zonedNow = toZonedTime(now, timezone);
+
+  if (!timeframe) {
+    // Default to today and tomorrow if no timeframe specified
+    const today = format(zonedNow, 'yyyy-MM-dd', { timeZone: timezone });
+    const tomorrow = format(addDays(zonedNow, 1), 'yyyy-MM-dd', { timeZone: timezone });
+    return { startDate: today, endDate: tomorrow };
+  }
+
+  switch (timeframe.toLowerCase()) {
+    case 'today':
+      const today = format(zonedNow, 'yyyy-MM-dd', { timeZone: timezone });
+      return { startDate: today, endDate: today };
+
+    case 'tomorrow':
+      const tomorrow = format(addDays(zonedNow, 1), 'yyyy-MM-dd', { timeZone: timezone });
+      return { startDate: tomorrow, endDate: tomorrow };
+
+    case 'yesterday':
+      const yesterday = format(subDays(zonedNow, 1), 'yyyy-MM-dd', { timeZone: timezone });
+      return { startDate: yesterday, endDate: yesterday };
+
+    case 'this week':
+      // Start of week (Monday) to end of week (Sunday)
+      const weekStart = startOfWeek(zonedNow, { weekStartsOn: 1 }); // Monday = 1
+      const weekEnd = endOfWeek(zonedNow, { weekStartsOn: 1 });
+      return {
+        startDate: format(weekStart, 'yyyy-MM-dd', { timeZone: timezone }),
+        endDate: format(weekEnd, 'yyyy-MM-dd', { timeZone: timezone })
+      };
+
+    case 'next week':
+      const nextWeekStart = startOfWeek(addWeeks(zonedNow, 1), { weekStartsOn: 1 });
+      const nextWeekEnd = endOfWeek(addWeeks(zonedNow, 1), { weekStartsOn: 1 });
+      return {
+        startDate: format(nextWeekStart, 'yyyy-MM-dd', { timeZone: timezone }),
+        endDate: format(nextWeekEnd, 'yyyy-MM-dd', { timeZone: timezone })
+      };
+
+    case 'last week':
+      const lastWeekStart = startOfWeek(subWeeks(zonedNow, 1), { weekStartsOn: 1 });
+      const lastWeekEnd = endOfWeek(subWeeks(zonedNow, 1), { weekStartsOn: 1 });
+      return {
+        startDate: format(lastWeekStart, 'yyyy-MM-dd', { timeZone: timezone }),
+        endDate: format(lastWeekEnd, 'yyyy-MM-dd', { timeZone: timezone })
+      };
+
+    case 'this month':
+      const monthStart = startOfMonth(zonedNow);
+      const monthEnd = endOfMonth(zonedNow);
+      return {
+        startDate: format(monthStart, 'yyyy-MM-dd', { timeZone: timezone }),
+        endDate: format(monthEnd, 'yyyy-MM-dd', { timeZone: timezone })
+      };
+
+    case 'next month':
+      const nextMonthStart = startOfMonth(addMonths(zonedNow, 1));
+      const nextMonthEnd = endOfMonth(addMonths(zonedNow, 1));
+      return {
+        startDate: format(nextMonthStart, 'yyyy-MM-dd', { timeZone: timezone }),
+        endDate: format(nextMonthEnd, 'yyyy-MM-dd', { timeZone: timezone })
+      };
+
+    case 'last month':
+      const lastMonthStart = startOfMonth(subMonths(zonedNow, 1));
+      const lastMonthEnd = endOfMonth(subMonths(zonedNow, 1));
+      return {
+        startDate: format(lastMonthStart, 'yyyy-MM-dd', { timeZone: timezone }),
+        endDate: format(lastMonthEnd, 'yyyy-MM-dd', { timeZone: timezone })
+      };
+
+    default:
+      // Default to today and tomorrow for unknown timeframes
+      const defaultToday = format(zonedNow, 'yyyy-MM-dd', { timeZone: timezone });
+      const defaultTomorrow = format(addDays(zonedNow, 1), 'yyyy-MM-dd', { timeZone: timezone });
+      return { startDate: defaultToday, endDate: defaultTomorrow };
+  }
 } 

@@ -270,7 +270,26 @@ export class WorkspaceNLPProcessor {
       /calendar.*tomorrow/,
       /my.*schedule.*today/,
       /my.*schedule.*tomorrow/,
-      /what.*scheduled/
+      /what.*scheduled/,
+      // Enhanced patterns for events and meetings
+      /important.*events/,
+      /important.*meetings/,
+      /events.*this.*week/,
+      /meetings.*this.*week/,
+      /events.*next.*week/,
+      /meetings.*next.*week/,
+      /any.*events/,
+      /any.*meetings/,
+      /other.*events/,
+      /other.*meetings/,
+      /have.*any.*events/,
+      /have.*any.*meetings/,
+      /calendar.*this.*week/,
+      /calendar.*next.*week/,
+      /schedule.*this.*week/,
+      /schedule.*next.*week/,
+      /what.*events/,
+      /what.*meetings/
     ];
     return patterns.some(pattern => pattern.test(text));
   }
@@ -1529,7 +1548,20 @@ Return only the title, nothing else.`;
       /^search.*events.*with/,
       /^look.*for.*meetings.*with/,
       /meetings.*with.*\w+/,
-      /events.*with.*\w+/
+      /events.*with.*\w+/,
+      // Enhanced patterns for finding specific events
+      /find.*important.*events/,
+      /find.*important.*meetings/,
+      /search.*important.*events/,
+      /search.*important.*meetings/,
+      /look.*for.*important/,
+      /find.*events.*this.*week/,
+      /find.*meetings.*this.*week/,
+      /search.*events.*this.*week/,
+      /search.*meetings.*this.*week/,
+      /upcoming.*important/,
+      /upcoming.*events/,
+      /upcoming.*meetings/
     ];
     return patterns.some(pattern => pattern.test(text));
   }

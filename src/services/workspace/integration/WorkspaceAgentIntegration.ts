@@ -11,8 +11,8 @@ import { ToolManager } from '../../../agents/shared/base/managers/ToolManager.in
 import { logger } from '../../../lib/logging';
 import {
   getCurrentUser,
+  getDateRangeForTimeframe,
   getTodayInUserTimezone,
-  getTomorrowInUserTimezone,
   getUserTimezone
 } from '../../../lib/user/types';
 import { WorkspaceCapabilityType } from '../../database/types';
@@ -576,18 +576,21 @@ export class WorkspaceAgentIntegration {
         const currentUser = getCurrentUser();
         const userTimezone = getUserTimezone(currentUser);
         const todayInUserTz = getTodayInUserTimezone(userTimezone);
-        const tomorrowInUserTz = getTomorrowInUserTimezone(userTimezone);
+
+        // Calculate date range based on timeframe using date-fns
+        const { startDate, endDate } = getDateRangeForTimeframe(entities.timeframe, userTimezone);
 
         logger.debug('Calendar date calculation using user timezone', {
           agentId,
           userTimezone,
-          todayDate: todayInUserTz,
-          tomorrowDate: tomorrowInUserTz
+          timeframe: entities.timeframe,
+          startDate,
+          endDate
         });
 
         return await this.workspaceTools.readCalendarTool.execute({
-          startDate: todayInUserTz,
-          endDate: tomorrowInUserTz,
+          startDate,
+          endDate,
           connectionId
         }, context);
 
@@ -619,15 +622,21 @@ export class WorkspaceAgentIntegration {
         const userTimezoneForSummary = getUserTimezone(currentUserForSummary);
         const dayInUserTz = getTodayInUserTimezone(userTimezoneForSummary);
 
+        // Calculate date range based on timeframe (for day summary, default to today only)
+        const summaryTimeframe = entities.timeframe || 'today';
+        const { startDate: summaryStartDate, endDate: summaryEndDate } = getDateRangeForTimeframe(summaryTimeframe, userTimezoneForSummary);
+
         logger.debug('Day summary date calculation using user timezone', {
           agentId,
           userTimezone: userTimezoneForSummary,
-          dayDate: dayInUserTz
+          timeframe: summaryTimeframe,
+          startDate: summaryStartDate,
+          endDate: summaryEndDate
         });
 
         return await this.workspaceTools.readCalendarTool.execute({
-          startDate: dayInUserTz,
-          endDate: dayInUserTz,
+          startDate: summaryStartDate,
+          endDate: summaryEndDate,
           connectionId
         }, context);
 
