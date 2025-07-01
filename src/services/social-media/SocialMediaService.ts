@@ -1,21 +1,20 @@
-import { 
-  ISocialMediaDatabase,
-  SocialMediaConnection,
-  AgentSocialMediaPermission,
-  SocialMediaProvider,
-  SocialMediaCapability,
+import {
   AccessLevel,
-  SocialMediaError
+  AgentSocialMediaPermission,
+  ISocialMediaDatabase,
+  SocialMediaCapability,
+  SocialMediaConnection,
+  SocialMediaError,
+  SocialMediaProvider
 } from './database/ISocialMediaDatabase';
-import { 
-  ISocialMediaProvider, 
-  PostCreationParams, 
-  SocialMediaPost,
+import {
+  AccountAnalytics,
   Comment,
+  ISocialMediaProvider,
+  PostCreationParams,
   PostMetrics,
-  AccountAnalytics
+  SocialMediaPost
 } from './providers/base/ISocialMediaProvider';
-import { ulid } from 'ulid';
 
 // Following IMPLEMENTATION_GUIDELINES.md - service orchestration pattern
 export class SocialMediaService {
@@ -26,6 +25,13 @@ export class SocialMediaService {
     providers: Map<SocialMediaProvider, ISocialMediaProvider>
   ) {
     this.providers = providers;
+
+    // Set database reference on providers that support it
+    providers.forEach((provider: any) => {
+      if (typeof provider.setDatabase === 'function') {
+        provider.setDatabase(this.database);
+      }
+    });
   }
 
   // Connection Management
@@ -111,7 +117,7 @@ export class SocialMediaService {
   async revokeAgentPermission(agentId: string, connectionId: string): Promise<void> {
     const permissions = await this.database.getAgentPermissions(agentId);
     const permission = permissions.find(p => p.connectionId === connectionId);
-    
+
     if (permission) {
       await this.database.revokePermission(permission.id);
     }
@@ -157,7 +163,7 @@ export class SocialMediaService {
     }
 
     const provider = this.getProvider(connection.provider);
-    
+
     try {
       // Create post through provider
       const post = await provider.createPost(connectionId, params);
@@ -241,7 +247,7 @@ export class SocialMediaService {
     }
 
     const provider = this.getProvider(connection.provider);
-    
+
     try {
       await provider.deletePost(connectionId, postId);
 
@@ -438,7 +444,7 @@ export class SocialMediaService {
     }
 
     const provider = this.getProvider(connection.provider);
-    
+
     try {
       return await provider.getComments(connectionId, postId);
     } catch (error) {
@@ -484,7 +490,7 @@ export class SocialMediaService {
     }
 
     const provider = this.getProvider(connection.provider);
-    
+
     try {
       const reply = await provider.replyToComment(connectionId, commentId, content);
 
@@ -498,7 +504,7 @@ export class SocialMediaService {
         result: 'success',
         ipAddress: 'system',
         userAgent: 'AgentSwarm/1.0',
-        metadata: { 
+        metadata: {
           commentId,
           replyId: reply.id,
           action: 'replyToComment'
@@ -548,7 +554,7 @@ export class SocialMediaService {
     }
 
     const provider = this.getProvider(connection.provider);
-    
+
     try {
       await provider.likePost(connectionId, postId);
 
@@ -606,7 +612,7 @@ export class SocialMediaService {
     }
 
     const provider = this.getProvider(connection.provider);
-    
+
     try {
       return await provider.getPostMetrics(connectionId, postId);
     } catch (error) {
@@ -651,7 +657,7 @@ export class SocialMediaService {
     }
 
     const provider = this.getProvider(connection.provider);
-    
+
     try {
       return await provider.getAccountAnalytics(connectionId, timeframe);
     } catch (error) {
@@ -691,7 +697,7 @@ export class SocialMediaService {
 
   async refreshExpiredTokens(): Promise<void> {
     const connections = await this.database.getConnectionHealth();
-    
+
     // This would iterate through connections and refresh tokens as needed
     // Implementation would depend on specific provider requirements
     console.log('Token refresh not yet implemented');

@@ -26,8 +26,8 @@
  * 6. All changes must be backward compatible
  */
 
-import { createLogger } from '@/lib/logging/winston-logger';
 import { v4 as uuidv4 } from 'uuid';
+import { createLogger } from '../../lib/logging/winston-logger';
 import { AbstractAgentBase } from './base/AbstractAgentBase';
 import { BaseManager } from './base/managers/BaseManager';
 import { ManagerType } from './base/managers/ManagerType';
@@ -93,10 +93,21 @@ import {
 import { EnhancedWorkspaceAgentIntegration } from '../../services/workspace/integration/EnhancedWorkspaceAgentIntegration';
 import { WorkspaceAgentIntegration } from '../../services/workspace/integration/WorkspaceAgentIntegration';
 
+// Import social media integration - NEW
+import { PrismaClient } from '@prisma/client';
+import { SocialMediaService } from '../../services/social-media/SocialMediaService';
+import { SocialMediaProvider } from '../../services/social-media/database/ISocialMediaDatabase';
+import { PrismaSocialMediaDatabase } from '../../services/social-media/database/PrismaSocialMediaDatabase';
+import { ConversationContext, SocialMediaNLP } from '../../services/social-media/integration/SocialMediaNLP';
+import { LinkedInProvider } from '../../services/social-media/providers/LinkedInProvider';
+import { TwitterProvider } from '../../services/social-media/providers/TwitterProvider';
+import { SocialMediaAgentTools } from '../../services/social-media/tools/SocialMediaAgentTools';
+
 // Import ACG services - Phase 7 Integration
 import { DefaultContentGenerationService } from '../../services/acg/core/DefaultContentGenerationService';
 import { DocumentContentGenerator } from '../../services/acg/generators/document/DocumentContentGenerator';
 import { EmailContentGenerator } from '../../services/acg/generators/email/EmailContentGenerator';
+import { SimpleSocialMediaGenerator } from '../../services/acg/generators/social-media/SimpleSocialMediaGenerator';
 import { WorkspaceACGIntegration } from '../../services/acg/integration/WorkspaceACGIntegration';
 import { IContentGenerationService } from '../../services/acg/interfaces/IContentGenerationService';
 import { WorkspaceNLPProcessor } from '../../services/workspace/integration/WorkspaceNLPProcessor';
@@ -255,6 +266,17 @@ interface DefaultAgentConfig {
     batchSize?: number;
   };
 
+  // Social Media Configuration - NEW
+  enableSocialMedia?: boolean;
+  socialMediaConfig?: {
+    enableAutoPosting?: boolean;
+    requireConfirmation?: boolean;
+    defaultPlatforms?: string[]; // Platform names as strings
+    enableContentGeneration?: boolean;
+    enableTrendAnalysis?: boolean;
+    maxRetries?: number;
+  };
+
 }
 
 // Simple agent memory entity for compatibility
@@ -318,6 +340,12 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
 
   private workspaceIntegration: WorkspaceAgentIntegration | null = null;
   private enhancedWorkspaceIntegration: EnhancedWorkspaceAgentIntegration | null = null;
+
+  // Social Media services - NEW
+  private socialMediaNLP: SocialMediaNLP | null = null;
+  private socialMediaTools: SocialMediaAgentTools | null = null;
+  private socialMediaService: SocialMediaService | null = null;
+  private socialMediaDatabase: PrismaSocialMediaDatabase | null = null;
 
   // ACG Services - Phase 7 Integration
   private contentGenerationService: IContentGenerationService | null = null;
@@ -439,6 +467,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         // Initialize content generation service
         const emailGenerator = new EmailContentGenerator();
         const documentGenerator = new DocumentContentGenerator(llmService as any);
+        const socialMediaGenerator = new SimpleSocialMediaGenerator(llmService as any);
 
         // Create a simple cache implementation
         const cache = {
@@ -453,7 +482,7 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
         };
 
         this.contentGenerationService = new DefaultContentGenerationService({
-          generators: [emailGenerator, documentGenerator],
+          generators: [emailGenerator, documentGenerator, socialMediaGenerator],
           cache: cache,
           logger: this.logger,
           config: {
@@ -519,6 +548,98 @@ export class DefaultAgent extends AbstractAgentBase implements ResourceUsageList
 
     // Initialize enhanced workspace integration (will be set up during initialization)
     this.enhancedWorkspaceIntegration = null;
+
+    // Initialize Social Media services if enabled - NEW
+    if (config.enableSocialMedia) {
+      this.logger.info('Social Media enabled - initializing social media services', {
+        agentId: agentId,
+        socialMediaConfig: config.socialMediaConfig
+      });
+
+      try {
+        // Initialize social media database with proper Prisma client
+        const prismaClient = new PrismaClient();
+        this.socialMediaDatabase = new PrismaSocialMediaDatabase(prismaClient);
+
+        // Initialize providers map with proper implementations
+        const providers = new Map();
+
+        // Try to initialize Twitter provider
+        try {
+          const twitterProvider = new TwitterProvider();
+          providers.set(SocialMediaProvider.TWITTER, twitterProvider);
+          this.logger.info('✅ Twitter provider initialized successfully');
+        } catch (error) {
+          this.logger.warn('⚠️  Twitter provider initialization failed - social media will work without Twitter', {
+            error: error instanceof Error ? error.message : String(error),
+            suggestion: 'Set TWITTER_API_KEY and TWITTER_API_SECRET environment variables to enable Twitter posting'
+          });
+        }
+
+        // Try to initialize LinkedIn provider
+        try {
+          const linkedinProvider = new LinkedInProvider();
+          providers.set(SocialMediaProvider.LINKEDIN, linkedinProvider);
+          this.logger.info('✅ LinkedIn provider initialized successfully');
+        } catch (error) {
+          this.logger.warn('⚠️  LinkedIn provider initialization failed - social media will work without LinkedIn', {
+            error: error instanceof Error ? error.message : String(error),
+            suggestion: 'Set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables to enable LinkedIn posting'
+          });
+        }
+
+        // Create social media service even if no providers are available
+        // This allows the NLP and command parsing to work, even if posting fails
+        this.socialMediaService = new SocialMediaService(this.socialMediaDatabase, providers);
+
+        // If no providers were initialized, log a helpful message
+        if (providers.size === 0) {
+          this.logger.warn('🔧 No social media providers initialized - NLP will work but posting will be simulated', {
+            suggestion: 'Configure TWITTER_API_KEY/TWITTER_API_SECRET or LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET to enable real posting'
+          });
+        }
+
+        // Initialize social media NLP processor
+        this.socialMediaNLP = new SocialMediaNLP();
+
+        // Initialize social media agent tools
+        this.socialMediaTools = new SocialMediaAgentTools(
+          this.socialMediaService,
+          this.socialMediaDatabase
+        );
+
+        this.logger.info('✅ Social Media services initialized successfully', {
+          agentId: agentId,
+          hasSocialMediaNLP: !!this.socialMediaNLP,
+          hasSocialMediaTools: !!this.socialMediaTools,
+          hasSocialMediaService: !!this.socialMediaService,
+          hasSocialMediaDatabase: !!this.socialMediaDatabase,
+          availableProviders: Array.from(providers.keys()),
+          providerCount: providers.size
+        });
+      } catch (error) {
+        this.logger.error('❌ Failed to initialize Social Media services', {
+          agentId: agentId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+
+        // Set to null on failure
+        this.socialMediaNLP = null;
+        this.socialMediaTools = null;
+        this.socialMediaService = null;
+        this.socialMediaDatabase = null;
+      }
+    } else {
+      // Social Media disabled
+      this.socialMediaNLP = null;
+      this.socialMediaTools = null;
+      this.socialMediaService = null;
+      this.socialMediaDatabase = null;
+
+      this.logger.debug('Social Media disabled', {
+        agentId: agentId
+      });
+    }
 
     // Initialize workspace tool executor bridge
     this.workspaceToolExecutorBridge = new WorkspaceToolExecutorBridge({
@@ -1658,6 +1779,394 @@ Please provide a helpful, contextual response based on this analysis and memory 
           name: m.constructor.name
         }))
       });
+
+      // Step 3.5: Check for social media commands and process if applicable - NEW
+      this.logger.debug('🔍 Checking social media service availability', {
+        enableSocialMedia: this.agentConfig.enableSocialMedia,
+        hasSocialMediaNLP: !!this.socialMediaNLP,
+        hasSocialMediaTools: !!this.socialMediaTools,
+        hasSocialMediaService: !!this.socialMediaService,
+        hasSocialMediaDatabase: !!this.socialMediaDatabase
+      });
+
+      if (this.socialMediaNLP && this.socialMediaTools) {
+        this.logger.debug('🐦 Attempting social media command processing', {
+          agentId: this.agentId,
+          message: message.substring(0, 100) + '...',
+          fullMessage: message,
+          hasSocialMediaNLP: !!this.socialMediaNLP,
+          hasSocialMediaTools: !!this.socialMediaTools
+        });
+
+        try {
+          // Build conversation context for social media NLP
+          const socialMediaContext: ConversationContext = {
+            previousMessages: [], // Would be populated from conversation history
+            currentTopic: '', // Would be determined from context
+            userGoals: [], // Would be extracted from user preferences
+            availableConnections: [], // Get from database in real implementation
+            agentCapabilities: [] // Get from agent permissions
+          };
+
+          // Parse the message for social media commands
+          this.logger.debug('🔍 Parsing social media command with NLP', {
+            message,
+            context: socialMediaContext
+          });
+
+          const socialMediaCommand = this.socialMediaNLP.parseCommand(message, socialMediaContext);
+
+          this.logger.debug('📊 Social media NLP parsing result', {
+            hasCommand: !!socialMediaCommand,
+            commandType: socialMediaCommand?.type,
+            confidence: socialMediaCommand?.confidence,
+            platforms: socialMediaCommand?.platforms,
+            entities: socialMediaCommand?.entities,
+            intent: socialMediaCommand?.intent
+          });
+
+          if (socialMediaCommand && socialMediaCommand.type !== 'unknown' && socialMediaCommand.confidence > 0.6) {
+            this.logger.info('🐦 Social media command detected', {
+              commandType: socialMediaCommand.type,
+              confidence: socialMediaCommand.confidence,
+              platforms: socialMediaCommand.platforms,
+              intent: socialMediaCommand.intent,
+              entities: Object.keys(socialMediaCommand.entities),
+              requiresContentGeneration: !socialMediaCommand.entities.content
+            });
+
+            // Check if content generation is needed (for ACG integration)
+            let finalCommand = socialMediaCommand;
+            const needsACG = !socialMediaCommand.entities.content ||
+              socialMediaCommand.entities.requiresACG ||
+              socialMediaCommand.entities.needsExpansion;
+
+            if (needsACG && this.contentGenerationService && this.agentConfig.socialMediaConfig?.enableContentGeneration) {
+              this.logger.info('🤖 Triggering ACG for social media content', {
+                agentId: this.agentId,
+                commandType: socialMediaCommand.type,
+                hasBaseContent: !!socialMediaCommand.entities.content,
+                needsExpansion: !!socialMediaCommand.entities.needsExpansion,
+                expansionInstructions: socialMediaCommand.entities.expansionInstructions,
+                originalMessage: message.substring(0, 100)
+              });
+
+              try {
+                // Enhanced ACG context for social media
+                const socialMediaACGContext = {
+                  originalMessage: message,
+                  platforms: socialMediaCommand.platforms || ['twitter'],
+                  userIntent: socialMediaCommand.intent,
+                  tone: (this.agentConfig.persona as any)?.tone || 'professional',
+                  style: this.agentConfig.persona?.communicationStyle || 'engaging',
+                  extractedEntities: socialMediaCommand.entities || {},
+                  // Enhanced context for hybrid scenarios
+                  baseContent: socialMediaCommand.entities.content,
+                  expansionInstructions: socialMediaCommand.entities.expansionInstructions || [],
+                  needsExpansion: socialMediaCommand.entities.needsExpansion,
+                  includeHashtags: true,
+                  targetAudience: 'general'
+                };
+
+                // Use ACG to generate or enhance content
+                const contentGenerationRequest = {
+                  id: `social_${Date.now()}`,
+                  agentId: this.agentId,
+                  toolId: 'social_media_post',
+                  contentType: 'social_post' as any, // Using ContentType.SOCIAL_POST
+                  priority: 5, // Medium priority
+                  context: socialMediaACGContext,
+                  metadata: {
+                    createdAt: new Date(),
+                    userId: this.agentId, // Use agentId as userId since this is agent-initiated
+                    source: 'nlp_detected' as const,
+                    retryCount: 0
+                  }
+                };
+
+                const generatedContent = await this.contentGenerationService.generateContent(contentGenerationRequest);
+
+                if (generatedContent.success && generatedContent.data?.content?.text) {
+                  this.logger.info('✨ Social media content generated successfully', {
+                    agentId: this.agentId,
+                    generationType: socialMediaCommand.entities.content ? 'hybrid' : 'full',
+                    originalContentLength: socialMediaCommand.entities.content?.length || 0,
+                    generatedLength: generatedContent.data.content.text.length,
+                    confidence: generatedContent.data.metadata.confidence,
+                    platform: socialMediaCommand.platforms?.[0] || 'twitter'
+                  });
+
+                  // Enhance the command with generated content
+                  finalCommand = {
+                    ...socialMediaCommand,
+                    entities: {
+                      ...socialMediaCommand.entities,
+                      content: generatedContent.data.content.text,
+                      generatedContent: true,
+                      generationType: socialMediaCommand.entities.content ? 'hybrid' : 'full'
+                    }
+                  };
+                } else {
+                  this.logger.warn('Social media content generation failed, using original command', {
+                    agentId: this.agentId,
+                    error: !generatedContent.success ? 'Generation failed' : 'No text generated',
+                    fallbackContent: socialMediaCommand.entities.content || 'none'
+                  });
+                }
+              } catch (contentError) {
+                this.logger.warn('Social media content generation error, proceeding with original command', {
+                  agentId: this.agentId,
+                  error: contentError instanceof Error ? contentError.message : String(contentError),
+                  fallbackContent: socialMediaCommand.entities.content || 'none'
+                });
+              }
+            }
+
+            // Execute the social media command
+            try {
+              // Get social media connections for this agent from database
+              const agentPermissions = await this.socialMediaDatabase!.getAgentPermissions(this.agentId);
+
+              // Filter connections by requested platforms
+              let filteredConnectionIds: string[] = [];
+
+              if (finalCommand.platforms && finalCommand.platforms.length > 0) {
+                // Get connections that match the requested platforms
+                for (const permission of agentPermissions) {
+                  const connection = await this.socialMediaDatabase!.getConnection(permission.connectionId);
+                  if (connection) {
+                    // Normalize both sides for comparison - more robust matching
+                    const requestedPlatformsNormalized = finalCommand.platforms.map(p => String(p).toLowerCase());
+                    const connectionProviderNormalized = String(connection.provider).toLowerCase();
+
+                    this.logger.debug('🔍 Platform comparison debug', {
+                      requestedPlatforms: finalCommand.platforms,
+                      requestedPlatformsNormalized,
+                      connectionProvider: connection.provider,
+                      connectionProviderNormalized,
+                      connectionId: connection.id,
+                      includes: requestedPlatformsNormalized.includes(connectionProviderNormalized),
+                      platformType: typeof connection.provider,
+                      platformsType: typeof finalCommand.platforms[0],
+                      comparison: `"${requestedPlatformsNormalized[0]}" === "${connectionProviderNormalized}"`
+                    });
+
+                    if (requestedPlatformsNormalized.includes(connectionProviderNormalized)) {
+                      filteredConnectionIds.push(permission.connectionId);
+                    }
+                  }
+                }
+              } else {
+                // No specific platforms requested, use all connections
+                filteredConnectionIds = agentPermissions.map(perm => perm.connectionId);
+              }
+
+              this.logger.debug('🔗 Agent social media connections', {
+                agentId: this.agentId,
+                permissionCount: agentPermissions.length,
+                allConnectionIds: agentPermissions.map(perm => perm.connectionId),
+                requestedPlatforms: finalCommand.platforms,
+                filteredConnectionIds: filteredConnectionIds,
+                hasMatchingConnections: filteredConnectionIds.length > 0
+              });
+
+              // Check if we have matching connections for the requested platforms
+              if (filteredConnectionIds.length === 0) {
+                const platformNames = finalCommand.platforms?.join(', ') || 'requested platforms';
+
+                // Enhanced error analysis for better user guidance
+                let errorMessage: string;
+                let errorCode: string;
+                let userGuidance: string[];
+
+                // Check if agent has ANY social media permissions (connections exist but not for requested platform)
+                if (agentPermissions.length > 0) {
+                  // Agent has permissions for some platforms, but not the requested ones
+                  const availablePlatforms = new Set<string>();
+                  for (const permission of agentPermissions) {
+                    const connection = await this.socialMediaDatabase!.getConnection(permission.connectionId);
+                    if (connection) {
+                      availablePlatforms.add(connection.provider);
+                    }
+                  }
+
+                  errorCode = 'PLATFORM_NOT_CONNECTED';
+                  errorMessage = `I don't have access to ${platformNames}. I can access: ${Array.from(availablePlatforms).join(', ')}.`;
+                  userGuidance = [
+                    `Connect ${platformNames} account(s) in workspace settings`,
+                    `Or rephrase your request to use available platforms: ${Array.from(availablePlatforms).join(', ')}`,
+                    'Visit /workspace to manage social media connections'
+                  ];
+                } else {
+                  // Agent has no social media permissions at all
+                  errorCode = 'NO_SOCIAL_MEDIA_ACCESS';
+                  errorMessage = `I don't have access to any social media platforms yet.`;
+                  userGuidance = [
+                    'Connect social media accounts in workspace settings',
+                    'Visit /workspace to set up Twitter, LinkedIn, or other platforms',
+                    'Grant me permission to post on your behalf'
+                  ];
+                }
+
+                return {
+                  content: `❌ ${errorMessage}\n\n**Next Steps:**\n${userGuidance.map(step => `• ${step}`).join('\n')}`,
+                  thoughts: [
+                    `Social media command detected: ${finalCommand.type}`,
+                    `Platform requested: ${platformNames}`,
+                    `Error: ${errorCode}`,
+                    `Available platforms: ${agentPermissions.length > 0 ? 'some' : 'none'}`
+                  ],
+                  metadata: {
+                    socialMediaCommand: finalCommand,
+                    errorCode,
+                    availablePermissions: agentPermissions.length,
+                    processingPath: 'social_media_error'
+                  }
+                };
+              }
+
+              // Execute the social media command
+              this.logger.info('🚀 Executing social media command', {
+                agentId: this.agentId,
+                commandType: finalCommand.type,
+                platforms: finalCommand.platforms,
+                connectionCount: filteredConnectionIds.length,
+                hasContent: !!finalCommand.entities.content
+              });
+
+              let socialMediaResult;
+              try {
+                // Use processCommand instead of processUserInput to preserve ACG-generated content
+                socialMediaResult = await this.socialMediaTools!.processCommand(
+                  this.agentId,
+                  finalCommand,
+                  filteredConnectionIds
+                );
+              } catch (socialMediaError) {
+                // FALLBACK: If POST_SCHEDULE fails, retry as POST_CREATE for immediate posting
+                if (finalCommand.type === 'post_schedule' &&
+                  socialMediaError instanceof Error &&
+                  socialMediaError.message.includes('Post scheduling not yet implemented')) {
+
+                  this.logger.info('📅➡️📝 POST_SCHEDULE failed, retrying as POST_CREATE for immediate posting', {
+                    agentId: this.agentId,
+                    originalType: finalCommand.type,
+                    fallbackType: 'post_create',
+                    reason: 'scheduling_not_implemented'
+                  });
+
+                  // Modify the command to be POST_CREATE instead
+                  const fallbackCommand = {
+                    ...finalCommand,
+                    type: 'post_create' as any,
+                    intent: 'Create and publish a social media post immediately'
+                  };
+
+                  // Retry with the fallback command using processCommand to preserve ACG content
+                  socialMediaResult = await this.socialMediaTools!.processCommand(
+                    this.agentId,
+                    fallbackCommand,
+                    filteredConnectionIds
+                  );
+
+                  this.logger.info('✅ Fallback to POST_CREATE succeeded', {
+                    agentId: this.agentId,
+                    success: socialMediaResult.success
+                  });
+                } else {
+                  // Re-throw other errors
+                  throw socialMediaError;
+                }
+              }
+
+              if (socialMediaResult.success) {
+                this.logger.info('✅ Social media command executed successfully', {
+                  agentId: this.agentId,
+                  commandType: finalCommand.type,
+                  platforms: finalCommand.platforms,
+                  hasData: !!socialMediaResult.data
+                });
+
+                // Format success response
+                const successData = socialMediaResult.data as any;
+                const platformName = finalCommand.platforms?.[0] || 'social media';
+
+                return {
+                  content: `✅ **Post created successfully on ${platformName}!**\n\n${successData.message || 'Your post has been published.'}\n\n${successData.engagementPrediction ? `**Engagement Prediction:** ${JSON.stringify(successData.engagementPrediction)}\n\n` : ''}**Next Steps:**\n${(successData.nextSteps || []).map((step: string) => `• ${step}`).join('\n')}`,
+                  thoughts: [
+                    `Social media command executed: ${finalCommand.type}`,
+                    `Platform: ${platformName}`,
+                    `Content generated: ${!!finalCommand.entities.generatedContent}`,
+                    'Post published successfully'
+                  ],
+                  metadata: {
+                    socialMediaCommand: finalCommand,
+                    socialMediaResult: successData,
+                    processingPath: 'social_media_success'
+                  }
+                };
+              } else {
+                this.logger.warn('❌ Social media command execution failed', {
+                  agentId: this.agentId,
+                  error: socialMediaResult.error,
+                  commandType: finalCommand.type
+                });
+
+                return {
+                  content: `❌ Failed to create post: ${socialMediaResult.error}\n\nPlease check your social media connections and try again.`,
+                  thoughts: [
+                    `Social media command failed: ${finalCommand.type}`,
+                    `Error: ${socialMediaResult.error}`,
+                    'Need to troubleshoot connection or permissions'
+                  ],
+                  metadata: {
+                    socialMediaCommand: finalCommand,
+                    error: socialMediaResult.error,
+                    processingPath: 'social_media_failure'
+                  }
+                };
+              }
+
+            } catch (error) {
+              this.logger.error('❌ Social media command execution error', {
+                agentId: this.agentId,
+                error: error instanceof Error ? error.message : String(error),
+                commandType: finalCommand.type
+              });
+
+              return {
+                content: `❌ Error executing social media command: ${error instanceof Error ? error.message : String(error)}\n\nPlease try again or check your social media connections.`,
+                thoughts: [
+                  `Social media execution error: ${finalCommand.type}`,
+                  `Error: ${error instanceof Error ? error.message : String(error)}`,
+                  'Need to investigate social media service issues'
+                ],
+                metadata: {
+                  socialMediaCommand: finalCommand,
+                  error: error instanceof Error ? error.message : String(error),
+                  processingPath: 'social_media_exception'
+                }
+              };
+            }
+          }
+        } catch (socialMediaError) {
+          this.logger.warn('Social media command processing failed', {
+            agentId: this.agentId,
+            error: socialMediaError instanceof Error ? socialMediaError.message : String(socialMediaError),
+            willContinueToWorkspace: true
+          });
+
+          // Continue to workspace processing as fallback
+        }
+      } else {
+        // Log why social media processing was skipped
+        this.logger.debug('⏭️ Skipping social media processing', {
+          reason: !this.socialMediaNLP ? 'Missing SocialMediaNLP' : 'Missing SocialMediaTools',
+          enableSocialMedia: this.agentConfig.enableSocialMedia,
+          messageContainsTwitter: message.toLowerCase().includes('twitter'),
+          messageContainsPost: message.toLowerCase().includes('post')
+        });
+      }
 
       // Step 4: Check for workspace commands and process if applicable
       if (this.workspaceIntegration) {
@@ -3990,8 +4499,10 @@ Task scheduled successfully (ID: ${safeTaskId})`;
    */
   private async initializeErrorManagement(): Promise<void> {
     try {
-      // Create a mock database provider for now (in production, this would use Prisma)
-      const mockDatabaseProvider = {
+      // Create a proper database provider using Prisma
+      const prismaClient = new PrismaClient();
+
+      const databaseProvider = {
         saveError: async (error: any) => error.id,
         getErrorById: async (id: string) => null,
         searchErrors: async (criteria: any) => [],
@@ -4043,7 +4554,7 @@ Task scheduled successfully (ID: ${safeTaskId})`;
       // Initialize error management service
       this.errorManagementService = new DefaultErrorManagementService(
         loggerAdapter,
-        mockDatabaseProvider,
+        databaseProvider,
         notificationAdapter
       );
 

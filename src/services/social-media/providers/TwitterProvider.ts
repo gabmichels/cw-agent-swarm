@@ -1,4 +1,5 @@
 import {
+  ISocialMediaDatabase,
   SocialMediaCapability,
   SocialMediaConnection,
   SocialMediaProvider
@@ -21,7 +22,7 @@ import {
 } from './base/ISocialMediaProvider';
 
 // Unified systems imports
-import { getServiceConfig } from '../../../lib/core/unified-config';
+import * as crypto from 'crypto';
 import {
   createErrorContext,
   ErrorSeverity,
@@ -32,30 +33,33 @@ import { logger } from '../../../lib/logging';
 import {
   decryptTokens
 } from '../../../lib/security/unified-token-manager';
+import { TokenEncryption } from '../../../services/security/TokenEncryption';
 
 export class TwitterProvider implements ISocialMediaProvider {
   private connections = new Map<string, SocialMediaConnection>();
   private clientId: string;
   private clientSecret: string;
+  private database: ISocialMediaDatabase | null = null;
+  private legacyTokenEncryption = new TokenEncryption();
 
   constructor() {
-    // Get configuration from unified config system
-    const socialConfig = getServiceConfig('socialMedia');
-    const twitterConfig = socialConfig.providers.twitter;
+    // Twitter Provider for OAuth-based connections
+    // No API keys needed in constructor - uses OAuth tokens from connections
+    this.clientId = process.env.TWITTER_CLIENT_ID || '';
+    this.clientSecret = process.env.TWITTER_CLIENT_SECRET || '';
 
-    if (!twitterConfig) {
-      throw new Error('Twitter configuration not found. Please set TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET environment variables.');
-    }
-
-    this.clientId = twitterConfig.clientId || '';
-    this.clientSecret = twitterConfig.clientSecret || '';
-
-    logger.info('Twitter Provider initialized with unified systems', {
+    logger.info('Twitter Provider initialized for OAuth connections', {
       provider: 'twitter',
       hasClientId: !!this.clientId,
       hasClientSecret: !!this.clientSecret,
-      unifiedSystems: true
+      mode: 'oauth',
+      note: 'Uses OAuth tokens from database connections, not API keys'
     });
+  }
+
+  // Set database reference for on-demand connection loading
+  setDatabase(database: ISocialMediaDatabase): void {
+    this.database = database;
   }
 
   addConnection(connection: SocialMediaConnection): void {
@@ -67,6 +71,261 @@ export class TwitterProvider implements ISocialMediaProvider {
     });
   }
 
+  // Get connection on-demand (load from database if not cached)
+  private async getConnection(connectionId: string): Promise<SocialMediaConnection> {
+    // Check cache first
+    let connection = this.connections.get(connectionId);
+
+    if (!connection && this.database) {
+      // Load from database
+      const dbConnection = await this.database.getConnection(connectionId);
+      if (dbConnection && dbConnection.provider === SocialMediaProvider.TWITTER) {
+        connection = dbConnection;
+        // Cache it for future use
+        this.connections.set(connectionId, connection);
+        logger.debug('Twitter connection loaded from database', {
+          connectionId,
+          accountUsername: connection.accountUsername
+        });
+      }
+    }
+
+    if (!connection) {
+      throw new SocialMediaError(
+        'Twitter connection not found',
+        'CONNECTION_NOT_FOUND',
+        SocialMediaProvider.TWITTER
+      );
+    }
+
+    return connection;
+  }
+
+  // Helper method to decrypt tokens with fallback to legacy format
+  private async decryptConnectionTokens(encryptedCredentials: string): Promise<{
+    accessToken?: string;
+    refreshToken?: string;
+    oauthToken?: string;
+    oauthTokenSecret?: string;
+    tokenType: 'oauth1' | 'oauth2';
+  }> {
+    // First try to parse the credentials to determine format
+    let parsedCredentials: any;
+    try {
+      parsedCredentials = JSON.parse(encryptedCredentials);
+    } catch {
+      // If not JSON, assume it's legacy encrypted format
+      const legacyTokens = await this.legacyTokenEncryption.decrypt(encryptedCredentials);
+      const parsed = JSON.parse(legacyTokens);
+
+      // Normalize field names and user-friendly logging for legacy format
+      const normalized = this.normalizeCredentials(parsed);
+      const tokenInfo = this.getTokenInfo(normalized);
+      logger.info(`🔐 Using legacy token format (${tokenInfo.description})`, {
+        provider: 'twitter',
+        tokenType: tokenInfo.type,
+        isValid: tokenInfo.isValid
+      });
+
+      return {
+        ...normalized,
+        tokenType: normalized.oauthToken ? 'oauth1' : 'oauth2'
+      };
+    }
+
+    // If it's already JSON, check if it's new format (has 'encrypted' field)
+    if (parsedCredentials.encrypted) {
+      // This is new unified format - try to decrypt it
+      try {
+        const tokens = await decryptTokens(encryptedCredentials);
+
+        logger.info('🔐 Using unified token manager (modern format)', {
+          provider: 'twitter',
+          tokenType: 'oauth2'
+        });
+
+        // Handle OAuth 2.0 tokens from unified manager
+        return {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          tokenType: 'oauth2' // Unified manager currently only supports OAuth 2.0
+        };
+      } catch (error) {
+        logger.info('🔐 Unified format failed, trying legacy encryption fallback...', {
+          provider: 'twitter',
+          note: 'This is normal for older connections'
+        });
+
+        // Fall back to legacy format
+        const legacyTokens = await this.legacyTokenEncryption.decrypt(encryptedCredentials);
+        const parsed = JSON.parse(legacyTokens);
+
+        const normalized = this.normalizeCredentials(parsed);
+        const tokenInfo = this.getTokenInfo(normalized);
+        logger.info(`🔐 Successfully using legacy encryption (${tokenInfo.description})`, {
+          provider: 'twitter',
+          tokenType: tokenInfo.type,
+          isValid: tokenInfo.isValid
+        });
+
+        return {
+          ...normalized,
+          tokenType: normalized.oauthToken ? 'oauth1' : 'oauth2'
+        };
+      }
+    } else {
+      // This is old plain JSON format (unencrypted)
+      const normalized = this.normalizeCredentials(parsedCredentials);
+      const tokenInfo = this.getTokenInfo(normalized);
+      logger.info(`🔐 Using plain JSON credentials (${tokenInfo.description})`, {
+        provider: 'twitter',
+        tokenType: tokenInfo.type,
+        isValid: tokenInfo.isValid
+      });
+
+      return {
+        ...normalized,
+        tokenType: normalized.oauthToken ? 'oauth1' : 'oauth2'
+      };
+    }
+  }
+
+  private normalizeCredentials(credentials: any): any {
+    // Normalize field names that might vary between storage formats
+    return {
+      accessToken: credentials.accessToken || credentials.access_token,
+      refreshToken: credentials.refreshToken || credentials.refresh_token,
+      oauthToken: credentials.oauthToken || credentials.oauth_token,
+      oauthTokenSecret: credentials.oauthTokenSecret || credentials.oauth_token_secret,
+      // Preserve other fields
+      ...credentials
+    };
+  }
+
+  private getTokenInfo(credentials: any): { type: string; description: string; isValid: boolean } {
+    if (credentials.oauthToken && credentials.oauthTokenSecret) {
+      return {
+        type: 'oauth1',
+        description: 'OAuth 1.0a tokens ready',
+        isValid: true
+      };
+    } else if (credentials.accessToken || credentials.access_token) {
+      return {
+        type: 'oauth2',
+        description: 'OAuth 2.0 tokens ready',
+        isValid: true
+      };
+    } else {
+      // Check what fields exist to provide helpful error message
+      const fields = Object.keys(credentials);
+      return {
+        type: 'unknown',
+        description: `Invalid token format - found fields: ${fields.join(', ')}`,
+        isValid: false
+      };
+    }
+  }
+
+  // OAuth 1.0a signature generation for Twitter API v1.1
+  private generateOAuth1Signature(
+    method: string,
+    url: string,
+    params: Record<string, string>,
+    oauthToken: string,
+    oauthTokenSecret: string
+  ): string {
+    // Create OAuth parameters
+    const oauthParams = {
+      oauth_consumer_key: this.clientId,
+      oauth_token: oauthToken,
+      oauth_signature_method: 'HMAC-SHA1',
+      oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+      oauth_nonce: crypto.randomBytes(16).toString('hex'),
+      oauth_version: '1.0',
+      ...params
+    };
+
+    // Create parameter string
+    const sortedParams = Object.keys(oauthParams)
+      .sort()
+      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent((oauthParams as any)[key])}`)
+      .join('&');
+
+    // Create signature base string
+    const baseString = `${method.toUpperCase()}&${encodeURIComponent(url)}&${encodeURIComponent(sortedParams)}`;
+
+    // Create signing key
+    const signingKey = `${encodeURIComponent(this.clientSecret)}&${encodeURIComponent(oauthTokenSecret)}`;
+
+    // Generate signature
+    const signature = crypto
+      .createHmac('sha1', signingKey)
+      .update(baseString)
+      .digest('base64');
+
+    // Return authorization header
+    const authParams = {
+      oauth_consumer_key: this.clientId,
+      oauth_token: oauthToken,
+      oauth_signature_method: 'HMAC-SHA1',
+      oauth_timestamp: oauthParams.oauth_timestamp,
+      oauth_nonce: oauthParams.oauth_nonce,
+      oauth_version: '1.0',
+      oauth_signature: signature
+    };
+
+    const authHeader = 'OAuth ' + Object.keys(authParams)
+      .map(key => `${encodeURIComponent(key)}="${encodeURIComponent((authParams as any)[key])}"`)
+      .join(', ');
+
+    return authHeader;
+  }
+
+  // Create authentication headers based on token type
+  private async createAuthHeaders(
+    method: string,
+    url: string,
+    credentials: {
+      accessToken?: string;
+      oauthToken?: string;
+      oauthTokenSecret?: string;
+      tokenType: 'oauth1' | 'oauth2';
+    },
+    params: Record<string, string> = {}
+  ): Promise<Record<string, string>> {
+    if (credentials.tokenType === 'oauth2') {
+      if (!credentials.accessToken) {
+        throw new Error(`OAuth 2.0 access token is missing or empty. Available fields: ${Object.keys(credentials).join(', ')}`);
+      }
+      // OAuth 2.0 Bearer token
+      return {
+        'Authorization': `Bearer ${credentials.accessToken}`,
+        'Content-Type': 'application/json'
+      };
+    } else if (credentials.tokenType === 'oauth1') {
+      if (!credentials.oauthToken || !credentials.oauthTokenSecret) {
+        const missing = [];
+        if (!credentials.oauthToken) missing.push('oauthToken');
+        if (!credentials.oauthTokenSecret) missing.push('oauthTokenSecret');
+        throw new Error(`OAuth 1.0a tokens missing: ${missing.join(', ')}. Available fields: ${Object.keys(credentials).join(', ')}`);
+      }
+      // OAuth 1.0a signature
+      const authHeader = this.generateOAuth1Signature(
+        method,
+        url,
+        params,
+        credentials.oauthToken,
+        credentials.oauthTokenSecret
+      );
+      return {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json'
+      };
+    } else {
+      throw new Error(`Unknown token type: ${credentials.tokenType}. Available fields: ${Object.keys(credentials).join(', ')}`);
+    }
+  }
+
   async validateConnection(connectionId: string): Promise<boolean> {
     const context = createErrorContext('TwitterProvider', 'validateConnection', {
       severity: ErrorSeverity.LOW,
@@ -75,27 +334,33 @@ export class TwitterProvider implements ISocialMediaProvider {
     });
 
     const result = await handleAsync(async () => {
-      const connection = this.connections.get(connectionId);
-      if (!connection) {
-        throw new Error('Connection not found');
-      }
+      const connection = await this.getConnection(connectionId);
 
       // Decrypt credentials using unified token manager
-      const credentials = await decryptTokens(connection.encryptedCredentials);
+      const credentials = await this.decryptConnectionTokens(connection.encryptedCredentials);
+
+      // Choose appropriate API endpoint based on token type
+      let url: string;
+      if (credentials.tokenType === 'oauth2') {
+        url = 'https://api.twitter.com/2/users/me';
+      } else {
+        url = 'https://api.twitter.com/1.1/account/verify_credentials.json';
+      }
+
+      // Create authentication headers
+      const headers = await this.createAuthHeaders('GET', url, credentials);
 
       // Test the connection with a simple API call
-      const response = await fetch('https://api.twitter.com/2/users/me', {
-        headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
-        },
-      });
+      const response = await fetch(url, { headers });
 
       const isValid = response.ok;
 
       logger.info('Twitter connection validation completed', {
         connectionId,
         isValid,
-        status: response.status
+        status: response.status,
+        tokenType: credentials.tokenType,
+        endpoint: url
       });
 
       return isValid;
@@ -122,21 +387,24 @@ export class TwitterProvider implements ISocialMediaProvider {
     });
 
     const result = await handleWithRetry(async () => {
-      const connection = this.connections.get(connectionId);
-      if (!connection) {
-        throw new SocialMediaError(
-          'Connection not found',
-          'CONNECTION_NOT_FOUND',
-          SocialMediaProvider.TWITTER
-        );
-      }
+      const connection = await this.getConnection(connectionId);
 
-      const credentials = await decryptTokens(connection.encryptedCredentials);
+      const credentials = await this.decryptConnectionTokens(connection.encryptedCredentials);
       const tweetText = this.formatTweetContent(params.content, params.hashtags);
 
-      const tweetData: any = {
-        text: tweetText,
-      };
+      // Choose appropriate API endpoint and data format based on token type
+      let url: string;
+      let tweetData: any;
+
+      if (credentials.tokenType === 'oauth2') {
+        // Twitter API v2 format
+        url = 'https://api.twitter.com/2/tweets';
+        tweetData = { text: tweetText };
+      } else {
+        // Twitter API v1.1 format
+        url = 'https://api.twitter.com/1.1/statuses/update.json';
+        tweetData = { status: tweetText };
+      }
 
       // Log media upload if present (not implemented in this simplified version)
       if (params.media && params.media.length > 0) {
@@ -147,31 +415,54 @@ export class TwitterProvider implements ISocialMediaProvider {
         });
       }
 
-      const response = await fetch('https://api.twitter.com/2/tweets', {
+      // Create authentication headers
+      const headers = await this.createAuthHeaders('POST', url, credentials);
+
+      // Make the API request
+      const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(tweetData),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
+
+        // Handle specific Twitter API error cases
+        if (response.status === 403 && errorText.includes('duplicate content')) {
+          throw new SocialMediaError(
+            'This content was already posted recently. Twitter blocks duplicate tweets to prevent spam. Try posting with different wording or wait a few hours.',
+            'TWITTER_DUPLICATE_CONTENT',
+            SocialMediaProvider.TWITTER,
+            new Error(`Duplicate content: ${errorText}`)
+          );
+        }
+
+        // Handle other Twitter API errors
         throw new Error(`Twitter API error: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
 
+      // Handle different response formats
+      let postId: string;
+      if (credentials.tokenType === 'oauth2') {
+        // API v2 response format
+        postId = result.data.id;
+      } else {
+        // API v1.1 response format  
+        postId = result.id_str;
+      }
+
       const post: SocialMediaPost = {
-        id: result.data.id,
+        id: postId,
         platform: SocialMediaProvider.TWITTER,
-        platformPostId: result.data.id,
+        platformPostId: postId,
         content: params.content,
         media: params.media,
         hashtags: params.hashtags,
         mentions: params.mentions,
-        url: `https://twitter.com/i/status/${result.data.id}`,
+        url: `https://twitter.com/i/status/${postId}`,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -180,7 +471,9 @@ export class TwitterProvider implements ISocialMediaProvider {
         connectionId,
         postId: post.id,
         platform: post.platform,
-        contentLength: params.content.length
+        contentLength: params.content.length,
+        tokenType: credentials.tokenType,
+        endpoint: url
       });
 
       return post;
@@ -220,22 +513,22 @@ export class TwitterProvider implements ISocialMediaProvider {
     });
 
     const result = await handleAsync(async () => {
-      const connection = this.connections.get(connectionId);
-      if (!connection) {
-        throw new SocialMediaError(
-          'Connection not found',
-          'CONNECTION_NOT_FOUND',
-          SocialMediaProvider.TWITTER
-        );
+      const connection = await this.getConnection(connectionId);
+
+      const credentials = await this.decryptConnectionTokens(connection.encryptedCredentials);
+
+      // Choose appropriate API endpoint based on token type
+      let url: string;
+      if (credentials.tokenType === 'oauth2') {
+        url = `https://api.twitter.com/2/tweets/${postId}?tweet.fields=created_at,public_metrics`;
+      } else {
+        url = `https://api.twitter.com/1.1/statuses/show.json?id=${postId}`;
       }
 
-      const credentials = await decryptTokens(connection.encryptedCredentials);
+      // Create authentication headers
+      const headers = await this.createAuthHeaders('GET', url, credentials);
 
-      const response = await fetch(`https://api.twitter.com/2/tweets/${postId}?tweet.fields=created_at,public_metrics`, {
-        headers: {
-          'Authorization': `Bearer ${credentials.accessToken}`,
-        },
-      });
+      const response = await fetch(url, { headers });
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -243,17 +536,24 @@ export class TwitterProvider implements ISocialMediaProvider {
       }
 
       const result = await response.json();
-      const tweet = result.data;
+
+      // Handle different response formats
+      let tweet: any;
+      if (credentials.tokenType === 'oauth2') {
+        tweet = result.data;
+      } else {
+        tweet = result;
+      }
 
       const post: SocialMediaPost = {
-        id: tweet.id,
+        id: credentials.tokenType === 'oauth2' ? tweet.id : tweet.id_str,
         platform: SocialMediaProvider.TWITTER,
-        platformPostId: tweet.id,
+        platformPostId: credentials.tokenType === 'oauth2' ? tweet.id : tweet.id_str,
         content: tweet.text,
-        url: `https://twitter.com/i/status/${tweet.id}`,
+        url: `https://twitter.com/i/status/${credentials.tokenType === 'oauth2' ? tweet.id : tweet.id_str}`,
         createdAt: new Date(tweet.created_at!),
         updatedAt: new Date(tweet.created_at!),
-        metrics: tweet.public_metrics ? {
+        metrics: credentials.tokenType === 'oauth2' && tweet.public_metrics ? {
           views: tweet.public_metrics.impression_count || 0,
           likes: tweet.public_metrics.like_count || 0,
           shares: tweet.public_metrics.retweet_count || 0,
@@ -262,13 +562,24 @@ export class TwitterProvider implements ISocialMediaProvider {
           engagementRate: 0,
           reach: 0,
           impressions: tweet.public_metrics.impression_count || 0,
+        } : credentials.tokenType === 'oauth1' ? {
+          views: 0,
+          likes: tweet.favorite_count || 0,
+          shares: tweet.retweet_count || 0,
+          comments: 0,
+          clicks: 0,
+          engagementRate: 0,
+          reach: 0,
+          impressions: 0,
         } : undefined
       };
 
       logger.info('Twitter post retrieved successfully', {
         connectionId,
         postId,
-        hasMetrics: !!post.metrics
+        hasMetrics: !!post.metrics,
+        tokenType: credentials.tokenType,
+        endpoint: url
       });
 
       return post;
@@ -294,16 +605,9 @@ export class TwitterProvider implements ISocialMediaProvider {
     });
 
     const result = await handleAsync(async () => {
-      const connection = this.connections.get(connectionId);
-      if (!connection) {
-        throw new SocialMediaError(
-          'Connection not found',
-          'CONNECTION_NOT_FOUND',
-          SocialMediaProvider.TWITTER
-        );
-      }
+      const connection = await this.getConnection(connectionId);
 
-      const credentials = await decryptTokens(connection.encryptedCredentials);
+      const credentials = await this.decryptConnectionTokens(connection.encryptedCredentials);
       const limit = Math.min(params.limit || 10, 100);
 
       const response = await fetch(`https://api.twitter.com/2/users/${connection.providerAccountId}/tweets?max_results=${limit}&tweet.fields=created_at,public_metrics`, {
@@ -382,16 +686,9 @@ export class TwitterProvider implements ISocialMediaProvider {
     });
 
     await handleAsync(async () => {
-      const connection = this.connections.get(connectionId);
-      if (!connection) {
-        throw new SocialMediaError(
-          'Connection not found',
-          'CONNECTION_NOT_FOUND',
-          SocialMediaProvider.TWITTER
-        );
-      }
+      const connection = await this.getConnection(connectionId);
 
-      const credentials = await decryptTokens(connection.encryptedCredentials);
+      const credentials = await this.decryptConnectionTokens(connection.encryptedCredentials);
 
       const response = await fetch(`https://api.twitter.com/2/tweets/${postId}`, {
         method: 'DELETE',
@@ -481,10 +778,7 @@ export class TwitterProvider implements ISocialMediaProvider {
   }
 
   async refreshConnection(connectionId: string): Promise<SocialMediaConnection> {
-    const connection = this.connections.get(connectionId);
-    if (!connection) {
-      throw new Error('Connection not found');
-    }
+    const connection = await this.getConnection(connectionId);
     return connection;
   }
 

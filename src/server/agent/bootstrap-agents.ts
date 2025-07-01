@@ -112,6 +112,17 @@ async function createAgentInstance(dbAgent: AgentMemoryEntity): Promise<AgentBas
       batchSize: 10
     },
 
+    // CRITICAL: Enable Social Media for intelligent social media posting
+    enableSocialMedia: true,
+    socialMediaConfig: {
+      enableAutoPosting: true,
+      requireConfirmation: false,
+      defaultPlatforms: ['twitter', 'linkedin'],
+      enableContentGeneration: true,
+      enableTrendAnalysis: false,
+      maxRetries: 3
+    },
+
     // CRITICAL: Enable all required managers explicitly
     enableMemoryManager: true,
     enablePlanningManager: true,

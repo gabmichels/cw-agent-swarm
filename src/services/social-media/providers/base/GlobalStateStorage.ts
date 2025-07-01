@@ -9,6 +9,7 @@ export interface StateData {
   userId: string;
   accountType?: string;
   timestamp: number;
+  agentId?: string; // Agent ID for automatic permission granting
 }
 
 // Simple module-level storage that persists across API calls
@@ -31,7 +32,7 @@ function startCleanup() {
       }
 
       expiredStates.forEach(state => stateStorage.delete(state));
-      
+
       if (expiredStates.length > 0) {
         console.log(`Cleaned up ${expiredStates.length} expired OAuth states`);
       }

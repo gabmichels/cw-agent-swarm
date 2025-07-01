@@ -231,8 +231,8 @@ export class UnifiedConfigManager {
         providers: {
           ...(environment.TWITTER_API_KEY && environment.TWITTER_API_SECRET && {
             twitter: {
-              apiKey: environment.TWITTER_API_KEY,
-              apiSecret: environment.TWITTER_API_SECRET,
+              clientId: environment.TWITTER_API_KEY,
+              clientSecret: environment.TWITTER_API_SECRET,
             }
           }),
           ...(environment.LINKEDIN_CLIENT_ID && environment.LINKEDIN_CLIENT_SECRET && {

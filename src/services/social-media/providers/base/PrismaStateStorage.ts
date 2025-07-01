@@ -12,6 +12,7 @@ export interface StateData {
   metadata?: Record<string, any>;
   provider?: string; // OAuth provider (e.g., 'twitter', 'instagram')
   redirectUri?: string; // OAuth redirect URI
+  agentId?: string; // Agent ID for automatic permission granting
 }
 
 /**
@@ -99,7 +100,8 @@ export class PrismaStateStorage {
         returnUrl: record.returnUrl || undefined,
         metadata: record.metadata ? JSON.parse(record.metadata) : undefined,
         provider: (record as any).provider,
-        redirectUri: (record as any).redirectUri
+        redirectUri: (record as any).redirectUri,
+        agentId: (record as any).agentId
       };
 
       console.log('OAuth state retrieved from database:', { state, platform: record.platform });
@@ -153,7 +155,8 @@ export class PrismaStateStorage {
           returnUrl: record.returnUrl || undefined,
           metadata: record.metadata ? JSON.parse(record.metadata) : undefined,
           provider: (record as any).provider,
-          redirectUri: (record as any).redirectUri
+          redirectUri: (record as any).redirectUri,
+          agentId: (record as any).agentId
         }
       ]);
     } catch (error) {

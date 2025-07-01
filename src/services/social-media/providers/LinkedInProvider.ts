@@ -1,60 +1,53 @@
 import {
-  ISocialMediaProvider,
-  SocialMediaPost,
-  PostCreationParams,
-  PostScheduleParams,
-  ScheduledPost,
-  MediaFile,
-  PostMetrics,
-  ContentAnalysis,
-  OptimizedContent,
-  CommentResponse,
-  ResponseStrategy,
-  SocialMediaError,
-  SocialMediaConnectionParams,
-  Comment,
-  AccountAnalytics
-} from './base/ISocialMediaProvider';
-import {
-  SocialMediaProvider,
+  ISocialMediaDatabase,
   SocialMediaCapability,
   SocialMediaConnection,
-  SocialMediaConnectionStatus
+  SocialMediaProvider
 } from '../database/ISocialMediaDatabase';
+import {
+  AccountAnalytics,
+  Comment,
+  CommentResponse,
+  ContentAnalysis,
+  ISocialMediaProvider,
+  OptimizedContent,
+  PostCreationParams,
+  PostMetrics,
+  PostScheduleParams,
+  ResponseStrategy,
+  ScheduledPost,
+  SocialMediaConnectionParams,
+  SocialMediaError,
+  SocialMediaPost
+} from './base/ISocialMediaProvider';
 // Unified systems imports
-import { getServiceConfig } from '../../../lib/core/unified-config';
 import {
-  handleAsync,
-  handleWithRetry,
   createErrorContext,
-  ErrorSeverity
+  ErrorSeverity,
+  handleAsync,
+  handleWithRetry
 } from '../../../lib/errors/standardized-handler';
-import {
-  unifiedTokenManager,
-  encryptTokens,
-  decryptTokens,
-  OAuthTokenData
-} from '../../../lib/security/unified-token-manager';
 import { logger } from '../../../lib/logging';
+import {
+  decryptTokens,
+  encryptTokens,
+  OAuthTokenData,
+  unifiedTokenManager
+} from '../../../lib/security/unified-token-manager';
+import { TokenEncryption } from '../../../services/security/TokenEncryption';
 
 export class LinkedInProvider implements ISocialMediaProvider {
   public connections = new Map<string, SocialMediaConnection>();
   private clientId: string;
   private clientSecret: string;
+  private database: ISocialMediaDatabase | null = null;
+  private legacyTokenEncryption = new TokenEncryption();
 
   constructor() {
-    // Initialize provider with unified systems
-
-    // Get configuration from unified config system
-    const socialConfig = getServiceConfig('socialMedia');
-    const linkedinConfig = socialConfig.providers.linkedin;
-
-    if (!linkedinConfig) {
-      throw new Error('LinkedIn configuration not found. Please set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables.');
-    }
-
-    this.clientId = linkedinConfig.clientId!;
-    this.clientSecret = linkedinConfig.clientSecret!;
+    // LinkedIn Provider for OAuth-based connections
+    // No API keys needed in constructor - uses OAuth tokens from connections
+    this.clientId = process.env.LINKEDIN_CLIENT_ID || '';
+    this.clientSecret = process.env.LINKEDIN_CLIENT_SECRET || '';
 
     // Register token refresh callback with unified token manager
     unifiedTokenManager.registerRefreshCallback('linkedin', async (refreshToken: string, provider: string, connectionId: string) => {
@@ -98,13 +91,91 @@ export class LinkedInProvider implements ISocialMediaProvider {
       };
     });
 
-    logger.info('LinkedIn Provider initialized with unified systems', {
+    logger.info('LinkedIn Provider initialized for OAuth connections', {
       provider: 'linkedin',
       hasClientId: !!this.clientId,
       hasClientSecret: !!this.clientSecret,
-      unifiedSystems: true,
-      tokenManagerRegistered: true
+      mode: 'oauth',
+      tokenManagerRegistered: true,
+      note: 'Uses OAuth tokens from database connections, not API keys'
     });
+  }
+
+  // Set database reference for on-demand connection loading
+  setDatabase(database: ISocialMediaDatabase): void {
+    this.database = database;
+  }
+
+  // Get connection on-demand (load from database if not cached)
+  private async getConnection(connectionId: string): Promise<SocialMediaConnection> {
+    // Check cache first
+    let connection = this.connections.get(connectionId);
+
+    if (!connection && this.database) {
+      // Load from database
+      const dbConnection = await this.database.getConnection(connectionId);
+      if (dbConnection && dbConnection.provider === SocialMediaProvider.LINKEDIN) {
+        connection = dbConnection;
+        // Cache it for future use
+        this.connections.set(connectionId, connection);
+        logger.debug('LinkedIn connection loaded from database', {
+          connectionId,
+          accountUsername: connection.accountUsername
+        });
+      }
+    }
+
+    if (!connection) {
+      throw new SocialMediaError(
+        'LinkedIn connection not found',
+        'CONNECTION_NOT_FOUND',
+        SocialMediaProvider.LINKEDIN
+      );
+    }
+
+    return connection;
+  }
+
+  // Helper method to decrypt tokens with fallback to legacy format
+  private async decryptConnectionTokens(encryptedCredentials: string): Promise<{ accessToken: string; refreshToken?: string; scopes?: string[] }> {
+    try {
+      // Try new unified token manager first
+      const credentials = await decryptTokens(encryptedCredentials);
+      return {
+        accessToken: credentials.accessToken,
+        refreshToken: credentials.refreshToken,
+        scopes: credentials.scopes
+      };
+    } catch (unifiedError) {
+      logger.warn('Unified token decryption failed, trying legacy format', {
+        error: unifiedError instanceof Error ? unifiedError.message : String(unifiedError)
+      });
+
+      try {
+        // Fallback to legacy TokenEncryption system
+        const legacyCredentials = this.legacyTokenEncryption.decryptTokens(encryptedCredentials);
+        logger.info('Successfully decrypted using legacy token format');
+
+        // Check if this is OAuth 2.0 format (LinkedIn uses OAuth 2.0)
+        const credentials = legacyCredentials as any;
+        return {
+          accessToken: credentials.access_token || credentials.accessToken,
+          refreshToken: credentials.refresh_token || credentials.refreshToken,
+          scopes: credentials.scope ? credentials.scope.split(' ') : []
+        };
+      } catch (legacyError) {
+        logger.error('Both token decryption methods failed', {
+          unifiedError: unifiedError instanceof Error ? unifiedError.message : String(unifiedError),
+          legacyError: legacyError instanceof Error ? legacyError.message : String(legacyError)
+        });
+
+        throw new SocialMediaError(
+          'Failed to decrypt connection credentials',
+          'CREDENTIAL_DECRYPTION_FAILED',
+          SocialMediaProvider.LINKEDIN
+        );
+      }
+    }
   }
 
   addConnection(connection: SocialMediaConnection): void {
@@ -125,13 +196,10 @@ export class LinkedInProvider implements ISocialMediaProvider {
     });
 
     const result = await handleAsync(async () => {
-      const connection = this.connections.get(connectionId);
-      if (!connection) {
-        throw new Error('Connection not found');
-      }
+      const connection = await this.getConnection(connectionId);
 
-      // Decrypt credentials using unified token manager
-      const credentials = await decryptTokens(connection.encryptedCredentials);
+      // Decrypt credentials using hybrid token manager (supports both legacy and new formats)
+      const credentials = await this.decryptConnectionTokens(connection.encryptedCredentials);
 
       // Test the connection with a simple API call
       const response = await fetch('https://api.linkedin.com/v2/userinfo', {
@@ -158,7 +226,7 @@ export class LinkedInProvider implements ISocialMediaProvider {
             // Retry validation with refreshed token
             const updatedConnection = this.connections.get(connectionId);
             if (updatedConnection) {
-              const updatedCredentials = await decryptTokens(updatedConnection.encryptedCredentials);
+              const updatedCredentials = await this.decryptConnectionTokens(updatedConnection.encryptedCredentials);
               const retryResponse = await fetch('https://api.linkedin.com/v2/userinfo', {
                 headers: {
                   'Authorization': `Bearer ${updatedCredentials.accessToken}`,
@@ -209,7 +277,7 @@ export class LinkedInProvider implements ISocialMediaProvider {
       }
 
       // Decrypt current credentials to get refresh token
-      const credentials = await decryptTokens(connection.encryptedCredentials);
+      const credentials = await this.decryptConnectionTokens(connection.encryptedCredentials);
 
       if (!credentials.refreshToken) {
         throw new Error('No refresh token available for LinkedIn connection');
@@ -269,16 +337,9 @@ export class LinkedInProvider implements ISocialMediaProvider {
     });
 
     const result = await handleWithRetry(async () => {
-      const connection = this.connections.get(connectionId);
-      if (!connection) {
-        throw new SocialMediaError(
-          'Connection not found',
-          'CONNECTION_NOT_FOUND',
-          SocialMediaProvider.LINKEDIN
-        );
-      }
+      const connection = await this.getConnection(connectionId);
 
-      const credentials = await decryptTokens(connection.encryptedCredentials);
+      const credentials = await this.decryptConnectionTokens(connection.encryptedCredentials);
       const postContent = this.formatLinkedInContent(params.content, params.hashtags);
 
       // Get user's LinkedIn ID

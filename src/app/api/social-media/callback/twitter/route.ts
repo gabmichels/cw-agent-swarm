@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { MultiTenantTwitterProvider } from '@/services/social-media/providers/MultiTenantTwitterProvider';
 import { PrismaStateStorage } from '@/services/social-media/providers/base/PrismaStateStorage';
 import { PrismaSocialMediaDatabase } from '@/services/social-media/database/PrismaSocialMediaDatabase';
+import { SocialMediaService } from '@/services/social-media/SocialMediaService';
 import { PrismaClient } from '@prisma/client';
-import { SocialMediaProvider, SocialMediaConnectionStatus } from '@/services/social-media/database/ISocialMediaDatabase';
+import { SocialMediaProvider, SocialMediaConnectionStatus, SocialMediaCapability, AccessLevel } from '@/services/social-media/database/ISocialMediaDatabase';
 
 /**
  * GET /api/social-media/callback/twitter
@@ -18,13 +19,14 @@ import { SocialMediaProvider, SocialMediaConnectionStatus } from '@/services/soc
  * 1. Validates the state parameter
  * 2. Exchanges the code for access tokens
  * 3. Stores the tokens securely in the database
- * 4. Redirects back to the application
+ * 4. Automatically grants permissions to specified agent or default agent
+ * 5. Redirects back to the application
  */
 export async function GET(request: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const prisma = new PrismaClient();
   const stateStorage = new PrismaStateStorage(prisma);
-  
+
   try {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get('code');
@@ -66,7 +68,7 @@ export async function GET(request: NextRequest) {
 
     // Exchange code for tokens using Twitter's custom method that supports PKCE
     const tokenResponse = await twitterProvider.exchangeCodeForTokenWithState(code, state);
-    
+
     console.log('Token exchange successful');
 
     // Get user profile information
@@ -78,8 +80,9 @@ export async function GET(request: NextRequest) {
       username: userProfile.username
     });
 
-    // Initialize database
+    // Initialize database and service
     const database = new PrismaSocialMediaDatabase(prisma);
+    const socialMediaService = new SocialMediaService(database, new Map());
 
     // Store the connection in database
     const connection = await database.createConnection({
@@ -113,11 +116,50 @@ export async function GET(request: NextRequest) {
       accountType: connection.accountType
     });
 
+    // FIXED: Automatically grant permissions to agent
+    // Get the agent ID from state data or use a default agent for the user
+    const agentId = stateData.agentId || 'bb236b7a-9ae2-4f16-986c-edd9ae8a379a'; // Default agent ID if not specified
+
+    try {
+      // Grant comprehensive permissions to the agent for this Twitter connection
+      const permission = await socialMediaService.grantAgentPermission(
+        agentId,
+        connection.id,
+        [
+          SocialMediaCapability.POST_CREATE,
+          SocialMediaCapability.POST_READ,
+          SocialMediaCapability.POST_EDIT,
+          SocialMediaCapability.POST_DELETE,
+          SocialMediaCapability.POST_SCHEDULE,
+          SocialMediaCapability.COMMENT_READ,
+          SocialMediaCapability.COMMENT_CREATE,
+          SocialMediaCapability.ANALYTICS_READ,
+          SocialMediaCapability.ACCOUNT_READ
+        ],
+        AccessLevel.FULL,
+        'system', // Granted by system during OAuth
+        {} // No restrictions
+      );
+
+      console.log('✅ Automatically granted Twitter permissions to agent:', {
+        agentId,
+        connectionId: connection.id,
+        permissionId: permission.id,
+        capabilities: permission.capabilities,
+        accessLevel: permission.accessLevel
+      });
+
+    } catch (permissionError) {
+      console.error('❌ Failed to grant agent permissions, but connection was created:', permissionError);
+      // Don't fail the entire flow if permission granting fails
+      // The connection is still created and permissions can be manually granted later
+    }
+
     // Log the successful connection
     await database.logAction({
       timestamp: new Date(),
       connectionId: connection.id,
-      agentId: 'system',
+      agentId: agentId,
       action: 'authenticate',
       platform: SocialMediaProvider.TWITTER,
       result: 'success',
@@ -125,7 +167,8 @@ export async function GET(request: NextRequest) {
       userAgent: request.headers.get('user-agent') || 'unknown',
       metadata: {
         accountType: connection.accountType,
-        scopes: connection.scopes
+        scopes: connection.scopes,
+        permissionsGranted: true
       }
     });
 
@@ -140,7 +183,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Twitter callback error:', error);
-    
+
     return NextResponse.redirect(
       `${baseUrl}/?social_error=${encodeURIComponent(
         error instanceof Error ? error.message : 'connection_failed'
@@ -157,6 +200,7 @@ export async function GET(request: NextRequest) {
  * const stateData = {
  *   tenantId: "tenant_01HQ7X8Z9Y2K3L4M5N6P7Q8R9S",
  *   userId: "user_01HQ7X8Z9Y2K3L4M5N6P7Q8R9T", 
+ *   agentId: "bb236b7a-9ae2-4f16-986c-edd9ae8a379a", // NEW: Agent ID for permission granting
  *   accountType: "company",
  *   timestamp: 1703123456789,
  *   codeVerifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
