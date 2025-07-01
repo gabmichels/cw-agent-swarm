@@ -5,19 +5,18 @@
  * following IMPLEMENTATION_GUIDELINES.md testing standards.
  */
 
-import { describe, it, expect, beforeEach, vi, type MockedFunction } from 'vitest';
-import { 
-  DiscordIntegration,
-  DiscordConfig,
-  DiscordMessageParams,
-  DiscordIntegrationError,
+import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
+import { WorkflowValidationError } from '../../errors/ExternalWorkflowErrors';
+import {
   DiscordAuthenticationError,
   DiscordChannelError,
-  DiscordPermissionError,
+  DiscordConfig,
+  DiscordIntegration,
+  DiscordIntegrationError,
+  DiscordMessageParams,
   DiscordRateLimitError,
   createDiscordIntegration
 } from '../DiscordIntegration';
-import { WorkflowValidationError } from '../../errors/ExternalWorkflowErrors';
 
 // Mock the logger
 vi.mock('../../../../lib/logging', () => ({
@@ -45,7 +44,7 @@ describe('DiscordIntegration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     mockConfig = {
       botToken: 'Bot MOCK_BOT_TOKEN_FOR_TESTING',
       applicationId: '198622483471925248',
@@ -129,7 +128,7 @@ describe('DiscordIntegration', () => {
         username: 'TestBot',
         bot: true
       });
-      
+
       await discordIntegration.initialize();
     });
 
@@ -168,7 +167,7 @@ describe('DiscordIntegration', () => {
         username: 'TestBot',
         bot: true
       });
-      
+
       await discordIntegration.initialize();
     });
 
@@ -503,7 +502,7 @@ describe('DiscordIntegration', () => {
 
         it('should create webhook with avatar', async () => {
           const avatarData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
-          
+
           mockHttpClient.post.mockResolvedValueOnce({
             id: '1234567890123456789',
             name: 'Test Webhook',
@@ -696,7 +695,7 @@ describe('DiscordIntegration', () => {
     describe('sendNotification (Legacy Support)', () => {
       it('should send notification using existing Discord utility', async () => {
         const { notifyDiscord } = await import('../../../../agents/shared/notifications/utils/discordUtils');
-        
+
         const result = await discordIntegration.sendNotification('Test notification', 'info');
 
         expect(result).toBe(true);
@@ -705,7 +704,7 @@ describe('DiscordIntegration', () => {
 
       it('should send notification with mention', async () => {
         const { notifyDiscord } = await import('../../../../agents/shared/notifications/utils/discordUtils');
-        
+
         const result = await discordIntegration.sendNotification('Test notification', 'warning', '@here');
 
         expect(result).toBe(true);
@@ -772,7 +771,7 @@ describe('DiscordIntegration', () => {
         username: 'TestBot',
         bot: true
       });
-      
+
       await discordIntegration.initialize();
     });
 
